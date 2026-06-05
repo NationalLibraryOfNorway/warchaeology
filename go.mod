@@ -1,14 +1,12 @@
 module github.com/nationallibraryofnorway/warchaeology/v5
 
-go 1.24.0
-
-toolchain go1.24.7
+go 1.26
 
 require (
 	github.com/awesome-gocui/gocui v1.1.0
 	github.com/dgraph-io/badger/v3 v3.2103.5
 	github.com/jackc/puddle v1.3.0
-	github.com/jlaffaye/ftp v0.2.0
+	github.com/jlaffaye/ftp v0.2.1
 	github.com/kirsle/configdir v0.0.0-20170128060238-e45d2f54772f
 	github.com/klauspost/compress v1.18.6
 	github.com/nfnt/resize v0.0.0-20180221191011-83c6a9932646
@@ -44,8 +42,6 @@ require (
 	github.com/golang/snappy v1.0.0 // indirect
 	github.com/google/flatbuffers v25.2.10+incompatible // indirect
 	github.com/google/uuid v1.6.0 // indirect
-	github.com/hashicorp/errwrap v1.1.0 // indirect
-	github.com/hashicorp/go-multierror v1.1.1 // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/lucasb-eyer/go-colorful v1.2.0 // indirect
 	github.com/mattn/go-runewidth v0.0.16 // indirect
