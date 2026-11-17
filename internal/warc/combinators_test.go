@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/nationallibraryofnorway/gowarc/v3"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/filter"
-	"github.com/nlnwa/gowarc/v3"
 )
 
 func TestFilterLimitAndNth(t *testing.T) {

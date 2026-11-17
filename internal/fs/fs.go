@@ -13,7 +13,7 @@ import (
 	"github.com/klauspost/compress/gzip"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/ftpfs"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/zipfs"
-	whatwgUrl "github.com/nlnwa/whatwg-url/url"
+	whatwgUrl "github.com/nationallibraryofnorway/whatwg-url/url"
 	"github.com/spf13/afero"
 	"github.com/spf13/afero/tarfs"
 )

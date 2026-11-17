@@ -13,11 +13,11 @@ import (
 	"io"
 	"os"
 
+	"github.com/nationallibraryofnorway/gowarc/v3"
 	"github.com/nationallibraryofnorway/warchaeology/v5/cmd/internal/flag"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/filter"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/warc"
 	"github.com/nfnt/resize"
-	"github.com/nlnwa/gowarc/v3"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 )

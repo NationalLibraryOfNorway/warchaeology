@@ -4,8 +4,8 @@ import (
 	"iter"
 	"strings"
 
+	"github.com/nationallibraryofnorway/gowarc/v3"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/filter"
-	"github.com/nlnwa/gowarc/v3"
 )
 
 func Filter(seq iter.Seq2[gowarc.Record, error], accept func(gowarc.Record) bool) iter.Seq2[gowarc.Record, error] {

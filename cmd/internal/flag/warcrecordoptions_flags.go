@@ -3,8 +3,8 @@ package flag
 import (
 	"os"
 
-	"github.com/nlnwa/gowarc/v3"
-	"github.com/nlnwa/whatwg-url/url"
+	"github.com/nationallibraryofnorway/gowarc/v3"
+	"github.com/nationallibraryofnorway/whatwg-url/url"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 )

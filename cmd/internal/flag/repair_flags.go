@@ -1,7 +1,7 @@
 package flag
 
 import (
-	"github.com/nlnwa/gowarc/v3"
+	"github.com/nationallibraryofnorway/gowarc/v3"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 )

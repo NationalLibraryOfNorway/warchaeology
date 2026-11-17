@@ -12,8 +12,8 @@ import (
 	"time"
 
 	"github.com/klauspost/compress/gzip"
+	"github.com/nationallibraryofnorway/gowarc/v3"
 	mytime "github.com/nationallibraryofnorway/warchaeology/v5/internal/time"
-	"github.com/nlnwa/gowarc/v3"
 )
 
 type unmarshaler struct {

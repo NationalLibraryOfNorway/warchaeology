@@ -6,8 +6,8 @@ import (
 	"strings"
 
 	"github.com/awesome-gocui/gocui"
+	"github.com/nationallibraryofnorway/gowarc/v3"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/ui/model"
-	"github.com/nlnwa/gowarc/v3"
 )
 
 type ChromeWidget struct {
