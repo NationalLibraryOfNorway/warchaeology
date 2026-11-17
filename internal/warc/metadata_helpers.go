@@ -46,6 +46,7 @@ func FileName(wr gowarc.WarcRecord) string {
 	return wr.WarcHeader().Get(gowarc.WarcFilename)
 }
 
+// Hostname returns derived WHATWG-normalized metadata, never a replacement for the stored URI.
 func Hostname(wr gowarc.WarcRecord) string {
 	uri := wr.WarcHeader().Get(gowarc.WarcTargetURI)
 
@@ -74,7 +75,7 @@ func MIMEType(wr gowarc.WarcRecord) string {
 			return block.HttpHeader().Get("Content-Type")
 		}
 	case gowarc.HttpRequestBlock:
-		if block.HttpHeader() == nil {
+		if block.HttpHeader() != nil {
 			return block.HttpHeader().Get("Content-Type")
 		}
 	}

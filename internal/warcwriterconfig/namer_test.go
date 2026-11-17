@@ -1,6 +1,7 @@
 package warcwriterconfig
 
 import (
+	"strings"
 	"testing"
 	"time"
 )
@@ -31,5 +32,16 @@ func Test_parseSubdirPattern(t *testing.T) {
 				t.Errorf("parseSubdirPattern() got = %v, want %v", got, tt.want)
 			}
 		})
+	}
+}
+
+func TestDefaultNamerKeepsOutputConfiguration(t *testing.T) {
+	first := NewDefaultNamer("first-", t.TempDir())
+	dir := t.TempDir()
+	second := NewDefaultNamer("second-", dir)
+	firstDir, firstName := first.NewWarcfileName()
+	secondDir, secondName := second.NewWarcfileName()
+	if firstDir == secondDir || secondDir != dir || !strings.HasPrefix(firstName, "first-") || !strings.HasPrefix(secondName, "second-") {
+		t.Fatalf("names = %q/%q and %q/%q", firstDir, firstName, secondDir, secondName)
 	}
 }
