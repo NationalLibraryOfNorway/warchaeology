@@ -5,7 +5,7 @@ import (
 	"io"
 	"iter"
 
-	"github.com/nlnwa/gowarc/v3"
+	"github.com/nationallibraryofnorway/gowarc/v3"
 	"github.com/spf13/afero"
 )
 

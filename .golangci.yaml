@@ -15,6 +15,7 @@ linters:
     - errorlint
     - exhaustive
     - exhaustruct
+    - exhaustruct_v5 # same policy after the linter major-version rename
     - forbidigo
     - forcetypeassert
     - funlen
@@ -41,7 +42,7 @@ linters:
     - perfsprint
     - prealloc
     - revive
-    - testifylint
+    - gomodguard # deprecated; default: all enables gomodguard_v2
     - testpackage
     - unparam
     - varnamelen
@@ -49,6 +50,9 @@ linters:
     - wrapcheck
     - wsl
     - wsl_v5 # too noisy
+  settings:
+    goconst:
+      ignore-tests: true # keep table-driven test inputs readable
   exclusions:
     generated: lax
     presets:

@@ -4,7 +4,7 @@ import (
 	"fmt"
 
 	"github.com/awesome-gocui/gocui"
-	"github.com/nlnwa/gowarc/v3"
+	"github.com/nationallibraryofnorway/gowarc/v3"
 )
 
 // Record-type colors — vivid foreground colors for dark terminals.

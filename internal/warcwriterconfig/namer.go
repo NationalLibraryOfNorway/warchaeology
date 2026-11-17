@@ -6,7 +6,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/nlnwa/gowarc/v3"
+	"github.com/nationallibraryofnorway/gowarc/v3"
 )
 
 func NewIdentityNamer(path, filePrefix, dir string) gowarc.WarcFileNameGenerator {

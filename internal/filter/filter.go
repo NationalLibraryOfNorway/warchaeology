@@ -21,7 +21,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/nlnwa/gowarc/v3"
+	"github.com/nationallibraryofnorway/gowarc/v3"
 )
 
 type RecordFilter struct {

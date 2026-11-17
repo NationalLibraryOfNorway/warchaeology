@@ -5,11 +5,11 @@ import (
 	"bytes"
 	"context"
 	"path/filepath"
+	"reflect"
 	"testing"
 
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/filewalker"
 	"github.com/spf13/afero"
-	"github.com/stretchr/testify/assert"
 )
 
 var (
@@ -70,7 +70,9 @@ func TestFilewalker_Walk(t *testing.T) {
 				}
 			}
 
-			assert.Equal(t, tt.expected, got)
+			if !reflect.DeepEqual(tt.expected, got) {
+				t.Errorf("paths = %v, want %v", got, tt.expected)
+			}
 		})
 	}
 }
@@ -116,5 +118,7 @@ func TestFilewalker_Walk_ResolvesWACZAsFilesystem(t *testing.T) {
 		t.Fatalf("Walk() error = %v", err)
 	}
 
-	assert.Equal(t, []string{"/nested/record.txt"}, got)
+	if !reflect.DeepEqual([]string{"/nested/record.txt"}, got) {
+		t.Errorf("paths = %v, want /nested/record.txt", got)
+	}
 }

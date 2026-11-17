@@ -4,7 +4,7 @@ import (
 	"testing"
 
 	"github.com/dgraph-io/badger/v3"
-	"github.com/nlnwa/gowarc/v3"
+	"github.com/nationallibraryofnorway/gowarc/v3"
 )
 
 func TestDigestIndex_IsRevisit_FirstInsertThenLookup(t *testing.T) {
