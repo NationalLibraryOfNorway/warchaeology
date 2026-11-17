@@ -3,7 +3,7 @@ package warcwriterconfig
 import (
 	"path/filepath"
 	"strings"
-	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/nationallibraryofnorway/gowarc/v3"
@@ -31,17 +31,17 @@ func NewNedlibNamer(path, filePrefix, dir string) gowarc.WarcFileNameGenerator {
 	}
 }
 
-var once sync.Once
-var defaultNamer gowarc.WarcFileNameGenerator
+// Share only the sequence, never the output directory or prefix of a prior run.
+var defaultSerial atomic.Int32
 
+type defaultNameGenerator struct{ prefix, directory string }
+
+func (g defaultNameGenerator) NewWarcfileName() (string, string) {
+	namer := &gowarc.PatternNameGenerator{Prefix: g.prefix, Directory: g.directory, Serial: defaultSerial.Add(1) - 1}
+	return namer.NewWarcfileName()
+}
 func NewDefaultNamer(filePrefix, dir string) gowarc.WarcFileNameGenerator {
-	once.Do(func() {
-		defaultNamer = &gowarc.PatternNameGenerator{
-			Prefix:    filePrefix,
-			Directory: dir,
-		}
-	})
-	return defaultNamer
+	return defaultNameGenerator{prefix: filePrefix, directory: dir}
 }
 
 func parseSubdirPattern(dirPattern string, t time.Time) string {
