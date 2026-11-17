@@ -9,7 +9,7 @@ module.exports = {
     {
       type: 'category',
       label: 'Guides',
-      items: ['guides/configuration', 'guides/hooks']
+      items: ['guides/configuration', 'guides/archive-inputs', 'guides/upgrading', 'guides/hooks']
     },
     {
       type: 'category',
