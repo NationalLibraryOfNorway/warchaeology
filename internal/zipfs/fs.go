@@ -11,6 +11,8 @@ import (
 	"github.com/spf13/afero"
 )
 
+const statOperation = "stat"
+
 type Fs struct {
 	r     *zip.Reader
 	files map[string]map[string]*zip.File
@@ -31,7 +33,7 @@ func splitpath(name string) (dir, file string) {
 }
 
 func New(r *zip.Reader) afero.Fs {
-	fs := &Fs{r: r, files: make(map[string]map[string]*zip.File)}
+	fs := &Fs{r: r, files: map[string]map[string]*zip.File{"/": {}}}
 	for _, file := range r.File {
 		d, f := splitpath(file.Name)
 		if _, ok := fs.files[d]; !ok {
@@ -77,11 +79,11 @@ func (fs *Fs) Open(name string) (afero.File, error) {
 		return &File{fs: fs, isdir: true}, nil
 	}
 	if _, ok := fs.files[d]; !ok {
-		return nil, &os.PathError{Op: "stat", Path: name, Err: syscall.ENOENT}
+		return nil, &os.PathError{Op: statOperation, Path: name, Err: syscall.ENOENT}
 	}
 	file, ok := fs.files[d][f]
 	if !ok {
-		return nil, &os.PathError{Op: "stat", Path: name, Err: syscall.ENOENT}
+		return nil, &os.PathError{Op: statOperation, Path: name, Err: syscall.ENOENT}
 	}
 	if file == nil {
 		return &File{
@@ -132,11 +134,11 @@ func (fs *Fs) Stat(name string) (os.FileInfo, error) {
 		return &pseudoRoot{}, nil
 	}
 	if _, ok := fs.files[d]; !ok {
-		return nil, &os.PathError{Op: "stat", Path: name, Err: syscall.ENOENT}
+		return nil, &os.PathError{Op: statOperation, Path: name, Err: syscall.ENOENT}
 	}
 	file, ok := fs.files[d][f]
 	if !ok {
-		return nil, &os.PathError{Op: "stat", Path: name, Err: syscall.ENOENT}
+		return nil, &os.PathError{Op: statOperation, Path: name, Err: syscall.ENOENT}
 	}
 	if file == nil {
 		return pseudoDir{name}, nil

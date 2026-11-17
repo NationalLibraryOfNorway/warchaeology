@@ -16,7 +16,9 @@ const (
 	SrcFileSystemHelp = `input filesystem source; default is the local OS filesystem
 Legal values:
 	/path/to/archive.( tar | tar.gz | tgz | zip | wacz )
-	ftp://user/pass@host:port
+	zip://LITERAL_PATH, tar://LITERAL_PATH, tgz://LITERAL_PATH (no URL decoding)
+	ftp://user:password@host:port (endpoint only; optional trailing /)
+FTP paths belong in command arguments; URL queries and fragments are not supported.
 `
 	SrcFileList     = "source-file-list"
 	SrcFileListHelp = `path to a file listing input paths, one per line`
@@ -52,7 +54,7 @@ func (f SrcFileListFlags) FtpPoolSize() int32 {
 }
 
 func (f SrcFileListFlags) ToFs() (afero.Fs, error) {
-	return fs.ResolveFilesystem(afero.NewOsFs(), f.SrcFilesystem(), fs.WithFtpPoolSize(f.FtpPoolSize()))
+	return fs.ResolveFilesystem(afero.NewOsFs(), f.SrcFilesystem(), fs.WithFtpPoolSize(f.FtpPoolSize()), fs.WithTempDir(viper.GetString(TempDir)))
 }
 
 func ReadSrcFileList(name string) ([]string, error) {

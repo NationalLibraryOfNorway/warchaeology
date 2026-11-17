@@ -2,6 +2,7 @@ package ftpfs
 
 import (
 	"context"
+	"io"
 	"os"
 	"syscall"
 	"time"
@@ -21,19 +22,17 @@ type Fs struct {
 
 func New(addr, user, passwd string, poolSize int32) afero.Fs {
 	constructor := func(ctx context.Context) (any, error) {
-		c, err := ftp.Dial(addr, ftp.DialWithContext(ctx))
-		if err != nil {
-			return nil, err
-		}
-		err = c.Login(user, passwd)
-		if err != nil {
-			return nil, err
-		}
-		return c, nil
+		return connect(func() (connection, error) {
+			c, err := ftp.Dial(addr, ftp.DialWithContext(ctx))
+			if err != nil {
+				return nil, err
+			}
+			return serverConnection{c}, nil
+		}, user, passwd)
 	}
 
 	destructor := func(value any) {
-		_ = value.(*ftp.ServerConn).Quit()
+		_ = value.(connection).Quit()
 	}
 
 	pool := puddle.NewPool(constructor, destructor, poolSize)
@@ -103,3 +102,31 @@ func (s Fs) Chown(name string, uid, gid int) error {
 func (s Fs) Chtimes(name string, atime time.Time, mtime time.Time) error {
 	return syscall.EROFS
 }
+
+// connection isolates the protocol transport for deterministic contract tests.
+type connection interface {
+	Login(string, string) error
+	Quit() error
+	GetEntry(string) (*ftp.Entry, error)
+	List(string) ([]*ftp.Entry, error)
+	retrieve(string, uint64) (io.ReadCloser, error)
+}
+type serverConnection struct{ *ftp.ServerConn }
+
+func (c serverConnection) retrieve(name string, offset uint64) (io.ReadCloser, error) {
+	return c.RetrFrom(name, offset)
+}
+func connect(dial func() (connection, error), user, password string) (connection, error) {
+	c, err := dial()
+	if err != nil {
+		return nil, err
+	}
+	if err := c.Login(user, password); err != nil {
+		_ = c.Quit()
+		return nil, err
+	}
+	return c, nil
+}
+
+// Close waits for borrowed connections to be returned before shutting down.
+func (s Fs) Close() error { s.pool.Close(); return nil }
