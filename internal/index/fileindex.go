@@ -74,11 +74,15 @@ func (idx *FileIndex) SaveFileStats(key string, result stat.Result) error {
 	return err
 }
 
-func (idx *FileIndex) Close() {
+func (idx *FileIndex) Close() error {
+	var err error
 	if idx.db != nil {
-		_ = idx.db.Close()
+		err = errors.Join(err, idx.db.Close())
+		idx.db = nil
 	}
 	if !idx.keepIndex && idx.dir != "" {
-		_ = os.RemoveAll(idx.dir)
+		err = errors.Join(err, os.RemoveAll(idx.dir))
+		idx.dir = ""
 	}
+	return err
 }

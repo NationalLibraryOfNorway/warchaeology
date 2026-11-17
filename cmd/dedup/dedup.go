@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"os"
 	"os/signal"
 	"slices"
 	"sort"
@@ -61,6 +60,29 @@ type DedupOptions struct {
 	CloseInputFileHook  hooks.CloseInputFileHook
 	OpenOutputFileHook  hooks.OpenOutputFileHook
 	CloseOutputFileHook hooks.CloseOutputFileHook
+}
+
+// Close releases the resources owned by the options. Call it after Run returns.
+// Repeated calls are safe; Close must not run concurrently with Run or itself.
+func (o *DedupOptions) Close() error {
+	var err error
+	if o.WarcWriterConfig != nil {
+		err = errors.Join(err, o.WarcWriterConfig.Close())
+		o.WarcWriterConfig = nil
+	}
+	if o.DigestIndex != nil {
+		err = errors.Join(err, o.DigestIndex.Close())
+		o.DigestIndex = nil
+	}
+	if o.FileIndex != nil {
+		err = errors.Join(err, o.FileIndex.Close())
+		o.FileIndex = nil
+	}
+	if o.FileWalker != nil {
+		err = errors.Join(err, o.FileWalker.Close())
+		o.FileWalker = nil
+	}
+	return err
 }
 
 type DedupFlags struct {
@@ -126,7 +148,7 @@ func (f DedupFlags) Deterministic() bool {
 	return viper.GetBool(Deterministic)
 }
 
-func (f DedupFlags) ToDedupOptions() (*DedupOptions, error) {
+func (f DedupFlags) ToDedupOptions() (_ *DedupOptions, err error) {
 	var recordTypes []gowarc.RecordType
 	for _, rt := range f.RecordTypes() {
 		recordType := stringToRecordType(rt)
@@ -145,38 +167,15 @@ func (f DedupFlags) ToDedupOptions() (*DedupOptions, error) {
 		concurrency = 1
 	}
 
-	warcWriterConfig, err := f.WarcWriterConfigFlags.ToWarcWriterConfig()
-	if err != nil {
-		return nil, err
-	}
-
 	warcRecordOptions := []gowarc.WarcRecordOption{
 		gowarc.WithBufferMaxMemBytes(f.BufferMaxMem()),
 	}
 	warcRecordOptions = append(warcRecordOptions, f.RepairFlags.ToWarcRecordOptions()...)
 	warcRecordOptions = append(warcRecordOptions, f.WarcRecordOptionFlags.ToWarcRecordOptions()...)
 
-	fileWalker, err := f.FileWalkerFlags.ToFileWalker()
-	if err != nil {
-		return nil, fmt.Errorf("failed to create file walker: %w", err)
-	}
-
 	fileList, err := flag.ReadSrcFileList(f.FileWalkerFlags.SrcFileListFlags.SrcFileList())
 	if err != nil {
 		return nil, fmt.Errorf("failed to read from source file: %w", err)
-	}
-
-	digestIndex, err := f.IndexFlags.ToDigestIndex()
-	if err != nil {
-		return nil, fmt.Errorf("failed to create digest index: %w", err)
-	}
-
-	var fileIndex *index.FileIndex
-	if f.IndexFlags.KeepIndex() {
-		fileIndex, err = f.IndexFlags.ToFileIndex()
-		if err != nil {
-			return nil, fmt.Errorf("failed to create file index: %w", err)
-		}
 	}
 
 	openInputFileHook, err := f.InputHookFlags.ToOpenInputFileHook()
@@ -189,23 +188,46 @@ func (f DedupFlags) ToDedupOptions() (*DedupOptions, error) {
 		return nil, fmt.Errorf("failed to create close input file hook: %w", err)
 	}
 
-	return &DedupOptions{
+	o := &DedupOptions{
 		Paths:              fileList,
 		Concurrency:        concurrency,
 		MinimumSizeGain:    f.DedupSizeGain(),
 		MinWARCDiskFree:    f.UtilFlags.MinFreeDisk(),
 		MinIndexDiskFree:   f.MinIndexDiskFree(),
-		FileWalker:         fileWalker,
 		ContinueOnError:    f.ErrorFlags.ContinueOnError(),
 		RecordTypes:        recordTypes,
-		WarcWriterConfig:   warcWriterConfig,
 		WarcRecordOptions:  warcRecordOptions,
 		Deterministic:      deterministic,
-		DigestIndex:        digestIndex,
-		FileIndex:          fileIndex,
 		OpenInputFileHook:  openInputFileHook,
 		CloseInputFileHook: closeInputFileHook,
-	}, nil
+	}
+	defer func() {
+		if err != nil {
+			err = errors.Join(err, o.Close())
+		}
+	}()
+
+	o.WarcWriterConfig, err = f.WarcWriterConfigFlags.ToWarcWriterConfig()
+	if err != nil {
+		return nil, err
+	}
+
+	o.DigestIndex, err = f.IndexFlags.ToDigestIndex()
+	if err != nil {
+		return nil, fmt.Errorf("failed to create digest index: %w", err)
+	}
+	if f.IndexFlags.KeepIndex() {
+		o.FileIndex, err = f.IndexFlags.ToFileIndex()
+		if err != nil {
+			return nil, fmt.Errorf("failed to create file index: %w", err)
+		}
+	}
+
+	o.FileWalker, err = f.FileWalkerFlags.ToFileWalker()
+	if err != nil {
+		return nil, fmt.Errorf("failed to create file walker: %w", err)
+	}
+	return o, nil
 }
 
 func NewCmdDedup() *cobra.Command {
@@ -223,6 +245,11 @@ The remaining records are written as is.`,
 			if err != nil {
 				return err
 			}
+			defer func() {
+				if err := o.Close(); err != nil {
+					slog.Error("Close options", "error", err)
+				}
+			}()
 			if err := o.Complete(cmd, args); err != nil {
 				return err
 			}
@@ -230,11 +257,7 @@ The remaining records are written as is.`,
 				return err
 			}
 			cmd.SilenceUsage = true
-			err = o.Run()
-			if errors.Is(err, context.Canceled) {
-				os.Exit(1)
-			}
-			return err
+			return o.Run()
 		},
 		ValidArgsFunction: flag.SuffixCompletionFn,
 	}
@@ -266,13 +289,15 @@ func (o *DedupOptions) Validate() error {
 	return nil
 }
 
-func (o *DedupOptions) Run() error {
+// Run processes the inputs and waits for workers to finish.
+// The caller must close the options after Run returns.
+func (o *DedupOptions) Run() (runErr error) {
 	done := make(chan struct{})
-	exitCode := 0
+	var processingErr error
 
 	defer func() {
 		<-done
-		os.Exit(exitCode)
+		runErr = errors.Join(runErr, processingErr)
 	}()
 
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
@@ -290,8 +315,7 @@ func (o *DedupOptions) Run() error {
 		for result := range results {
 			slog := slog.With("path", result.Name())
 			for _, err := range result.Errors() {
-				var recordErr warc.RecordError
-				if errors.As(err, &recordErr) {
+				if recordErr, ok := errors.AsType[warc.RecordError](err); ok {
 					slog.Error("Validation error", "error", recordErr.Error(), "offset", recordErr.Offset())
 				} else {
 					slog.Error("Validation error", "error", err.Error())
@@ -301,19 +325,10 @@ func (o *DedupOptions) Run() error {
 			stats.Merge(result)
 		}
 		if stats.Errors > 0 {
-			exitCode = 1
+			processingErr = errors.New("processing completed with errors")
 		}
 	}()
 	defer close(results)
-
-	if o.FileIndex != nil {
-		defer o.FileIndex.Close()
-	}
-	if o.DigestIndex != nil {
-		defer o.DigestIndex.Close()
-	}
-
-	defer o.WarcWriterConfig.Close()
 
 	workerPool := workerpool.New(ctx, o.Concurrency)
 	defer workerPool.CloseWait()
@@ -330,7 +345,7 @@ func (o *DedupOptions) Run() error {
 				return err
 			}
 
-			workerPool.Submit(func() {
+			return workerPool.Submit(func() {
 				// Assert WARC disk has enough free space
 				if o.MinWARCDiskFree > 0 {
 					diskFree, err := util.DiskFree(o.WarcWriterConfig.OutDir)
@@ -375,8 +390,6 @@ func (o *DedupOptions) Run() error {
 
 				results <- result
 			})
-
-			return nil
 		})
 		if err != nil {
 			return err

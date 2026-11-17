@@ -65,6 +65,17 @@ type ListOptions struct {
 	warcRecordOptions []gowarc.WarcRecordOption
 }
 
+// Close releases the resources owned by the options. Call it after Run returns.
+// Repeated calls are safe; Close must not run concurrently with Run or itself.
+func (o *ListOptions) Close() error {
+	var err error
+	if o.fileWalker != nil {
+		err = errors.Join(err, o.fileWalker.Close())
+		o.fileWalker = nil
+	}
+	return err
+}
+
 type ListFlags struct {
 	FileWalkerFlags       flag.FileWalkerFlags
 	FilterFlags           flag.FilterFlags
@@ -127,12 +138,7 @@ func (f ListFlags) ToListOptions() (*ListOptions, error) {
 		}
 	}
 
-	fileWalker, err := f.FileWalkerFlags.ToFileWalker()
-	if err != nil {
-		return nil, fmt.Errorf("failed to create file walker: %w", err)
-	}
-
-	return &ListOptions{
+	o := &ListOptions{
 		paths:             paths,
 		offset:            f.WarcIteratorFlags.Offset(),
 		recordNum:         f.WarcIteratorFlags.RecordNum(),
@@ -141,10 +147,16 @@ func (f ListFlags) ToListOptions() (*ListOptions, error) {
 		concurrency:       f.ConcurrencyFlags.Concurrency(),
 		filter:            filter,
 		continueOnError:   f.ErrorFlags.ContinueOnError(),
-		fileWalker:        fileWalker,
 		writer:            writer,
 		warcRecordOptions: opts,
-	}, nil
+	}
+
+	o.fileWalker, err = f.FileWalkerFlags.ToFileWalker()
+	if err != nil {
+		return nil, fmt.Errorf("failed to create file walker: %w", err)
+	}
+
+	return o, nil
 }
 
 // NewCmdList creates the ls command
@@ -160,6 +172,11 @@ func NewCmdList() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			defer func() {
+				if err := o.Close(); err != nil {
+					slog.Error("Close options", "error", err)
+				}
+			}()
 			if err := o.Complete(cmd, args); err != nil {
 				return err
 			}
@@ -167,11 +184,7 @@ func NewCmdList() *cobra.Command {
 				return err
 			}
 			cmd.SilenceUsage = true
-			err = o.Run()
-			if errors.Is(err, context.Canceled) {
-				os.Exit(1)
-			}
-			return err
+			return o.Run()
 		},
 		ValidArgsFunction: flag.SuffixCompletionFn,
 	}
@@ -196,6 +209,7 @@ func (o *ListOptions) Validate() error {
 }
 
 // Run runs the ls command
+// The caller must close the options after Run returns.
 func (o *ListOptions) Run() error {
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
 	defer cancel()
@@ -209,22 +223,19 @@ func (o *ListOptions) Run() error {
 				return err
 			}
 
-			workerPool.Submit(func() {
+			return workerPool.Submit(func() {
 				err := o.handleFile(ctx, fs, path)
 				if err != nil {
 					if !o.continueOnError {
 						cancel()
 					}
-					var recordErr warc.RecordError
-					if errors.As(err, &recordErr) {
+					if recordErr, ok := errors.AsType[warc.RecordError](err); ok {
 						slog.Error(recordErr.Error(), "path", path, "offset", recordErr.Offset())
 					} else {
 						slog.Error(err.Error(), "path", path)
 					}
 				}
 			})
-
-			return nil
 		})
 		if err != nil {
 			return err

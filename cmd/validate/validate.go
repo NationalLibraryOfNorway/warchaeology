@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"os"
 	"os/signal"
 	"syscall"
 
@@ -53,6 +52,21 @@ func NewValidateFlags() ValidateFlags {
 	}
 }
 
+// Close releases the resources owned by the options. Call it after Run returns.
+// Repeated calls are safe; Close must not run concurrently with Run or itself.
+func (o *ValidateOptions) Close() error {
+	var err error
+	if o.FileIndex != nil {
+		err = errors.Join(err, o.FileIndex.Close())
+		o.FileIndex = nil
+	}
+	if o.FileWalker != nil {
+		err = errors.Join(err, o.FileWalker.Close())
+		o.FileWalker = nil
+	}
+	return err
+}
+
 type ValidateFlags struct {
 	IndexFlags            flag.IndexFlags
 	OutputHookFlags       *flag.OutputHookFlags
@@ -86,7 +100,7 @@ func (f ValidateFlags) HashFunction() string {
 	return viper.GetString(CalculateHash)
 }
 
-func (f ValidateFlags) ToOptions() (*ValidateOptions, error) {
+func (f ValidateFlags) ToOptions() (_ *ValidateOptions, err error) {
 	filter, err := f.FilterFlags.ToFilter()
 	if err != nil {
 		return nil, fmt.Errorf("failed to create filter: %w", err)
@@ -94,17 +108,6 @@ func (f ValidateFlags) ToOptions() (*ValidateOptions, error) {
 	fileList, err := flag.ReadSrcFileList(f.FileWalkerFlags.SrcFileListFlags.SrcFileList())
 	if err != nil {
 		return nil, fmt.Errorf("failed to read from source file: %w", err)
-	}
-	fileWalker, err := f.FileWalkerFlags.ToFileWalker()
-	if err != nil {
-		return nil, fmt.Errorf("failed to create file walker: %w", err)
-	}
-	var fileIndex *index.FileIndex
-	if f.IndexFlags.KeepIndex() {
-		fileIndex, err = f.IndexFlags.ToFileIndex()
-		if err != nil {
-			return nil, fmt.Errorf("failed to create file index: %w", err)
-		}
 	}
 	openInputFileHook, err := f.InputHookFlags.ToOpenInputFileHook()
 	if err != nil {
@@ -115,9 +118,8 @@ func (f ValidateFlags) ToOptions() (*ValidateOptions, error) {
 		return nil, fmt.Errorf("failed to create close input file hook: %w", err)
 	}
 
-	return &ValidateOptions{
+	o := &ValidateOptions{
 		paths:              fileList,
-		FileWalker:         fileWalker,
 		continueOnError:    f.ErrorFlags.ContinueOnError(),
 		filter:             filter,
 		hashFunction:       f.HashFunction(),
@@ -128,10 +130,27 @@ func (f ValidateFlags) ToOptions() (*ValidateOptions, error) {
 		force:              f.WarcIteratorFlags.Force(),
 		offset:             f.WarcIteratorFlags.Offset(),
 		warcRecordOptions:  f.WarcRecordOptionFlags.ToWarcRecordOptions(),
-		FileIndex:          fileIndex,
 		openInputFileHook:  openInputFileHook,
 		closeInputFileHook: closeInputFileHook,
-	}, nil
+	}
+	defer func() {
+		if err != nil {
+			err = errors.Join(err, o.Close())
+		}
+	}()
+
+	if f.IndexFlags.KeepIndex() {
+		o.FileIndex, err = f.IndexFlags.ToFileIndex()
+		if err != nil {
+			return nil, fmt.Errorf("failed to create file index: %w", err)
+		}
+	}
+
+	o.FileWalker, err = f.FileWalkerFlags.ToFileWalker()
+	if err != nil {
+		return nil, fmt.Errorf("failed to create file walker: %w", err)
+	}
+	return o, nil
 }
 
 func NewCmdValidate() *cobra.Command {
@@ -146,6 +165,11 @@ func NewCmdValidate() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			defer func() {
+				if err := o.Close(); err != nil {
+					slog.Error("Close options", "error", err)
+				}
+			}()
 			err = o.Complete(cmd, args)
 			if err != nil {
 				return err
@@ -155,11 +179,7 @@ func NewCmdValidate() *cobra.Command {
 				return err
 			}
 			cmd.SilenceUsage = true
-			err = o.Run()
-			if errors.Is(err, context.Canceled) {
-				os.Exit(1)
-			}
-			return err
+			return o.Run()
 		},
 		ValidArgsFunction: flag.SuffixCompletionFn,
 	}
@@ -181,13 +201,15 @@ func (o *ValidateOptions) Validate() error {
 	return nil
 }
 
-func (o *ValidateOptions) Run() error {
-	exitCode := 0
+// Run processes the inputs and waits for workers to finish.
+// The caller must close the options after Run returns.
+func (o *ValidateOptions) Run() (runErr error) {
 	done := make(chan struct{})
+	var processingErr error
 
 	defer func() {
 		<-done
-		os.Exit(exitCode)
+		runErr = errors.Join(runErr, processingErr)
 	}()
 
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
@@ -205,8 +227,7 @@ func (o *ValidateOptions) Run() error {
 		for result := range results {
 			slog := slog.With("path", result.Name())
 			for _, err := range result.Errors() {
-				var recordErr warc.RecordError
-				if errors.As(err, &recordErr) {
+				if recordErr, ok := errors.AsType[warc.RecordError](err); ok {
 					slog.Error("Validation error", "error", recordErr.Error(), "offset", recordErr.Offset())
 				} else {
 					slog.Error("Validation error", "error", err.Error())
@@ -216,14 +237,10 @@ func (o *ValidateOptions) Run() error {
 			stats.Merge(result)
 		}
 		if stats.Errors > 0 {
-			exitCode = 1
+			processingErr = errors.New("processing completed with errors")
 		}
 	}()
 	defer close(results)
-
-	if o.FileIndex != nil {
-		defer o.FileIndex.Close()
-	}
 
 	workerPool := workerpool.New(ctx, o.concurrency)
 	defer workerPool.CloseWait()
@@ -234,7 +251,7 @@ func (o *ValidateOptions) Run() error {
 				return err
 			}
 
-			workerPool.Submit(func() {
+			return workerPool.Submit(func() {
 				result, err := filewalker.Preposterous(fs, path, o.openInputFileHook, o.closeInputFileHook, o.FileIndex, o.handleFile)
 				if errors.Is(err, filewalker.ErrSkipFile) {
 					return
@@ -250,8 +267,6 @@ func (o *ValidateOptions) Run() error {
 
 				results <- result
 			})
-
-			return nil
 		})
 		if err != nil {
 			return err

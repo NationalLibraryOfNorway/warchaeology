@@ -53,6 +53,17 @@ type CatOptions struct {
 	warcRecordOptions []gowarc.WarcRecordOption
 }
 
+// Close releases the resources owned by the options. Call it after Run returns.
+// Repeated calls are safe; Close must not run concurrently with Run or itself.
+func (o *CatOptions) Close() error {
+	var err error
+	if o.fileWalker != nil {
+		err = errors.Join(err, o.fileWalker.Close())
+		o.fileWalker = nil
+	}
+	return err
+}
+
 type CatFlags struct {
 	FileWalkerFlags       flag.FileWalkerFlags
 	FilterFlags           flag.FilterFlags
@@ -102,18 +113,13 @@ func (f CatFlags) ToOptions() (*CatOptions, error) {
 		return nil, fmt.Errorf("failed to read from source file: %w", err)
 	}
 
-	fileWalker, err := f.FileWalkerFlags.ToFileWalker()
-	if err != nil {
-		return nil, fmt.Errorf("failed to create file walker: %w", err)
-	}
-
 	writer := &writer{
 		showWarcHeader:     f.ShowWarcHeader(),
 		showProtocolHeader: f.ShowProtocolHeader(),
 		showPayload:        f.ShowPayload(),
 	}
 
-	return &CatOptions{
+	o := &CatOptions{
 		paths:             fileList,
 		offset:            f.WarcIteratorFlags.Offset(),
 		recordCount:       f.WarcIteratorFlags.Limit(),
@@ -121,11 +127,17 @@ func (f CatFlags) ToOptions() (*CatOptions, error) {
 		force:             f.WarcIteratorFlags.Force(),
 		filter:            filter,
 		continueOnError:   f.ErrorFlags.ContinueOnError(),
-		fileWalker:        fileWalker,
 		compress:          f.Compress(),
 		writer:            writer,
 		warcRecordOptions: f.WarcRecordOptionFlags.ToWarcRecordOptions(),
-	}, nil
+	}
+
+	o.fileWalker, err = f.FileWalkerFlags.ToFileWalker()
+	if err != nil {
+		return nil, fmt.Errorf("failed to create file walker: %w", err)
+	}
+
+	return o, nil
 }
 
 func NewCmdCat() *cobra.Command {
@@ -146,6 +158,11 @@ warc cat -n4 -P file1.warc.gz | feh -`,
 			if err != nil {
 				return err
 			}
+			defer func() {
+				if err := o.Close(); err != nil {
+					slog.Error("Close options", "error", err)
+				}
+			}()
 			err = o.Complete(cmd, args)
 			if err != nil {
 				return err
@@ -155,11 +172,7 @@ warc cat -n4 -P file1.warc.gz | feh -`,
 				return err
 			}
 			cmd.SilenceUsage = true
-			err = o.Run()
-			if errors.Is(err, context.Canceled) {
-				os.Exit(1)
-			}
-			return err
+			return o.Run()
 		},
 	}
 
@@ -191,6 +204,7 @@ func (o *CatOptions) Validate() error {
 }
 
 // Run runs the cat command
+// The caller must close the options after Run returns.
 func (o *CatOptions) Run() error {
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
 	defer cancel()
@@ -206,8 +220,7 @@ func (o *CatOptions) Run() error {
 				if !o.continueOnError {
 					cancel()
 				}
-				var recordErr warc.RecordError
-				if errors.As(err, &recordErr) {
+				if recordErr, ok := errors.AsType[warc.RecordError](err); ok {
 					slog.Error(recordErr.Error(), "path", path, "offset", recordErr.Offset())
 				} else {
 					slog.Error(err.Error(), "path", path)

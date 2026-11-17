@@ -69,3 +69,35 @@ func TestWorkerPool(t *testing.T) {
 		t.Errorf("expected %d jobs to have been executed, but got %d", jobs, executed.Load())
 	}
 }
+
+func TestSubmitCancellation(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	pool := New(ctx, 1)
+	started := make(chan struct{})
+	release := make(chan struct{})
+	if err := pool.Submit(func() { close(started); <-release }); err != nil {
+		t.Fatal(err)
+	}
+	<-started
+	if err := pool.Submit(func() {}); err != nil {
+		t.Fatal(err)
+	}
+	result := make(chan error, 1)
+	go func() { result <- pool.Submit(func() { t.Error("cancelled job ran") }) }()
+	cancel()
+	select {
+	case err := <-result:
+		if err != context.Canceled {
+			t.Errorf("submission = %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Error("submission blocked after cancellation")
+	}
+	close(release)
+	pool.CloseWait()
+	syncPool := New(ctx, 0)
+	defer syncPool.CloseWait()
+	if err := syncPool.Submit(func() { t.Error("synchronous cancelled job ran") }); err != context.Canceled {
+		t.Errorf("sync submit = %v", err)
+	}
+}
