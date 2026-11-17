@@ -1,6 +1,7 @@
 package index
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 
@@ -67,11 +68,15 @@ func (digestIndex *DigestIndex) IsRevisit(key string, revisitRef *gowarc.Revisit
 	return revisitReference, err
 }
 
-func (idx *DigestIndex) Close() {
+func (idx *DigestIndex) Close() error {
+	var err error
 	if idx.db != nil {
-		_ = idx.db.Close()
+		err = errors.Join(err, idx.db.Close())
+		idx.db = nil
 	}
 	if !idx.keepIndex && idx.dir != "" {
-		_ = os.RemoveAll(idx.dir)
+		err = errors.Join(err, os.RemoveAll(idx.dir))
+		idx.dir = ""
 	}
+	return err
 }

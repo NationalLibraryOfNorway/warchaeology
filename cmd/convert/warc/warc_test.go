@@ -52,11 +52,11 @@ func TestConvertWarcFile(t *testing.T) {
 			if err != nil {
 				t.Fatalf("failed to create warc writer config: %v", err)
 			}
-			defer warcWriterConfig.Close()
 
 			o := &ConvertWarcOptions{
 				WarcWriterConfig: warcWriterConfig,
 			}
+			defer o.Close()
 
 			result, err := o.handleFile(afero.NewOsFs(), filename)
 			if err != nil {
@@ -104,7 +104,6 @@ func TestRepairWarcFile(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			defer warcWriterConfig.Close()
 
 			// Set the WARC record options
 			policy := gowarc.ErrWarn
@@ -125,6 +124,7 @@ func TestRepairWarcFile(t *testing.T) {
 				WarcWriterConfig:  warcWriterConfig,
 				WarcRecordOptions: warcRecordOptions,
 			}
+			defer o.Close()
 
 			// Convert the WARC file
 			result, err := o.handleFile(afero.NewOsFs(), filename)

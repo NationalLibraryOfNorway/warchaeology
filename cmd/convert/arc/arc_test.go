@@ -37,11 +37,11 @@ func TestConvertArcFile(t *testing.T) {
 			if err != nil {
 				t.Fatalf("failed to create warc writer config: %v", err)
 			}
-			defer warcWriterConfig.Close()
 
 			o := &ConvertArcOptions{
 				WarcWriterConfig: warcWriterConfig,
 			}
+			defer o.Close()
 
 			result, err := o.handleFile(afero.NewOsFs(), filename)
 			if err != nil {

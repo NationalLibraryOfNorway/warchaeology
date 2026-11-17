@@ -1,6 +1,7 @@
 package warcwriterconfig
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -293,12 +294,13 @@ func (w *WarcWriterConfig) GetWarcWriter(path string, warcDate time.Time) (*gowa
 }
 
 func (w *WarcWriterConfig) Close() error {
-	var lastErr error
+	var closeErr error
 	for _, writer := range w.writers {
 		err := writer.Close()
 		if err != nil {
-			lastErr = fmt.Errorf("error closing WARC writer: %w", err)
+			closeErr = errors.Join(closeErr, fmt.Errorf("error closing WARC writer: %w", err))
 		}
 	}
-	return lastErr
+	clear(w.writers)
+	return closeErr
 }

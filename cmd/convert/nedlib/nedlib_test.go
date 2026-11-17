@@ -45,11 +45,11 @@ func Test(t *testing.T) {
 			if err != nil {
 				t.Fatalf("failed to create warc writer config: %v", err)
 			}
-			defer warcWriterConfig.Close()
 
 			o := &ConvertNedlibOptions{
 				WarcWriterConfig: warcWriterConfig,
 			}
+			defer o.Close()
 
 			_, err = o.handleFile(afero.NewOsFs(), filename)
 			if err != nil && !tt.wantError {

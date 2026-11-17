@@ -39,18 +39,18 @@ func TestConvertArcFile(t *testing.T) {
 			if err != nil {
 				t.Fatalf("failed to create warc writer config: %v", err)
 			}
-			defer warcWriterConfig.Close()
 
 			digestIndex, err := index.NewDigestIndex(t.TempDir(), false, true)
 			if err != nil {
+				_ = warcWriterConfig.Close()
 				t.Fatalf("failed to create digest index: %v", err)
 			}
-			defer digestIndex.Close()
 
 			o := &DedupOptions{
 				WarcWriterConfig: warcWriterConfig,
 				DigestIndex:      digestIndex,
 			}
+			defer o.Close()
 
 			result, err := o.handleFile(afero.NewOsFs(), filename)
 			if err != nil {

@@ -2,10 +2,13 @@ package filewalker
 
 import (
 	"context"
+	"errors"
+	"io"
 	"io/fs"
 	"os"
 	"path"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 
@@ -14,11 +17,16 @@ import (
 )
 
 type FileWalker struct {
+	// WaitForReaders drains queued member reads before an archive is unmounted.
+	// A nil callback retains mounts until Close for callers that own deferred reads.
+	WaitForReaders func()
 	Recursive      bool
 	FollowSymlinks bool
 	Suffixes       []string
 	Fs             afero.Fs
 	processedPaths StringSet
+	closers        []io.Closer
+	closed         bool
 }
 
 func WithRecursive(recursive bool) func(*FileWalker) {
@@ -39,10 +47,29 @@ func WithSuffixes(suffixes []string) func(*FileWalker) {
 	}
 }
 
+// WithFs transfers cleanup responsibility to the walker. Close releases the
+// filesystem if it implements io.Closer.
 func WithFs(fs afero.Fs) func(*FileWalker) {
 	return func(w *FileWalker) {
 		w.Fs = fs
+		if c, ok := fs.(io.Closer); ok {
+			w.closers = append(w.closers, c)
+		}
 	}
+}
+
+// Close releases mounts in reverse order after all asynchronous consumers finish.
+func (fw *FileWalker) Close() error {
+	if fw.closed {
+		return nil
+	}
+	fw.closed = true
+	var err error
+	for _, v := range slices.Backward(fw.closers) {
+		err = errors.Join(err, v.Close())
+	}
+	fw.closers = nil
+	return err
 }
 
 func New(options ...func(*FileWalker)) *FileWalker {
@@ -68,6 +95,9 @@ func (fw *FileWalker) hasSuffix(path string) bool {
 }
 
 func (fw *FileWalker) Walk(ctx context.Context, path string, walkFn func(fs afero.Fs, path string, err error) error) error {
+	if fw.closed {
+		return os.ErrClosed
+	}
 	return fw.walkDir(ctx, fw.Fs, path, path, "", walkFn)
 }
 
@@ -82,7 +112,7 @@ func (fw *FileWalker) walkDir(ctx context.Context, currentFs afero.Fs, root stri
 		}
 		return afero.Walk(currentFs, dirName, walkFn)
 	}
-	return walkImpl(func(path string, info fs.FileInfo, err error) error {
+	return walkImpl(func(path string, info fs.FileInfo, err error) (walkErr error) {
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
@@ -133,7 +163,20 @@ func (fw *FileWalker) walkDir(ctx context.Context, currentFs afero.Fs, root stri
 		}
 
 		mountedFs, resolveErr := archivefs.ResolveFilesystem(currentFs, path)
-		if resolveErr == nil && mountedFs != currentFs {
+		if resolveErr != nil {
+			return walkFn(currentFs, path, resolveErr)
+		}
+		if mountedFs != currentFs {
+			if c, ok := mountedFs.(io.Closer); ok {
+				if fw.WaitForReaders == nil {
+					fw.closers = append(fw.closers, c)
+				} else {
+					defer func() {
+						fw.WaitForReaders()
+						walkErr = errors.Join(walkErr, c.Close())
+					}()
+				}
+			}
 			return fw.walkDir(ctx, mountedFs, "/", "/", logicalPath, walkFn)
 		}
 

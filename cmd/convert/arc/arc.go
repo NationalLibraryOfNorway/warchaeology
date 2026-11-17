@@ -39,6 +39,25 @@ type ConvertArcOptions struct {
 	CloseInputFileHook hooks.CloseInputFileHook
 }
 
+// Close releases the resources owned by the options. Call it after Run returns.
+// Repeated calls are safe; Close must not run concurrently with Run or itself.
+func (o *ConvertArcOptions) Close() error {
+	var err error
+	if o.WarcWriterConfig != nil {
+		err = errors.Join(err, o.WarcWriterConfig.Close())
+		o.WarcWriterConfig = nil
+	}
+	if o.FileIndex != nil {
+		err = errors.Join(err, o.FileIndex.Close())
+		o.FileIndex = nil
+	}
+	if o.FileWalker != nil {
+		err = errors.Join(err, o.FileWalker.Close())
+		o.FileWalker = nil
+	}
+	return err
+}
+
 type ConvertArcFlags struct {
 	FileWalkerFlags       flag.FileWalkerFlags
 	IndexFlags            flag.IndexFlags
@@ -71,16 +90,48 @@ func (f ConvertArcFlags) AddFlags(cmd *cobra.Command) {
 	f.ErrorFlags.AddFlags(cmd)
 }
 
-func (f ConvertArcFlags) ToConvertArcOptions() (*ConvertArcOptions, error) {
-	warcWriterConfig, err := f.WarcWriterConfigFlags.ToWarcWriterConfig()
+func (f ConvertArcFlags) ToConvertArcOptions() (_ *ConvertArcOptions, err error) {
+	openInputFileHook, err := f.InputHookFlags.ToOpenInputFileHook()
+	if err != nil {
+		return nil, fmt.Errorf("failed to create open input file hook: %w", err)
+	}
+
+	closeInputFileHook, err := f.InputHookFlags.ToCloseInputFileHook()
+	if err != nil {
+		return nil, fmt.Errorf("failed to create close input file hook: %w", err)
+	}
+
+	// Read additional input paths from --source-file-list.
+	fileList, err := flag.ReadSrcFileList(viper.GetString(flag.SrcFileList))
+	if err != nil {
+		return nil, fmt.Errorf("failed to read from source file: %w", err)
+	}
+
+	o := &ConvertArcOptions{
+		WarcRecordOptions:  f.WarcRecordOptionFlags.ToWarcRecordOptions(),
+		Concurrency:        f.ConcurrencyFlags.Concurrency(),
+		OpenInputFileHook:  openInputFileHook,
+		CloseInputFileHook: closeInputFileHook,
+		Paths:              fileList,
+		ContinueOnError:    f.ErrorFlags.ContinueOnError(),
+		MinWARCDiskFree:    f.UtilFlags.MinFreeDisk(),
+	}
+	defer func() {
+		if err != nil {
+			err = errors.Join(err, o.Close())
+		}
+	}()
+
+	o.WarcWriterConfig, err = f.WarcWriterConfigFlags.ToWarcWriterConfig()
 	if err != nil {
 		return nil, fmt.Errorf("failed to create warc writer config: %w", err)
 	}
+	warcWriterConfig := o.WarcWriterConfig
 	if warcWriterConfig.OneToOneWriter {
 		warcInfoFunc := func(recordBuilder gowarc.WarcRecordBuilder) error {
 			payload := &gowarc.WarcFields{}
 			payload.Set("software", version.SoftwareVersion())
-			payload.Set("format", fmt.Sprintf("WARC File Format %d.%d", warcWriterConfig.WarcVersion.Minor(), warcWriterConfig.WarcVersion.Minor()))
+			payload.Set("format", fmt.Sprintf("WARC File Format %d.%d", warcWriterConfig.WarcVersion.Major(), warcWriterConfig.WarcVersion.Minor()))
 			payload.Set("description", "Converted from ARC")
 			hostname, errInner := os.Hostname()
 			if errInner != nil {
@@ -94,53 +145,23 @@ func (f ConvertArcFlags) ToConvertArcOptions() (*ConvertArcOptions, error) {
 		warcWriterConfig.WarcFileWriterOptions = append(warcWriterConfig.WarcFileWriterOptions, gowarc.WithWarcInfoFunc(warcInfoFunc))
 	}
 
-	warcRecordOptions := f.WarcRecordOptionFlags.ToWarcRecordOptions()
-	warcRecordOptions = append(warcRecordOptions,
+	o.WarcRecordOptions = append(o.WarcRecordOptions,
 		gowarc.WithVersion(warcWriterConfig.WarcVersion),
 		gowarc.WithAddMissingDigest(true),
 	)
 
-	openInputFileHook, err := f.InputHookFlags.ToOpenInputFileHook()
-	if err != nil {
-		return nil, fmt.Errorf("failed to create open input file hook: %w", err)
-	}
-
-	closeInputFileHook, err := f.InputHookFlags.ToCloseInputFileHook()
-	if err != nil {
-		return nil, fmt.Errorf("failed to create close input file hook: %w", err)
-	}
-
-	// and we also read paths from a file if the --src-file-fileList flag is set
-	fileList, err := flag.ReadSrcFileList(viper.GetString(flag.SrcFileList))
-	if err != nil {
-		return nil, fmt.Errorf("failed to read from source file: %w", err)
-	}
-
-	fileWalker, err := f.FileWalkerFlags.ToFileWalker()
-	if err != nil {
-		return nil, fmt.Errorf("failed to create file walker: %w", err)
-	}
-
-	var fileIndex *index.FileIndex
 	if f.IndexFlags.KeepIndex() {
-		fileIndex, err = f.IndexFlags.ToFileIndex()
+		o.FileIndex, err = f.IndexFlags.ToFileIndex()
 		if err != nil {
 			return nil, fmt.Errorf("failed to create file index: %w", err)
 		}
 	}
 
-	return &ConvertArcOptions{
-		Concurrency:        f.ConcurrencyFlags.Concurrency(),
-		OpenInputFileHook:  openInputFileHook,
-		CloseInputFileHook: closeInputFileHook,
-		WarcWriterConfig:   warcWriterConfig,
-		WarcRecordOptions:  warcRecordOptions,
-		FileWalker:         fileWalker,
-		FileIndex:          fileIndex,
-		Paths:              fileList,
-		ContinueOnError:    f.ErrorFlags.ContinueOnError(),
-		MinWARCDiskFree:    f.UtilFlags.MinFreeDisk(),
-	}, nil
+	o.FileWalker, err = f.FileWalkerFlags.ToFileWalker()
+	if err != nil {
+		return nil, fmt.Errorf("failed to create file walker: %w", err)
+	}
+	return o, nil
 }
 
 func NewCmdConvertArc() *cobra.Command {
@@ -155,6 +176,11 @@ func NewCmdConvertArc() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			defer func() {
+				if err := o.Close(); err != nil {
+					slog.Error("Close options", "error", err)
+				}
+			}()
 			err = o.Complete(cmd, args)
 			if err != nil {
 				return err
@@ -164,11 +190,7 @@ func NewCmdConvertArc() *cobra.Command {
 				return err
 			}
 			cmd.SilenceUsage = true
-			err = o.Run()
-			if errors.Is(err, context.Canceled) {
-				os.Exit(1)
-			}
-			return err
+			return o.Run()
 		},
 		ValidArgsFunction: flag.SuffixCompletionFn,
 	}
@@ -190,13 +212,15 @@ func (o *ConvertArcOptions) Validate() error {
 	return nil
 }
 
-func (o *ConvertArcOptions) Run() error {
+// Run processes the inputs and waits for workers to finish.
+// The caller must close the options after Run returns.
+func (o *ConvertArcOptions) Run() (runErr error) {
 	done := make(chan struct{})
-	exitCode := 0
+	var processingErr error
 
 	defer func() {
 		<-done
-		os.Exit(exitCode)
+		runErr = errors.Join(runErr, processingErr)
 	}()
 
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
@@ -214,8 +238,7 @@ func (o *ConvertArcOptions) Run() error {
 		for result := range results {
 			slog := slog.With("path", result.Name())
 			for _, err := range result.Errors() {
-				var recordErr warc.RecordError
-				if errors.As(err, &recordErr) {
+				if recordErr, ok := errors.AsType[warc.RecordError](err); ok {
 					slog.Error("Validation error", "error", recordErr.Error(), "offset", recordErr.Offset())
 				} else {
 					slog.Error("Validation error", "error", err.Error())
@@ -225,18 +248,13 @@ func (o *ConvertArcOptions) Run() error {
 			stats.Merge(result)
 		}
 		if stats.Errors > 0 {
-			exitCode = 1
+			processingErr = errors.New("processing completed with errors")
 		}
 	}()
 	defer close(results)
 
-	if o.FileIndex != nil {
-		defer o.FileIndex.Close()
-	}
-
-	defer o.WarcWriterConfig.Close()
-
 	workerPool := workerpool.New(ctx, o.Concurrency)
+	o.FileWalker.WaitForReaders = workerPool.Wait
 	defer workerPool.CloseWait()
 
 	for _, path := range o.Paths {
@@ -245,7 +263,7 @@ func (o *ConvertArcOptions) Run() error {
 				return err
 			}
 
-			workerPool.Submit(func() {
+			return workerPool.Submit(func() {
 				// Assert WARC disk has enough free space
 				if o.MinWARCDiskFree > 0 {
 					diskFree, err := util.DiskFree(o.WarcWriterConfig.OutDir)
@@ -275,8 +293,6 @@ func (o *ConvertArcOptions) Run() error {
 
 				results <- result
 			})
-
-			return nil
 		})
 		if err != nil {
 			return err
