@@ -8,7 +8,7 @@ Convert web archive files to WARC files. Use subcommands for the supported forma
 ### Options
 
 ```
-  -h, --help   help for convert
+  -h, --help[=true|false]   help for convert
 ```
 
 ### Options inherited from parent commands
@@ -22,8 +22,8 @@ Convert web archive files to WARC files. Use subcommands for the supported forma
 
 ### SEE ALSO
 
-* [warc](warc.md)	 - A tool for handling warc files
-* [warc convert arc](warc_convert_arc.md)	 - Convert ARC to WARC
-* [warc convert nedlib](warc_convert_nedlib.md)	 - Convert directory with files harvested with Nedlib into warc files
-* [warc convert warc](warc_convert_warc.md)	 - Convert WARC file into WARC file
+* [warc](warc.md)        - A tool for handling warc files
+* [warc convert arc](warc_convert_arc.md)        - Convert ARC to WARC
+* [warc convert nedlib](warc_convert_nedlib.md)  - Convert directory with files harvested with Nedlib into warc files
+* [warc convert warc](warc_convert_warc.md)      - Convert WARC file into WARC file
 

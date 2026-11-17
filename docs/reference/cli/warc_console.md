@@ -12,9 +12,9 @@ warc console DIR/FILE [flags]
 ### Options
 
 ```
-  -h, --help               help for console
-      --suffixes strings   only process files with these suffixes (default [.warc,.warc.gz])
-      --tmp-dir string     directory used for temporary files (default "/tmp")
+  -h, --help[=true|false]   help for console
+      --suffixes strings    only process files with these suffixes (default [.warc,.warc.gz])
+      --tmp-dir string      directory used for temporary files (default "/tmp")
 ```
 
 ### Options inherited from parent commands
@@ -28,5 +28,5 @@ warc console DIR/FILE [flags]
 
 ### SEE ALSO
 
-* [warc](warc.md)	 - A tool for handling warc files
+* [warc](warc.md)        - A tool for handling warc files
 
