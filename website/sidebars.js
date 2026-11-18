@@ -9,7 +9,14 @@ module.exports = {
     {
       type: 'category',
       label: 'Guides',
-      items: ['guides/configuration', 'guides/archive-inputs', 'guides/upgrading', 'guides/hooks']
+      items: [
+        'guides/redupe',
+        'guides/capture-indexes',
+        'guides/archive-inputs',
+        'guides/configuration',
+        'guides/hooks',
+        'guides/upgrading'
+      ]
     },
     {
       type: 'category',

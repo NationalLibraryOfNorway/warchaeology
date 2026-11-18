@@ -16,6 +16,14 @@ go build -o warc
 goreleaser release --clean --snapshot
 ```
 
+Distribution builds explicitly strip debug information and symbol tables with
+`-s -w`. Normal development builds retain debugging information. To build a
+stripped binary directly:
+
+```shell
+CGO_ENABLED=0 go build -ldflags="-s -w" -o warc
+```
+
 ## Generate CLI docs
 
 ```shell

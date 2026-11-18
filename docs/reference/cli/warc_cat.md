@@ -32,9 +32,9 @@ warc cat -n4 -P file1.warc.gz | feh -
       --id strings                       only process records with these record IDs; repeat the flag or use a comma-separated list
   -i, --input-file string                input filesystem source; default is the local OS filesystem
                                          Legal values:
-                                                /path/to/archive.( tar | tar.gz | tgz | zip | wacz )
-                                                zip://LITERAL_PATH, tar://LITERAL_PATH, tgz://LITERAL_PATH (no URL decoding)
-                                                ftp://user:password@host:port (endpoint only; optional trailing /)
+                                             /path/to/archive.( tar | tar.gz | tgz | zip | wacz )
+                                             zip://LITERAL_PATH, tar://LITERAL_PATH, tgz://LITERAL_PATH (no URL decoding)
+                                             ftp://user:password@host:port (endpoint only; optional trailing /)
                                          FTP paths belong in command arguments; URL queries and fragments are not supported.
 
       --lax-host-parsing[=true|false]    allow lenient host parsing in URL parsing
@@ -47,14 +47,14 @@ warc cat -n4 -P file1.warc.gz | feh -
   -p, --protocol-header[=true|false]     show protocol header
   -t, --record-type strings              only process records with these record types; repeat the flag or use a comma-separated list.
                                          Legal values:
-                                                warcinfo, request, response, metadata, revisit, resource, continuation and conversion
+                                             warcinfo, request, response, metadata, revisit, resource, continuation and conversion
   -r, --recursive[=true|false]           walk input directories recursively
   -S, --response-code string             only process records by HTTP response code
                                          Example:
-                                                200     - only records with a 200 response
-                                                200-300 - records with response codes between 200 (inclusive) and 300 (exclusive)
-                                                500-    - response codes from 500 and above
-                                                -400    - all response codes below 400
+                                             200    - only records with a 200 response
+                                             200-300    - records with response codes between 200 (inclusive) and 300 (exclusive)
+                                             500-    - response codes from 500 and above
+                                             -400    - all response codes below 400
       --source-file-list string          path to a file listing input paths, one per line
       --strict[=true|false]              fail on the first validation error
       --suffixes strings                 only process files with these suffixes (default [.warc,.warc.gz])
@@ -73,5 +73,5 @@ warc cat -n4 -P file1.warc.gz | feh -
 
 ### SEE ALSO
 
-* [warc](warc.md)        - A tool for handling warc files
+* [warc](warc.md)     - A tool for handling warc files
 

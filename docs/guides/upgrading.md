@@ -62,3 +62,33 @@ WARC URI validation and derived hostname output retain their WHATWG behavior.
 Stored URI headers are preserved.
 
 See [Archive and FTP inputs](archive-inputs.md) for runnable usage examples.
+
+## Capture indexes and Badger v4
+
+All Badger databases now use v4, including processing and deduplication indexes.
+Keep existing v3 directories until replacement indexes have been rebuilt and
+verified. New capture databases use versioned canonicalization and source-position
+identities; older capture stores require reindexing. See
+[Capture indexing, serving and zipnum](capture-indexes.md) for migration and replay
+configuration, including the stock pywb remote provider's POST limitation.
+
+## Capture database format v2
+
+The record-ID index now includes the source offset. Multiple records sharing an
+ID within the same WARC file remain visible, allowing conflicting occurrences to
+be detected instead of silently overwriting one another.
+
+Existing v1 capture databases must be reindexed into a new directory or namespace.
+Keep the old database until the replacement has been verified. This change does
+not rewrite source WARCs or require regenerating existing CDXJ exports.
+
+## Yearly reconstruction with redupe
+
+[`warc redupe`](redupe.md) rebuilds self-contained UTC yearly collections. Unlike
+record-selection commands, it has no record, MIME, status, or date filters. Every
+supplied record is retained or accounted for as an identical alias; conflicting
+IDs and unresolved payload dependencies block publication of affected years.
+
+Audit before rewriting, and use a separate output directory. Reuse the same
+working index only with unchanged sources and configuration. Completed years are
+checksum-checked on restart, and interrupted years are rebuilt from the beginning.

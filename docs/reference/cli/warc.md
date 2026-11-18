@@ -17,11 +17,15 @@ A tool for handling warc files
 
 ### SEE ALSO
 
-* [warc cat](warc_cat.md)        - Concatenate and print warc files
-* [warc console](warc_console.md)        - A shell for working with WARC files
-* [warc convert](warc_convert.md)        - Convert web archive files to WARC files. Use subcommands for the supported formats
-* [warc dedup](warc_dedup.md)    - Deduplicate WARC files
-* [warc ls](warc_ls.md)  - List WARC record fields
-* [warc validate](warc_validate.md)      - Validate WARC files
-* [warc version](warc_version.md)        - Show extended version information
+* [warc cat](warc_cat.md)     - Concatenate and print warc files
+* [warc console](warc_console.md)     - A shell for working with WARC files
+* [warc convert](warc_convert.md)     - Convert web archive files to WARC files. Use subcommands for the supported formats
+* [warc dedup](warc_dedup.md)     - Deduplicate WARC files
+* [warc index](warc_index.md)     - Index WARC captures
+* [warc ls](warc_ls.md)     - List WARC record fields
+* [warc redupe](warc_redupe.md)     - Rebuild self-contained yearly WARC collections
+* [warc serve](warc_serve.md)     - Serve a capture database or immutable zipnum cluster
+* [warc validate](warc_validate.md)     - Validate WARC files
+* [warc version](warc_version.md)     - Show extended version information
+* [warc zipnum](warc_zipnum.md)     - Build and transform immutable zipnum clusters
 

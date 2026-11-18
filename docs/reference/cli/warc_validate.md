@@ -14,10 +14,10 @@ warc validate FILE/DIR ... [flags]
 ```
       --calculate-hash string            calculate hash of output file. The hash is made available to the close output file hook as WARC_HASH. Valid values: md5, sha1, sha256, sha512
       --close-input-file-hook string     command to run after closing each input file; the command receives these environment variables:
-                                                WARC_COMMAND contains the subcommand name
-                                                WARC_HOOK_TYPE contains the hook type (OpenInputFile, CloseInputFile, OpenOutputFile, CloseOutputFile)
-                                                WARC_FILE_NAME contains the file name of the input file
-                                                WARC_ERROR_COUNT contains the number of errors found if the file was validated and the validation failed
+                                             WARC_COMMAND contains the subcommand name
+                                             WARC_HOOK_TYPE contains the hook type (OpenInputFile, CloseInputFile, OpenOutputFile, CloseOutputFile)
+                                             WARC_FILE_NAME contains the file name of the input file
+                                             WARC_ERROR_COUNT contains the number of errors found if the file was validated and the validation failed
   -c, --concurrency int                  number of input files to process in parallel (default 21)
       --continue-on-error[=true|false]   continue processing remaining files and directories after errors
   -f, --force[=true|false]               continue iterating even when record read errors occur
@@ -27,9 +27,9 @@ warc validate FILE/DIR ... [flags]
       --index-dir string                 directory used to store index data (default "/home/vscode/.cache/warchaeology/validate")
   -i, --input-file string                input filesystem source; default is the local OS filesystem
                                          Legal values:
-                                                /path/to/archive.( tar | tar.gz | tgz | zip | wacz )
-                                                zip://LITERAL_PATH, tar://LITERAL_PATH, tgz://LITERAL_PATH (no URL decoding)
-                                                ftp://user:password@host:port (endpoint only; optional trailing /)
+                                             /path/to/archive.( tar | tar.gz | tgz | zip | wacz )
+                                             zip://LITERAL_PATH, tar://LITERAL_PATH, tgz://LITERAL_PATH (no URL decoding)
+                                             ftp://user:password@host:port (endpoint only; optional trailing /)
                                          FTP paths belong in command arguments; URL queries and fragments are not supported.
 
   -k, --keep-index[=true|false]          keep index files in --index-dir after the run so later runs can continue from them
@@ -41,19 +41,19 @@ warc validate FILE/DIR ... [flags]
   -n, --nth int                          process only the n-th record after filtering
   -o, --offset int                       start processing at this byte offset in the input file (default: 0)
       --open-input-file-hook string      command to run before opening each input file; the command receives these environment variables:
-                                                WARC_COMMAND contains the subcommand name
-                                                WARC_HOOK_TYPE contains the hook type (OpenInputFile, CloseInputFile, OpenOutputFile, CloseOutputFile)
-                                                WARC_FILE_NAME contains the file name of the input file
+                                             WARC_COMMAND contains the subcommand name
+                                             WARC_HOOK_TYPE contains the hook type (OpenInputFile, CloseInputFile, OpenOutputFile, CloseOutputFile)
+                                             WARC_FILE_NAME contains the file name of the input file
   -t, --record-type strings              only process records with these record types; repeat the flag or use a comma-separated list.
                                          Legal values:
-                                                warcinfo, request, response, metadata, revisit, resource, continuation and conversion
+                                             warcinfo, request, response, metadata, revisit, resource, continuation and conversion
   -r, --recursive[=true|false]           walk input directories recursively
   -S, --response-code string             only process records by HTTP response code
                                          Example:
-                                                200     - only records with a 200 response
-                                                200-300 - records with response codes between 200 (inclusive) and 300 (exclusive)
-                                                500-    - response codes from 500 and above
-                                                -400    - all response codes below 400
+                                             200    - only records with a 200 response
+                                             200-300    - records with response codes between 200 (inclusive) and 300 (exclusive)
+                                             500-    - response codes from 500 and above
+                                             -400    - all response codes below 400
       --source-file-list string          path to a file listing input paths, one per line
       --strict[=true|false]              fail on the first validation error
       --suffixes strings                 only process files with these suffixes (default [.warc,.warc.gz])
@@ -72,5 +72,5 @@ warc validate FILE/DIR ... [flags]
 
 ### SEE ALSO
 
-* [warc](warc.md)        - A tool for handling warc files
+* [warc](warc.md)     - A tool for handling warc files
 
