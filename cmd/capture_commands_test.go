@@ -106,3 +106,24 @@ func executeCaptureCommand(t *testing.T, args ...string) error {
 	command.SetArgs(args)
 	return command.Execute()
 }
+
+func TestRedupeSymlinkContainment(t *testing.T) {
+	source := t.TempDir()
+	inside := filepath.Join(source, "published")
+	if err := os.Mkdir(inside, 0700); err != nil {
+		t.Fatal(err)
+	}
+	alias := filepath.Join(t.TempDir(), "alias")
+	if err := os.Symlink(source, alias); err != nil {
+		t.Skip(err)
+	}
+	for _, pair := range [][2]string{{source, filepath.Join(alias, "published")}, {alias, inside}} {
+		if err := executeCaptureCommand(t, "redupe", "-r", "--output-dir", pair[1], pair[0]); err == nil || !strings.Contains(err.Error(), "outside source") {
+			t.Fatalf("overlapping paths: %v", err)
+		}
+	}
+	entries, err := os.ReadDir(inside)
+	if err != nil || len(entries) != 0 {
+		t.Fatalf("published entries %v, %v", entries, err)
+	}
+}
