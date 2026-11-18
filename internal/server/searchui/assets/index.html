@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Warchaeology · Archive console</title>
+  <link rel="stylesheet" href="console.css">
+  <script src="console.js" defer></script>
+</head>
+<body>
+<header>
+  <img src="logo_small.png" width="32" height="32" alt="">
+  <strong>WARCHAEOLOGY</strong><span class="label">ARCHIVE CONSOLE</span>
+  <span id="status" role="status">READY</span>
+</header>
+<main>
+  <label>Search mode <select id="mode"><option value="text">Full text</option><option value="cdx">CDX</option></select></label>
+  <form id="search" role="search">
+    <label for="query" id="query-label">Search the archive</label>
+    <div class="input-row">
+      <input id="query" name="q" type="search" placeholder="Find a word, a story, a moment…" required autocomplete="off">
+      <button type="submit">Search ↗</button><button id="reset-search" type="button">Reset</button>
+    </div>
+    <fieldset id="text-filters">
+      <input id="offset" name="offset" type="hidden" value="0">
+      <details><summary>Filters</summary>
+        <label>Host <input name="host" placeholder="example.org"></label>
+        <label>Package <input name="package"></label>
+        <label>From <input id="filter-from" name="from" placeholder="RFC3339 UTC"></label>
+        <label>To <input id="filter-to" name="to" placeholder="RFC3339 UTC"></label>
+        <button type="button" id="clear-time">All time</button>
+      </details>
+    </fieldset>
+    <fieldset id="cdx-filters" hidden disabled>
+      <label>Match <select name="matchType"><option value="exact">Exact</option><option value="prefix">Prefix</option><option value="host">Host</option><option value="domain">Domain</option></select></label>
+      <label>From (UTC) <input name="from" placeholder="e.g. 20250101" pattern="[0-9]{1,14}"></label>
+      <label>To (UTC) <input name="to" placeholder="e.g. 20251231" pattern="[0-9]{1,14}"></label>
+    </fieldset>
+  </form>
+  <section id="timeline" class="timeline" aria-label="Timeline of matching search results">
+    <div class="timeline-heading"><span>CAPTURE SIGNAL</span><span id="range">Awaiting search</span><span id="count">0 CAPTURES</span></div>
+    <div id="ticks" class="ticks"></div>
+    <div class="timeline-heading"><span id="start">—</span><span>ALL MATCHES · SELECT AN INTERVAL TO FILTER</span><span id="end">—</span></div>
+  </section>
+  <p id="cdx-count" hidden></p>
+  <div id="results" aria-live="polite"></div>
+  <template id="empty-text"><div class="empty"><span aria-hidden="true">⌖</span><h1>Find your moment.</h1><p>Search preserved text. Follow the evidence back to its capture.</p></div></template>
+  <nav id="pagination" class="pagination" aria-label="Search result pages"><button type="button" id="previous" disabled>← Previous</button><span id="page-position"></span><button type="button" id="next" disabled>Next →</button></nav>
+  <dialog id="inspection"><form method="dialog"><button aria-label="Close inspector">×</button></form><h2>Capture provenance</h2><dl id="provenance"></dl></dialog>
+</main>
+</body>
+</html>
