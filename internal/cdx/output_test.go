@@ -43,6 +43,7 @@ func TestExternalSort(t *testing.T) {
 		t.Fatalf("temporary files remain: %v, %v", files, e)
 	}
 }
+
 func TestOutputPublicationAndProtobuf(t *testing.T) {
 	dir := t.TempDir()
 	target := filepath.Join(dir, "index.cdxj")
@@ -99,6 +100,7 @@ func TestOutputPublicationAndProtobuf(t *testing.T) {
 		t.Fatal(e)
 	}
 }
+
 func TestQueryValidation(t *testing.T) {
 	for _, q := range []map[string][]string{{"url": {"example.com"}, "page": {"-1"}}, {"url": {"example.com"}, "filter": {"~url:["}}, {"url": {"example.com"}, "sort": {"closest"}}, {"url": {"example.com"}, "from": {"not-a-date"}}} {
 		if _, e := ParseQuery(q); e == nil {
@@ -118,6 +120,7 @@ func TestQueryValidation(t *testing.T) {
 		t.Fatal("domain boundary crossed")
 	}
 }
+
 func TestStorageRefLiteralHash(t *testing.T) {
 	name, off, e := ParseStorageRef("warcfile:/archive/a#b.warc#0010")
 	if e != nil || !strings.Contains(name, "#b") || off != 10 {

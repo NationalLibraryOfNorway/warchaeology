@@ -147,6 +147,7 @@ func ParseQuery(v url.Values) (Query, error) {
 	}
 	return q, nil
 }
+
 func prefixEnd(s string) string {
 	b := []byte(s)
 	for i := len(b) - 1; i >= 0; i-- {
@@ -157,6 +158,7 @@ func prefixEnd(s string) string {
 	}
 	return ""
 }
+
 func (q Query) Accept(c *Capture) bool {
 	if q.Predicate != nil && !q.Predicate(c) {
 		return false
@@ -315,6 +317,7 @@ func (q Query) Run(ctx context.Context, src QuerySource, emit func(*Capture) err
 	}
 	return pages, err
 }
+
 func CDXHandler(src QuerySource) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		q, e := ParseQuery(r.URL.Query())

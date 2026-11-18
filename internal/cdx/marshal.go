@@ -9,6 +9,7 @@ import (
 type Pywb struct{ *schema.Cdx }
 
 func (p Pywb) MarshalCdxj() ([]byte, error) { return Line(p.Cdx) }
+
 func (p Pywb) MarshalJSON() ([]byte, error) {
 	m, e := Properties(p.Cdx)
 	if e != nil {

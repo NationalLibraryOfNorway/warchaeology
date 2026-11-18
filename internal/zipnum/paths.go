@@ -12,6 +12,7 @@ import (
 func expandAndDeduplicate(spec string) ([]string, error) {
 	return expandInputs(strings.Split(spec, ","))
 }
+
 func expandInputs(tokens []string) ([]string, error) {
 	var candidates []string
 	for _, token := range tokens {

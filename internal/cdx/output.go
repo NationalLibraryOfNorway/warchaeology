@@ -45,6 +45,7 @@ func NewOutput(stdout io.Writer, filename, format, tmp string, sorted bool) (*Ou
 	}
 	return o, nil
 }
+
 func (o *Output) WriteCapture(ctx context.Context, c *Capture) error {
 	o.mu.Lock()
 	defer o.mu.Unlock()
@@ -68,6 +69,7 @@ func (o *Output) WriteCapture(ctx context.Context, c *Capture) error {
 	_, e = o.writer.Write(append(b, '\n'))
 	return e
 }
+
 func (o *Output) Flush(ctx context.Context) error {
 	o.mu.Lock()
 	defer o.mu.Unlock()
@@ -103,6 +105,7 @@ func (o *Output) Flush(ctx context.Context) error {
 	o.flushed = true
 	return nil
 }
+
 func (o *Output) Close() error {
 	o.mu.Lock()
 	defer o.mu.Unlock()

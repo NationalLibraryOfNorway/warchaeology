@@ -21,6 +21,7 @@ func send[T any](ctx context.Context, ch chan<- T, v T) error {
 		return ctx.Err()
 	}
 }
+
 func (d *DB) Search(ctx context.Context, req index.Request, out chan<- index.CdxResponse) error {
 	return d.runAsync(ctx, func(ctx context.Context) {
 		defer close(out)
@@ -49,6 +50,7 @@ func (d *DB) Search(ctx context.Context, req index.Request, out chan<- index.Cdx
 		}
 	})
 }
+
 func (d *DB) ListFileInfo(ctx context.Context, req index.Request, out chan<- index.FileInfoResponse) error {
 	return d.runAsync(ctx, func(ctx context.Context) {
 		defer close(out)
@@ -69,6 +71,7 @@ func (d *DB) ListFileInfo(ctx context.Context, req index.Request, out chan<- ind
 		}
 	})
 }
+
 func (d *DB) ListStorageRef(ctx context.Context, req index.Request, out chan<- index.IdResponse) error {
 	return d.runAsync(ctx, func(ctx context.Context) {
 		defer close(out)
@@ -96,6 +99,7 @@ func (d *DB) ListStorageRef(ctx context.Context, req index.Request, out chan<- i
 		}
 	})
 }
+
 func (d *DB) Debug(ctx context.Context, req keyvalue.DebugRequest, out chan<- keyvalue.CdxResponse) error {
 	return d.runAsync(ctx, func(ctx context.Context) {
 		defer close(out)
@@ -107,6 +111,7 @@ func (d *DB) Debug(ctx context.Context, req keyvalue.DebugRequest, out chan<- ke
 		}
 	})
 }
+
 func (d *DB) CreateReport(ctx context.Context, req index.Request) (*schema.Report, error) {
 	if d.readOnly {
 		return nil, ErrReadOnly
@@ -117,6 +122,7 @@ func (d *DB) CreateReport(ctx context.Context, req index.Request) (*schema.Repor
 	}
 	return g.Generate(ctx, req)
 }
+
 func (d *DB) SaveReport(ctx context.Context, r *schema.Report) error {
 	d.mu.Lock()
 	defer d.mu.Unlock()
@@ -132,6 +138,7 @@ func (d *DB) SaveReport(ctx context.Context, r *schema.Report) error {
 	}
 	return d.kv.Put(ctx, "r/"+r.GetId(), b)
 }
+
 func (d *DB) GetReport(ctx context.Context, id string) (*schema.Report, error) {
 	b, e := d.kv.Get(ctx, "r/"+id)
 	if e != nil {
@@ -143,6 +150,7 @@ func (d *DB) GetReport(ctx context.Context, id string) (*schema.Report, error) {
 	r := &schema.Report{}
 	return r, proto.Unmarshal(b, r)
 }
+
 func (d *DB) ListReports(ctx context.Context, req index.Request, out chan<- index.ReportResponse) error {
 	return d.runAsync(ctx, func(ctx context.Context) {
 		defer close(out)
@@ -158,6 +166,7 @@ func (d *DB) ListReports(ctx context.Context, req index.Request, out chan<- inde
 		}
 	})
 }
+
 func (d *DB) CancelReport(_ context.Context, id string) error {
 	if d.readOnly {
 		return ErrReadOnly
@@ -169,6 +178,7 @@ func (d *DB) CancelReport(_ context.Context, id string) error {
 	}
 	return nil
 }
+
 func (d *DB) DeleteReport(ctx context.Context, id string) error {
 	if d.readOnly {
 		return ErrReadOnly
@@ -181,12 +191,14 @@ func (d *DB) DeleteReport(ctx context.Context, id string) error {
 	}
 	return d.kv.Delete(ctx, "r/"+id)
 }
+
 func (d *DB) AddTask(id string, cancel context.CancelFunc) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	d.wg.Add(1)
 	d.tasks[id] = cancel
 }
+
 func (d *DB) DeleteTask(id string) {
 	d.mu.Lock()
 	defer d.mu.Unlock()

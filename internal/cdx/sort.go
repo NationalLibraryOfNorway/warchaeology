@@ -22,6 +22,7 @@ type Sorter struct {
 }
 
 func NewSorter(dir string, unique bool) *Sorter { return &Sorter{dir: dir, Unique: unique} }
+
 func (s *Sorter) Add(ctx context.Context, line string) error {
 	if err := ctx.Err(); err != nil {
 		return err
@@ -33,6 +34,7 @@ func (s *Sorter) Add(ctx context.Context, line string) error {
 	}
 	return nil
 }
+
 func (s *Sorter) temporary() (*os.File, error) {
 	f, e := os.CreateTemp(s.dir, "warc-sort-*")
 	if e == nil {
@@ -40,6 +42,7 @@ func (s *Sorter) temporary() (*os.File, error) {
 	}
 	return f, e
 }
+
 func (s *Sorter) spill() (err error) {
 	if len(s.lines) == 0 {
 		return nil
@@ -78,15 +81,20 @@ type mergeItem struct {
 type mergeHeap []mergeItem
 
 func (h mergeHeap) Len() int { return len(h) }
+
 func (h mergeHeap) Less(i, j int) bool {
 	if h[i].line == h[j].line {
 		return h[i].i < h[j].i
 	}
 	return h[i].line < h[j].line
 }
+
 func (h mergeHeap) Swap(i, j int) { h[i], h[j] = h[j], h[i] }
-func (h *mergeHeap) Push(x any)   { *h = append(*h, x.(mergeItem)) }
-func (h *mergeHeap) Pop() any     { x := (*h)[len(*h)-1]; *h = (*h)[:len(*h)-1]; return x }
+
+func (h *mergeHeap) Push(x any) { *h = append(*h, x.(mergeItem)) }
+
+func (h *mergeHeap) Pop() any { x := (*h)[len(*h)-1]; *h = (*h)[:len(*h)-1]; return x }
+
 func (s *Sorter) merge(ctx context.Context, paths []string, out io.Writer) (err error) {
 	readers := make([]*bufio.Reader, 0, len(paths))
 	files := []*os.File{}
@@ -138,6 +146,7 @@ func (s *Sorter) merge(ctx context.Context, paths []string, out io.Writer) (err 
 	}
 	return nil
 }
+
 func readSortLine(r *bufio.Reader) (string, error) {
 	b, e := r.ReadString('\n')
 	if len(b) > 0 {
@@ -148,6 +157,7 @@ func readSortLine(r *bufio.Reader) (string, error) {
 	}
 	return "", e
 }
+
 func (s *Sorter) WriteTo(ctx context.Context, w io.Writer) error {
 	if e := s.spill(); e != nil {
 		return e
@@ -171,6 +181,7 @@ func (s *Sorter) WriteTo(ctx context.Context, w io.Writer) error {
 	}
 	return s.merge(ctx, s.runs, w)
 }
+
 func (s *Sorter) Close() error {
 	var err error
 	for _, p := range s.files {

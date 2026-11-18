@@ -73,6 +73,7 @@ func (d *DB) FinishFile(ctx context.Context, source string, size int64, modified
 		return d.kv.Delete(ctx, k)
 	})
 }
+
 func (d *DB) visible(ctx context.Context, c *index.Capture) (bool, error) {
 	if c.GetGeneration() == "" {
 		return true, nil
@@ -90,6 +91,7 @@ func (d *DB) visible(ctx context.Context, c *index.Capture) (bool, error) {
 	}
 	return cp.Generation == c.GetGeneration(), nil
 }
+
 func (d *DB) sourceInfo(ctx context.Context, name string) (*schema.FileInfo, error) {
 	var found *schema.FileInfo
 	e := d.kv.Scan(ctx, "s/", "s0", func(_ string, b []byte) error {
@@ -111,6 +113,7 @@ func (d *DB) sourceInfo(ctx context.Context, name string) (*schema.FileInfo, err
 	})
 	return found, e
 }
+
 func sourceBasename(source string) string {
 	var s struct {
 		Path string `json:"path"`

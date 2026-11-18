@@ -21,10 +21,14 @@ type fileLine struct {
 //nolint:recvcheck // container/heap uses pointer Push/Pop and slice accessors.
 type lineHeap []fileLine
 
-func (h lineHeap) Len() int           { return len(h) }
+func (h lineHeap) Len() int { return len(h) }
+
 func (h lineHeap) Less(i, j int) bool { return bytes.Compare(h[i].line, h[j].line) < 0 }
-func (h lineHeap) Swap(i, j int)      { h[i], h[j] = h[j], h[i] }
-func (h *lineHeap) Push(x any)        { *h = append(*h, x.(fileLine)) }
+
+func (h lineHeap) Swap(i, j int) { h[i], h[j] = h[j], h[i] }
+
+func (h *lineHeap) Push(x any) { *h = append(*h, x.(fileLine)) }
+
 func (h *lineHeap) Pop() any {
 	old := *h
 	n := len(old)

@@ -63,18 +63,21 @@ func (b *badgerKV) Get(ctx context.Context, k string) (v []byte, e error) {
 	})
 	return
 }
+
 func (b *badgerKV) Put(ctx context.Context, k string, v []byte) error {
 	if e := ctx.Err(); e != nil {
 		return e
 	}
 	return b.db.Update(func(tx *badger.Txn) error { return tx.Set([]byte(k), v) })
 }
+
 func (b *badgerKV) Delete(ctx context.Context, k string) error {
 	if e := ctx.Err(); e != nil {
 		return e
 	}
 	return b.db.Update(func(tx *badger.Txn) error { return tx.Delete([]byte(k)) })
 }
+
 func (b *badgerKV) Scan(ctx context.Context, lo, hi string, fn func(string, []byte) error) error {
 	return b.db.View(func(tx *badger.Txn) error {
 		it := tx.NewIterator(badger.DefaultIteratorOptions)
@@ -99,4 +102,5 @@ func (b *badgerKV) Scan(ctx context.Context, lo, hi string, fn func(string, []by
 		return nil
 	})
 }
+
 func (b *badgerKV) Close() error { return b.db.Close() }

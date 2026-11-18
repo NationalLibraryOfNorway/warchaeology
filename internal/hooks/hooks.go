@@ -47,6 +47,7 @@ func NewOpenInputFileHook(cmd, hook string) (OpenInputFileHook, error) {
 func (h OpenInputFileHook) Run(fileName string) error {
 	return h.RunContext(context.Background(), fileName)
 }
+
 func (h OpenInputFileHook) RunContext(ctx context.Context, fileName string) error {
 	if h.hook == "" {
 		return nil
@@ -61,6 +62,7 @@ func (h OpenInputFileHook) RunContext(ctx context.Context, fileName string) erro
 func (h OpenInputFileHook) Output(fileName string) ([]byte, error) {
 	return h.OutputContext(context.Background(), fileName)
 }
+
 func (h OpenInputFileHook) OutputContext(ctx context.Context, fileName string) ([]byte, error) {
 	c := exec.CommandContext(ctx, h.hook)
 	c.Env = append(c.Environ(), EnvCommand+"="+h.cmd)
@@ -105,6 +107,7 @@ func NewCloseInputFileHook(cmd, hook string) (CloseInputFileHook, error) {
 func (h CloseInputFileHook) Run(fileName string, result stat.Result, resultErr error) error {
 	return h.RunContext(context.Background(), fileName, result, resultErr)
 }
+
 func (h CloseInputFileHook) RunContext(ctx context.Context, fileName string, result stat.Result, resultErr error) error {
 	if h.hook == "" {
 		return nil
@@ -119,6 +122,7 @@ func (h CloseInputFileHook) RunContext(ctx context.Context, fileName string, res
 func (h CloseInputFileHook) Output(fileName string, result stat.Result, resultErr error) ([]byte, error) {
 	return h.OutputContext(context.Background(), fileName, result, resultErr)
 }
+
 func (h CloseInputFileHook) OutputContext(ctx context.Context, fileName string, result stat.Result, resultErr error) ([]byte, error) {
 	c := exec.CommandContext(ctx, h.hook)
 	c.Env = append(c.Environ(), EnvCommand+"="+h.cmd)

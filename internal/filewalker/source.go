@@ -54,6 +54,7 @@ func SourceLocator(fs afero.Fs, path string) (string, error) {
 	b, err := json.Marshal(Source{Roots: roots, Path: path})
 	return string(b), err
 }
+
 func OpenSource(locator string) (afero.File, io.Closer, error) {
 	s := Source{Path: locator}
 	if strings.HasPrefix(locator, "{") {

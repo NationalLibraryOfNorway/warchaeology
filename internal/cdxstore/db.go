@@ -86,14 +86,18 @@ func (d *DB) Close() error {
 	d.wg.Wait()
 	return d.kv.Close()
 }
+
 func (d *DB) Flush(ctx context.Context) error { return ctx.Err() }
+
 func identity(source string) string {
 	h := sha256.Sum256([]byte(source))
 	return hex.EncodeToString(h[:])
 }
+
 func captureKey(c *index.Capture) string {
 	return "c/" + c.GetSsu() + " " + c.GetSts().AsTime().UTC().Format("20060102150405") + " " + identity(c.GetSource()) + " " + fmt.Sprintf("%020d", c.GetOffset()) + " " + c.GetGeneration()
 }
+
 func (d *DB) WriteCapture(ctx context.Context, c *index.Capture) error {
 	if d.readOnly {
 		return ErrReadOnly
@@ -165,6 +169,7 @@ func (d *DB) StorageRefById(ctx context.Context, id string) (ref string, err err
 func (d *DB) GetStorageRef(ctx context.Context, id string) (string, error) {
 	return d.StorageRefById(ctx, id)
 }
+
 func (d *DB) PathByFilename(name string) (string, error) {
 	fi, e := d.GetFileInfo(context.Background(), name)
 	if e != nil {
@@ -175,9 +180,11 @@ func (d *DB) PathByFilename(name string) (string, error) {
 	}
 	return fi.GetPath(), nil
 }
+
 func (d *DB) GetFileInfo(ctx context.Context, name string) (*schema.FileInfo, error) {
 	return d.sourceInfo(ctx, name)
 }
+
 func (d *DB) Delete(ctx context.Context) error {
 	if d.readOnly {
 		return ErrReadOnly
@@ -207,6 +214,7 @@ func (d *DB) finishReset(ctx context.Context) error {
 	}
 	return d.kv.Delete(ctx, resetKey)
 }
+
 func queryFromRequest(req index.Request) index.Query {
 	key := req.Ssurt()
 	q := index.Query{Key: key, Match: "exact", Lower: key + " ", Upper: key + "!", Limit: req.Limit(), Closest: req.Closest()}

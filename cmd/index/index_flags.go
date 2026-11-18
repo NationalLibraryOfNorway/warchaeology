@@ -21,6 +21,7 @@ type IndexFlags struct {
 }
 
 func NewIndexFlags() IndexFlags { return IndexFlags{InputHookFlags: &flag.InputHookFlags{}} }
+
 func (f IndexFlags) AddFlags(cmd *cobra.Command) {
 	f.FileWalkerFlags.AddFlags(cmd)
 	f.FilterFlags.AddFlags(cmd)
@@ -37,6 +38,7 @@ func (f IndexFlags) AddFlags(cmd *cobra.Command) {
 	cmd.Flags().String("dir-root", "", "export filenames relative to this directory")
 	cmd.Flags().Bool("post-append", false, "include paired request method and body in capture keys")
 }
+
 func (f IndexFlags) ToOptions() (*IndexOptions, error) {
 	o := &IndexOptions{
 		Concurrency:       f.ConcurrencyFlags.Concurrency(),

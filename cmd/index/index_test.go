@@ -43,9 +43,11 @@ func fixtures(t *testing.T) []fixture {
 	}
 	return f
 }
+
 func options(sink cdx.Sink, paths ...string) *IndexOptions {
 	return &IndexOptions{Paths: paths, Concurrency: 2, FileWalker: filewalker.New(filewalker.WithFs(afero.NewOsFs())), Filter: filter.New(filter.WithRecordTypes(gowarc.Response | gowarc.Revisit | gowarc.Resource | gowarc.Metadata)), DefaultRecords: true, Sink: sink, WarcRecordOptions: []gowarc.WarcRecordOption{gowarc.WithSyntaxErrorPolicy(gowarc.ErrWarn), gowarc.WithSpecViolationPolicy(gowarc.ErrWarn)}}
 }
+
 func entries(t *testing.T, s string) []any {
 	t.Helper()
 	out := []any{}
@@ -65,6 +67,7 @@ func entries(t *testing.T, s string) []any {
 	}
 	return out
 }
+
 func TestPinnedCDXJ(t *testing.T) {
 	for _, f := range fixtures(t) {
 		name := f.Name
@@ -95,6 +98,7 @@ func TestPinnedCDXJ(t *testing.T) {
 		})
 	}
 }
+
 func TestPinnedPostQueries(t *testing.T) {
 	b, e := os.ReadFile("testdata/post.json")
 	if e != nil {
@@ -138,8 +142,11 @@ func (s failingSink) WriteCapture(context.Context, *cdx.Capture) error {
 	}
 	return s.err
 }
+
 func (s failingSink) Flush(context.Context) error { return s.err }
-func (s failingSink) Close() error                { return nil }
+
+func (s failingSink) Close() error { return nil }
+
 func TestIngestionErrors(t *testing.T) {
 	sentinel := errors.New("sink failure")
 	for _, flush := range []bool{false, true} {

@@ -87,6 +87,7 @@ func (o *IndexOptions) Complete(cmd *cobra.Command, args []string) error {
 	o.stdout = cmd.OutOrStdout()
 	return nil
 }
+
 func (o *IndexOptions) Validate() error {
 	if len(o.Paths) == 0 {
 		return errors.New("missing file or directory name")
@@ -96,6 +97,7 @@ func (o *IndexOptions) Validate() error {
 	}
 	return nil
 }
+
 func (o *IndexOptions) Close() error {
 	var err error
 	if o.OwnSink && o.Sink != nil {
@@ -108,6 +110,7 @@ func (o *IndexOptions) Close() error {
 	}
 	return err
 }
+
 func (o *IndexOptions) Run(ctx context.Context) error {
 	if o.Sink == nil {
 		if err := o.openSink(ctx); err != nil {
@@ -383,6 +386,7 @@ func (o *IndexOptions) captureRecord(file io.ReaderAt, rec gowarc.Record, source
 	}
 	return
 }
+
 // inflatedMember retains the inflated prefix for backward framing reads.
 type inflatedMember struct {
 	ctx    context.Context
@@ -446,6 +450,7 @@ func storedLength(file io.ReaderAt, rec gowarc.Record) (int64, error) {
 	}
 	return headers + length, nil
 }
+
 func pair(previous, current *cdx.Capture, previousMethod, previousQuery, method, query string) bool {
 	if previous == nil || previous.GetUri() != current.GetUri() || current.GetRct() != previous.GetRid() {
 		return false

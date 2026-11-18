@@ -130,6 +130,7 @@ func Properties(c *Capture) (map[string]any, error) {
 	}
 	return m, nil
 }
+
 func Line(c *Capture) ([]byte, error) {
 	m, err := Properties(c)
 	if err != nil {
@@ -141,6 +142,7 @@ func Line(c *Capture) ([]byte, error) {
 	}
 	return []byte(c.GetSsu() + " " + c.GetSts().AsTime().UTC().Format("20060102150405") + " " + string(b)), nil
 }
+
 func ParseLine(line []byte) (*Capture, error) {
 	fields := strings.SplitN(string(line), " ", 3)
 	if len(fields) != 3 {

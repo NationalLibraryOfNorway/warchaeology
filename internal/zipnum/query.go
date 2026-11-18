@@ -26,6 +26,7 @@ type Reader struct {
 }
 
 func Open(root string) (*Reader, error) { return OpenContext(context.Background(), root) }
+
 func OpenContext(ctx context.Context, root string) (r *Reader, err error) {
 	root, err = filepath.EvalSymlinks(root)
 	if err != nil {
@@ -116,7 +117,9 @@ func OpenContext(ctx context.Context, root string) (r *Reader, err error) {
 
 	return r, nil
 }
+
 func (r *Reader) Close() error { return r.summary.Close() }
+
 func (r *Reader) block(i int) (blockIndex, error) {
 	br := bufio.NewReader(io.NewSectionReader(r.summary, r.offsets[i], 1<<63-1))
 	line, e := br.ReadString('\n')
@@ -126,6 +129,7 @@ func (r *Reader) block(i int) (blockIndex, error) {
 	b, _, e := parseIndexFields([]byte(line), true)
 	return b, e
 }
+
 func (r *Reader) rangeFor(lower, upper string) (int, int, error) {
 	var err error
 	search := func(key string) int {
@@ -148,13 +152,16 @@ func (r *Reader) rangeFor(lower, upper string) (int, int, error) {
 	}
 	return first, max(first, last), err
 }
+
 func (r *Reader) Scan(ctx context.Context, lower, upper string, emit func(*index.Capture) error) error {
 	_, e := r.scan(ctx, lower, upper, 0, 0, emit)
 	return e
 }
+
 func (r *Reader) ScanPage(ctx context.Context, lower, upper string, page, size int, emit func(*index.Capture) error) (int, error) {
 	return r.scan(ctx, lower, upper, page, size, emit)
 }
+
 func (r *Reader) scan(ctx context.Context, lower, upper string, page, size int, emit func(*index.Capture) error) (int, error) {
 	first, last, e := r.rangeFor(lower, upper)
 	if e != nil {
@@ -189,6 +196,7 @@ func (r *Reader) scan(ctx context.Context, lower, upper string, page, size int, 
 	}
 	return pages, nil
 }
+
 func (r *Reader) readBlock(ctx context.Context, b blockIndex, lower, upper string, emit func(*index.Capture) error) (err error) {
 	f, err := os.Open(filepath.Join(r.root, partDir, b.file))
 	if err != nil {

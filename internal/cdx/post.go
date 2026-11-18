@@ -107,6 +107,7 @@ func RequestQuery(contentType, length string, body io.Reader) (string, error) {
 	}
 	return q, nil
 }
+
 func unquoteForm(s string) string { // Python unquote_plus tolerates invalid percent escapes.
 	s = strings.ReplaceAll(s, "+", " ")
 	var out strings.Builder
@@ -122,6 +123,7 @@ func unquoteForm(s string) string { // Python unquote_plus tolerates invalid per
 	}
 	return strings.ToValidUTF8(out.String(), "�")
 }
+
 func jsonQuery(b []byte) (string, error) {
 	var pairs []string
 	counts := map[string]int{}
@@ -241,6 +243,7 @@ func (node queryNode) visit(add func(string, jsontext.Token)) {
 		child.visit(add)
 	}
 }
+
 func RequestMetadata(rec gowarc.Record) (method, query string, err error) {
 	b, ok := rec.WarcRecord.Block().(gowarc.HttpRequestBlock)
 	if !ok {
@@ -260,6 +263,7 @@ func RequestMetadata(rec gowarc.Record) (method, query string, err error) {
 	query, err = RequestQuery(b.HttpHeader().Get("Content-Type"), b.HttpHeader().Get("Content-Length"), r)
 	return
 }
+
 func Augment(c *Capture, method, query string) {
 	if method != "POST" && method != "PUT" {
 		return
