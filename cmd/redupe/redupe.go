@@ -3,6 +3,7 @@ package redupe
 
 import (
 	"context"
+	"crypto/rand"
 	"errors"
 	"io"
 	"os"
@@ -13,7 +14,6 @@ import (
 
 	"github.com/dgraph-io/badger/v4"
 	"github.com/nationallibraryofnorway/warchaeology/v5/cmd/internal/flag"
-	"github.com/nationallibraryofnorway/warchaeology/v5/internal/cdxstore"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/filewalker"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/hooks"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/util"
@@ -57,7 +57,9 @@ type RedupeOptions struct {
 	CloseInputFileHook              hooks.CloseInputFileHook
 	WriterConfig                    *warcwriterconfig.WarcWriterConfig
 	configuration                   map[string]any
-	catalog                         *cdxstore.DB
+	catalog                         *inventoryCatalog
+	scratch                         *badger.DB
+	findings                        *os.File
 	state                           *badger.DB
 	workDir                         string
 	temporaryIndex                  bool
@@ -193,6 +195,22 @@ func (o *RedupeOptions) Close() error {
 		err = errors.Join(err, o.catalog.Close())
 		o.catalog = nil
 	}
+	if o.findings != nil {
+		err = errors.Join(err, o.findings.Sync(), o.findings.Close())
+		o.findings = nil
+	}
+	if o.scratch != nil {
+		err = errors.Join(err, o.scratch.Close())
+		o.scratch = nil
+	}
+	if o.workDir != "" {
+		if e := os.RemoveAll(o.workDir); e != nil {
+			err = errors.Join(err, e)
+		} else {
+			err = errors.Join(err, o.clearInventory())
+		}
+		o.workDir = ""
+	}
 	if o.state != nil {
 		err = errors.Join(err, o.state.Close())
 		o.state = nil
@@ -205,15 +223,15 @@ func (o *RedupeOptions) Close() error {
 		err = errors.Join(err, o.FileWalker.Close())
 		o.FileWalker = nil
 	}
-	if o.workDir != "" {
-		err = errors.Join(err, os.RemoveAll(o.workDir))
-		o.workDir = ""
-	}
 	if o.temporaryIndex {
 		err = errors.Join(err, os.RemoveAll(o.IndexDir))
 		o.temporaryIndex = false
 	}
 	return err
+}
+
+func (o *RedupeOptions) clearInventory() error {
+	return o.state.Update(func(tx *badger.Txn) error { return tx.Delete([]byte("!inventory")) })
 }
 
 func (o *RedupeOptions) open(ctx context.Context) (err error) {
@@ -231,11 +249,78 @@ func (o *RedupeOptions) open(ctx context.Context) (err error) {
 	if err != nil {
 		return err
 	}
-	o.workDir, err = os.MkdirTemp(o.IndexDir, "inventory-*")
+	if err = o.state.Update(func(tx *badger.Txn) error {
+		item, e := tx.Get([]byte("!format"))
+		if e == nil {
+			return item.Value(func(b []byte) error {
+				if string(b) != "redupe-ledger-v2" {
+					return errors.New("incompatible redupe ledger; use a new index directory")
+				}
+				return nil
+			})
+		}
+		if e != badger.ErrKeyNotFound {
+			return e
+		}
+		it := tx.NewIterator(badger.DefaultIteratorOptions)
+		defer it.Close()
+		it.Rewind()
+		if it.Valid() {
+			return errors.New("legacy redupe ledger; use a new index directory")
+		}
+		return tx.Set([]byte("!format"), []byte("redupe-ledger-v2"))
+	}); err != nil {
+		return err
+	}
+	parent, err := filepath.Abs(o.IndexDir)
 	if err != nil {
 		return err
 	}
-	o.catalog, err = cdxstore.Open(ctx, cdxstore.Options{Format: "badger", Dir: filepath.Join(o.workDir, "source-catalog")})
+	var stale string
+	if err = o.get("!inventory", &stale); err == nil {
+		if filepath.Clean(stale) != stale || filepath.Dir(stale) != parent || !strings.HasPrefix(filepath.Base(stale), "inventory-") {
+			return errors.New("invalid recorded inventory directory")
+		}
+		if err = os.RemoveAll(stale); err != nil {
+			return err
+		}
+	} else if !errors.Is(err, badger.ErrKeyNotFound) {
+		return err
+	}
+	// Journal the unique path before creating anything a crash could orphan.
+	next := filepath.Join(parent, "inventory-"+rand.Text())
+	if _, err := os.Lstat(next); err == nil {
+		return os.ErrExist
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	if err = o.put("!inventory", next); err != nil {
+		return err
+	}
+	if err = os.Mkdir(next, 0700); err != nil {
+		return errors.Join(err, o.clearInventory())
+	}
+	o.workDir = next
+	o.scratch, err = badger.Open(badger.DefaultOptions(filepath.Join(o.workDir, "scratch")).WithLogger(nil).WithSyncWrites(false))
+	if err != nil {
+		return err
+	}
+	o.catalog = &inventoryCatalog{o: o}
+	auditPath := o.ReportPath + ".findings.jsonl"
+	if o.ReportPath == "" {
+		auditPath = filepath.Join(o.IndexDir, "findings.jsonl")
+	}
+	if o.temporaryIndex && o.ReportPath == "" {
+		o.findings, err = os.CreateTemp("", "warc-redupe-findings-*.jsonl")
+		if err == nil {
+			auditPath = o.findings.Name()
+		}
+	} else {
+		o.findings, err = os.Create(auditPath)
+	}
+	if err == nil {
+		o.report.FindingsArtifact = auditPath
+	}
 	return err
 }
 

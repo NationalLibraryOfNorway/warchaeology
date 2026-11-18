@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/nationallibraryofnorway/warchaeology/v5/internal/publication"
 	"io"
 	"io/fs"
 	"os"
@@ -18,6 +17,7 @@ import (
 	"github.com/dgraph-io/badger/v4"
 	"github.com/nationallibraryofnorway/gowarc/v3"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/loader"
+	"github.com/nationallibraryofnorway/warchaeology/v5/internal/publication"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/version"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/warcwriterconfig"
 )
@@ -179,6 +179,9 @@ func (o *RedupeOptions) publishYear(ctx context.Context, ordered, output, y stri
 	if err = o.checkSources(ctx); err != nil {
 		return err
 	}
+	if err = syncOutputFiles(stage); err != nil {
+		return err
+	}
 	checksums, err := directoryChecksums(stage)
 	if err != nil {
 		return err
@@ -246,6 +249,9 @@ func verifyCompletion(dir, fingerprint string) error {
 	if err = json.Unmarshal(data, &c); err != nil {
 		return err
 	}
+	if c.Year != filepath.Base(dir) {
+		return errors.New("completion report period differs from destination")
+	}
 	if c.Report.Fingerprint != fingerprint {
 		return errors.New("completed year's inventory/configuration differs")
 	}
@@ -267,7 +273,7 @@ func verifyCompletion(dir, fingerprint string) error {
 func (o *RedupeOptions) verifyYear(ctx context.Context, dir, y string) error {
 	var count int64
 	verifiedPrefix := "x/verified/" + y + "/"
-	if err := o.state.DropPrefix([]byte(verifiedPrefix)); err != nil {
+	if err := o.scratch.DropPrefix([]byte(verifiedPrefix)); err != nil {
 		return err
 	}
 	err := filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) (resultErr error) {
@@ -433,4 +439,23 @@ func (o *RedupeOptions) writePlanned(ctx context.Context, config *warcwriterconf
 		}
 	}
 	return loc, nil
+}
+
+func syncOutputFiles(dir string) error {
+	return filepath.WalkDir(dir, func(path string, entry fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if entry.IsDir() {
+			return nil
+		}
+		if !entry.Type().IsRegular() {
+			return errors.New("unexpected non-regular output")
+		}
+		f, err := os.OpenFile(path, os.O_RDWR, 0)
+		if err != nil {
+			return err
+		}
+		return errors.Join(f.Sync(), f.Close())
+	})
 }

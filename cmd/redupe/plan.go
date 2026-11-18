@@ -52,13 +52,15 @@ type YearReport struct {
 }
 
 type Report struct {
-	Version       string                 `json:"toolVersion"`
-	Configuration map[string]any         `json:"configuration"`
-	Fingerprint   string                 `json:"inventoryConfigurationSha256"`
-	Audit         bool                   `json:"audit"`
-	Planning      string                 `json:"planning"`
-	Years         map[string]*YearReport `json:"years"`
-	Findings      []Finding              `json:"findings,omitempty"`
+	FindingsArtifact string                 `json:"findingsArtifact,omitempty"`
+	FindingCount     int64                  `json:"findingCount"`
+	Version          string                 `json:"toolVersion"`
+	Configuration    map[string]any         `json:"configuration"`
+	Fingerprint      string                 `json:"inventoryConfigurationSha256"`
+	Audit            bool                   `json:"audit"`
+	Planning         string                 `json:"planning"`
+	Years            map[string]*YearReport `json:"years"`
+	Findings         []Finding              `json:"findings,omitempty"`
 }
 
 type planned struct {
@@ -120,7 +122,9 @@ func (o *RedupeOptions) Run(ctx context.Context) (err error) {
 	}
 	defer func() {
 		if err != nil {
-			o.report.Findings = append(o.report.Findings, Finding{Message: err.Error(), Blocking: true})
+			if e := o.addFinding("", Finding{Message: err.Error(), Blocking: true}); e != nil {
+				err = errors.Join(err, e)
+			}
 		}
 		if o.ReportPath != "" {
 			err = errors.Join(err, writeJSON(o.ReportPath, o.report))
@@ -145,7 +149,7 @@ func (o *RedupeOptions) Run(ctx context.Context) (err error) {
 		if err = o.scan(prefix, func(data []byte) error {
 			if prefix == "x/record/" {
 				var e entry
-				if err := json.Unmarshal(data, &e); err != nil {
+				if err := decodeEntry(data, &e); err != nil {
 					return err
 				}
 				e.Capture.Generation = ""
@@ -175,7 +179,9 @@ func (o *RedupeOptions) Run(ctx context.Context) (err error) {
 		p, err := o.plan(ctx, e)
 		if err != nil {
 			yr.Failed++
-			yr.Findings = append(yr.Findings, Finding{ref, err.Error(), true})
+			if e := o.addFinding(year(e.Capture), Finding{ref, err.Error(), true}); e != nil {
+				return e
+			}
 			return nil
 		}
 		return o.put("x/plan/"+hashString(ref), p)
@@ -332,8 +338,10 @@ func (o *RedupeOptions) resolve(ctx context.Context, e *entry, seen map[string]b
 		if err != nil {
 			return err
 		}
-		if len(candidates) == 0 || candidates[0].Fingerprint != candidate.Fingerprint {
+		if len(candidates) == 0 {
 			candidates = append(candidates, candidate)
+		} else if candidates[0].Fingerprint != candidate.Fingerprint {
+			return errors.New("ambiguous revisit target")
 		}
 		return nil
 	}
@@ -529,7 +537,6 @@ func verifyRecord(wr gowarc.WarcRecord) error {
 }
 
 func (o *RedupeOptions) reportContext(ctx context.Context, e *entry, year string) error {
-	yr := o.yearReport(year)
 	for _, id := range e.Context {
 		found := false
 		sameYear := false
@@ -541,7 +548,9 @@ func (o *RedupeOptions) reportContext(ctx context.Context, e *entry, year string
 			return err
 		}
 		if !found || !sameYear {
-			yr.Findings = append(yr.Findings, Finding{e.Capture.GetRef(), "contextual reference outside this year: " + id, false})
+			if err := o.addFinding(year, Finding{e.Capture.GetRef(), "contextual reference outside this year: " + id, false}); err != nil {
+				return err
+			}
 		}
 	}
 	return nil
@@ -565,6 +574,30 @@ func (o *RedupeOptions) reportDependencies(y string, chain []*entry) error {
 		yr.Referenced++
 		if year(dependency.Capture) != y {
 			yr.CrossYear++
+		}
+	}
+	return nil
+}
+
+func (o *RedupeOptions) addFinding(y string, f Finding) error {
+	o.report.FindingCount++
+	if o.findings != nil {
+		if err := json.NewEncoder(o.findings).Encode(struct {
+			Finding
+
+			Year string `json:"year,omitempty"`
+		}{f, y}); err != nil {
+			return err
+		}
+	}
+	if y == "" {
+		if len(o.report.Findings) < 100 {
+			o.report.Findings = append(o.report.Findings, f)
+		}
+	} else {
+		r := o.yearReport(y)
+		if len(r.Findings) < 100 {
+			r.Findings = append(r.Findings, f)
 		}
 	}
 	return nil

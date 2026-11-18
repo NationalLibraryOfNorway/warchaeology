@@ -653,3 +653,49 @@ func TestCancellationDuringOutputHook(t *testing.T) {
 		t.Fatal("cancelled output published")
 	}
 }
+
+func TestRecoverRecordedInventory(t *testing.T) {
+	o := testOptions(t)
+	o.Audit = true
+	if err := o.open(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	old := o.workDir
+	unrelated := filepath.Join(o.IndexDir, "inventory-user")
+	if err := os.Mkdir(unrelated, 0700); err != nil {
+		t.Fatal(err)
+	}
+	// Release the handles as a terminated process would, preserving the ledger.
+	o.workDir = ""
+	if err := o.Close(); err != nil {
+		t.Fatal(err)
+	}
+	retry := testOptions(t)
+	retry.Audit = true
+	retry.IndexDir = o.IndexDir
+	if err := retry.open(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(old); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("stale inventory: %v", err)
+	}
+	if _, err := os.Stat(unrelated); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestRejectSwappedCompletion(t *testing.T) {
+	for _, period := range []string{"2023", "2023-02", "2023-02-01"} {
+		dir := filepath.Join(t.TempDir(), period)
+		if err := os.Mkdir(dir, 0700); err != nil {
+			t.Fatal(err)
+		}
+		c := completion{Report: Report{Fingerprint: "same"}, Year: "2024", Checksums: map[string]string{}}
+		if err := writeJSON(filepath.Join(dir, "completion.json"), c); err != nil {
+			t.Fatal(err)
+		}
+		if err := verifyCompletion(dir, "same"); err == nil {
+			t.Fatalf("accepted swapped %s", period)
+		}
+	}
+}

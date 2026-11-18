@@ -45,24 +45,32 @@ func hashString(s string) string { sum := sha256.Sum256([]byte(s)); return hex.E
 
 func (o *RedupeOptions) put(key string, value any) error {
 	data, err := json.Marshal(value)
+	if e, ok := value.(*entry); ok {
+		data, err = encodeEntry(e)
+	}
 	if err != nil {
 		return err
 	}
-	return o.state.Update(func(tx *badger.Txn) error { return tx.Set([]byte(key), data) })
+	return o.store(key).Update(func(tx *badger.Txn) error { return tx.Set([]byte(key), data) })
 }
 
 func (o *RedupeOptions) get(key string, value any) error {
-	return o.state.View(func(tx *badger.Txn) error {
+	return o.store(key).View(func(tx *badger.Txn) error {
 		item, err := tx.Get([]byte(key))
 		if err != nil {
 			return err
 		}
-		return item.Value(func(data []byte) error { return json.Unmarshal(data, value) })
+		return item.Value(func(data []byte) error {
+			if e, ok := value.(*entry); ok {
+				return decodeEntry(data, e)
+			}
+			return json.Unmarshal(data, value)
+		})
 	})
 }
 
 func (o *RedupeOptions) scan(prefix string, visit func([]byte) error) error {
-	return o.state.View(func(tx *badger.Txn) error {
+	return o.store(prefix).View(func(tx *badger.Txn) error {
 		it := tx.NewIterator(badger.DefaultIteratorOptions)
 		defer it.Close()
 		for it.Seek([]byte(prefix)); it.ValidForPrefix([]byte(prefix)); it.Next() {
@@ -81,7 +89,7 @@ func (o *RedupeOptions) entry(ref string) (*entry, error) {
 }
 
 func (o *RedupeOptions) inventory(ctx context.Context) (_ string, resultErr error) {
-	if err := o.state.DropPrefix([]byte("x/")); err != nil {
+	if err := o.scratch.DropPrefix([]byte("x/")); err != nil {
 		return "", err
 	}
 	sorter := cdx.NewSorter(o.workDir, true)
