@@ -1,0 +1,164 @@
+package index
+
+import (
+	"bufio"
+	"bytes"
+	"context"
+	"crypto/sha1"
+	"encoding/base32"
+	"encoding/json"
+	"fmt"
+	"io"
+	"net/http"
+	"strconv"
+	"strings"
+	"time"
+
+	"github.com/nationallibraryofnorway/gowarc/v3"
+	"github.com/nationallibraryofnorway/warchaeology/v5/internal/cdx/schema"
+	"github.com/nationallibraryofnorway/whatwg-url/surt"
+	"google.golang.org/protobuf/types/known/timestamppb"
+)
+
+// Capture is shared by all exports and database backends. Source and Offset
+// identify the reopenable source position; Filename is the public replay name.
+type Capture = schema.Cdx
+
+type Sink interface {
+	WriteCapture(context.Context, *Capture) error
+	Flush(context.Context) error
+	Close() error
+}
+
+func CanonicalKey(raw string) string {
+	key, err := surt.String(raw)
+	if err != nil {
+		return raw
+	}
+	return key
+}
+
+func NewCapture(rec gowarc.Record, source, filename string) (*Capture, error) {
+	wr := rec.WarcRecord
+	h := wr.WarcHeader()
+	t, err := h.GetTime(gowarc.WarcDate)
+	if err != nil {
+		return nil, err
+	}
+	c := &Capture{Uri: h.Get(gowarc.WarcTargetURI), Sts: timestamppb.New(t), Srt: wr.Type().String(), Rid: wr.RecordId(), Rct: h.GetId(gowarc.WarcConcurrentTo), Rle: rec.Size, Offset: rec.Offset, Source: source, Filename: filename, Dig: h.Get(gowarc.WarcPayloadDigest), Mct: h.Get(gowarc.ContentType)}
+	c.Ref = "warcfile:" + source + "#" + strconv.FormatInt(rec.Offset, 10)
+	c.Ssu = CanonicalKey(c.GetUri())
+	c.Cle, _ = h.GetInt64(gowarc.ContentLength)
+	// Use the measured block size when available. Reading an uncached block
+	// here would consume the payload needed for digest or request extraction.
+	c.Ple = max(0, c.Cle)
+	if wr.Block().IsCached() {
+		c.Ple = wr.Block().Size()
+	}
+	if b, ok := wr.Block().(gowarc.ProtocolHeaderBlock); ok {
+		c.Ple = max(0, c.Ple-int64(len(b.ProtocolHeaderBytes())))
+	}
+	if b, ok := wr.Block().(gowarc.HttpResponseBlock); ok {
+		c.Hsc = int32(b.HttpStatusCode())
+		c.Mct = b.HttpHeader().Get("Content-Type")
+	}
+	if wr.Type() == gowarc.Revisit {
+		c.Ple = 0
+		c.Mct = "warc/revisit"
+		if r, e := wr.Block().RawBytes(); e == nil {
+			if resp, e := http.ReadResponse(bufio.NewReader(r), nil); e == nil {
+				c.Hsc = int32(resp.StatusCode)
+				_ = resp.Body.Close()
+			}
+		}
+		c.Roi = h.GetId(gowarc.WarcRefersTo)
+		c.Rou = h.Get(gowarc.WarcRefersToTargetURI)
+		if dt, e := h.GetTime(gowarc.WarcRefersToDate); e == nil {
+			c.Rod = timestamppb.New(dt)
+		}
+	}
+	if i := strings.IndexAny(c.GetMct(), "; \t\r\n"); i >= 0 {
+		c.Mct = c.GetMct()[:i]
+	}
+	if c.GetDig() == "" && wr.Type() != gowarc.Revisit {
+		var r io.Reader
+		if b, ok := wr.Block().(gowarc.PayloadBlock); ok {
+			r, err = b.PayloadBytes()
+		} else {
+			r, err = wr.Block().RawBytes()
+		}
+		if err != nil {
+			return nil, err
+		}
+		hash := sha1.New()
+		if c.Ple, err = io.Copy(hash, r); err != nil {
+			return nil, err
+		}
+		c.Dig = "sha1:" + base32.StdEncoding.WithPadding(base32.NoPadding).EncodeToString(hash.Sum(nil))
+	}
+	return c, nil
+}
+
+func Properties(c *Capture) (map[string]any, error) {
+	m := make(map[string]any)
+	if len(c.GetExtraJson()) > 0 {
+		decoder := json.NewDecoder(bytes.NewReader(c.GetExtraJson()))
+		decoder.UseNumber()
+		if err := decoder.Decode(&m); err != nil {
+			return nil, err
+		}
+		return m, nil
+	}
+	m["url"] = c.GetUri()
+	if c.GetMct() != "" {
+		m["mime"] = c.GetMct()
+	}
+	if c.GetHsc() != 0 {
+		m["status"] = strconv.Itoa(int(c.GetHsc()))
+	}
+	if c.GetDig() != "" {
+		m["digest"] = c.GetDig()
+	}
+	m["length"] = strconv.FormatInt(c.GetRle(), 10)
+	m["offset"] = strconv.FormatInt(c.GetOffset(), 10)
+	m["filename"] = c.GetFilename()
+	if c.GetMethod() != "" {
+		m["method"] = c.GetMethod()
+	}
+	if c.GetMethod() != "" {
+		m["requestBody"] = c.GetRequestBody()
+	}
+	return m, nil
+}
+func Line(c *Capture) ([]byte, error) {
+	m, err := Properties(c)
+	if err != nil {
+		return nil, err
+	}
+	b, err := json.Marshal(m)
+	if err != nil {
+		return nil, err
+	}
+	return []byte(c.GetSsu() + " " + c.GetSts().AsTime().UTC().Format("20060102150405") + " " + string(b)), nil
+}
+func ParseLine(line []byte) (*Capture, error) {
+	fields := strings.SplitN(string(line), " ", 3)
+	if len(fields) != 3 {
+		return nil, fmt.Errorf("invalid CDXJ line")
+	}
+	t, err := time.Parse("20060102150405", fields[1])
+	if err != nil {
+		return nil, err
+	}
+	m := map[string]any{}
+	if err = json.Unmarshal([]byte(fields[2]), &m); err != nil {
+		return nil, err
+	}
+	str := func(k string) string { v, _ := m[k].(string); return v }
+	c := &Capture{Ssu: fields[0], Sts: timestamppb.New(t), Uri: str("url"), Mct: str("mime"), Dig: str("digest"), Filename: str("filename"), Method: str("method"), RequestBody: str("requestBody"), ExtraJson: []byte(fields[2])}
+	c.Offset, _ = strconv.ParseInt(str("offset"), 10, 64)
+	c.Rle, _ = strconv.ParseInt(str("length"), 10, 64)
+	status, _ := strconv.Atoi(str("status"))
+	c.Hsc = int32(status)
+	return c, nil
+}

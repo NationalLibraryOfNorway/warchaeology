@@ -1,0 +1,44 @@
+syntax = "proto3";
+
+package schema;
+
+import "google/protobuf/timestamp.proto";
+import "google/protobuf/duration.proto";
+import "google/protobuf/struct.proto";
+
+option go_package = "github.com/nationallibraryofnorway/warchaeology/v5/internal/cdx/schema";
+
+message Report {
+  enum Status {
+    UNKNOWN = 0;
+    PENDING = 1;
+    RUNNING = 2;
+    COMPLETED = 3;
+    FAILED = 4;
+  }
+
+  string id = 1;
+  google.protobuf.Timestamp start_time = 2;
+  google.protobuf.Duration duration = 3;
+  google.protobuf.Timestamp end_time = 4;
+  string error = 5;
+  google.protobuf.Struct query = 6;
+  Report.Status status = 7;
+  string progress = 8;
+  ReportData data = 9;
+}
+
+message ReportData {
+  uint64 nr_of_records = 1;
+  uint64 nr_of_targets = 2;
+  uint64 nr_of_target_captures = 3;
+  uint64 nr_of_domains = 4;
+  uint64 nr_of_urls = 5;
+  map<string, uint64> count_by_status_code = 6;
+  map<string, uint64> count_by_record_type = 7;
+  map<string, uint64> count_by_content_type = 8;
+  map<string, uint64> count_by_scheme = 9;
+  uint64 content_length = 10;
+  uint64 payload_length = 11;
+  uint64 record_length = 12;
+}

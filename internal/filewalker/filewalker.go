@@ -17,6 +17,7 @@ import (
 )
 
 type FileWalker struct {
+	SourceRoot     string
 	Recursive      bool
 	FollowSymlinks bool
 	Suffixes       []string
@@ -95,10 +96,14 @@ func (fw *FileWalker) Walk(ctx context.Context, path string, walkFn func(fs afer
 	if fw.closed {
 		return os.ErrClosed
 	}
-	return fw.walkDir(ctx, fw.Fs, path, path, "", walkFn)
+	roots := []string(nil)
+	if fw.SourceRoot != "" {
+		roots = []string{fw.SourceRoot}
+	}
+	return fw.walkDir(ctx, fw.Fs, path, path, "", roots, walkFn)
 }
 
-func (fw *FileWalker) walkDir(ctx context.Context, currentFs afero.Fs, root string, dirName string, mountPrefix string, walkFn func(fs afero.Fs, path string, err error) error) error {
+func (fw *FileWalker) walkDir(ctx context.Context, currentFs afero.Fs, root string, dirName string, mountPrefix string, roots []string, walkFn func(fs afero.Fs, path string, err error) error) error {
 	walkImpl := func(walkFn filepath.WalkFunc) error {
 		// Use the custom walk with path.Join (forward slashes) for virtual
 		// filesystems (zip, tar, ftp) where entry names use forward slashes.
@@ -156,7 +161,7 @@ func (fw *FileWalker) walkDir(ctx context.Context, currentFs afero.Fs, root stri
 			if !filepath.IsAbs(linkPath) {
 				linkPath = filepath.Join(filepath.Dir(path), linkPath)
 			}
-			return fw.walkDir(ctx, currentFs, root, linkPath, mountPrefix, walkFn)
+			return fw.walkDir(ctx, currentFs, root, linkPath, mountPrefix, roots, walkFn)
 		}
 
 		mountedFs, resolveErr := archivefs.ResolveFilesystem(currentFs, path)
@@ -167,7 +172,7 @@ func (fw *FileWalker) walkDir(ctx context.Context, currentFs afero.Fs, root stri
 			if c, ok := mountedFs.(io.Closer); ok {
 				fw.closers = append(fw.closers, c)
 			}
-			return fw.walkDir(ctx, mountedFs, "/", "/", logicalPath, walkFn)
+			return fw.walkDir(ctx, mountedFs, "/", "/", logicalPath, append(append([]string(nil), roots...), path), walkFn)
 		}
 
 		// filter files by suffix
@@ -181,7 +186,7 @@ func (fw *FileWalker) walkDir(ctx context.Context, currentFs afero.Fs, root stri
 			fw.processedPaths.Add(logicalPath)
 		}
 
-		return walkFn(currentFs, path, nil)
+		return walkFn(&sourceFS{Fs: currentFs, roots: roots}, path, nil)
 	})
 }
 

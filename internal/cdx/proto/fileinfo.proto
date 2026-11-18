@@ -1,0 +1,18 @@
+syntax = "proto3";
+
+package schema;
+
+import "google/protobuf/timestamp.proto";
+
+option go_package = "github.com/nationallibraryofnorway/warchaeology/v5/internal/cdx/schema";
+
+message FileInfo {
+  // Filename
+  string name = 1;
+  // Full path
+  string path = 2;
+  // Last modified
+  google.protobuf.Timestamp last_modified = 3;
+  // File size
+  int64 size = 4;
+}

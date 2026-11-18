@@ -13,6 +13,7 @@ import (
 	"github.com/nationallibraryofnorway/warchaeology/v5/cmd/console"
 	"github.com/nationallibraryofnorway/warchaeology/v5/cmd/convert"
 	"github.com/nationallibraryofnorway/warchaeology/v5/cmd/dedup"
+	"github.com/nationallibraryofnorway/warchaeology/v5/cmd/index"
 	"github.com/nationallibraryofnorway/warchaeology/v5/cmd/internal/flag"
 	"github.com/nationallibraryofnorway/warchaeology/v5/cmd/ls"
 	"github.com/nationallibraryofnorway/warchaeology/v5/cmd/validate"
@@ -47,6 +48,8 @@ func NewWarcCommand() *cobra.Command {
 
 	// Add flags
 	flag.AddPersistentFlags(cmd)
+
+	cmd.AddCommand(index.NewCmdIndex())
 
 	// Add subcommands
 	cmd.AddCommand(ls.NewCmdList())           // ls
