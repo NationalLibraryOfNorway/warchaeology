@@ -1,6 +1,7 @@
 package warcwriterconfig
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -16,6 +17,8 @@ import (
 const DefaultDateFormat = "2006-1-2"
 
 type WarcWriterConfig struct {
+	hookErrorsMu          sync.Mutex
+	hookErrors            error
 	FilePrefix            string
 	DefaultTime           time.Time
 	OutDir                string
@@ -238,6 +241,10 @@ func New(cmd string, options ...func(*WarcWriterOptions)) (*WarcWriterConfig, er
 }
 
 func (w *WarcWriterConfig) GetWarcWriter(path string, warcDate time.Time) (*gowarc.WarcFileWriter, error) {
+	return w.GetWarcWriterContext(context.Background(), path, warcDate)
+}
+
+func (w *WarcWriterConfig) GetWarcWriterContext(ctx context.Context, path string, warcDate time.Time) (*gowarc.WarcFileWriter, error) {
 	var namer gowarc.WarcFileNameGenerator
 	var dir string
 
@@ -286,7 +293,11 @@ func (w *WarcWriterConfig) GetWarcWriter(path string, warcDate time.Time) (*gowa
 
 	opts := make([]gowarc.WarcFileWriterOption, 0, len(w.WarcFileWriterOptions)+1)
 	opts = append(opts, w.WarcFileWriterOptions...)
-	opts = append(opts, gowarc.WithFileNameGenerator(namer))
+	opts = append(opts, gowarc.WithFileNameGenerator(namer),
+		gowarc.WithBeforeFileCreationHook(func(name string) error { return w.recordHookError(w.openOutputFileHook.RunContext(ctx, name)) }),
+		gowarc.WithAfterFileCreationHook(func(name string, size int64, id string) error {
+			return w.recordHookError(w.closeOutputFileHook.RunContext(ctx, name, size, id))
+		}))
 	ww = gowarc.NewWarcFileWriter(opts...)
 	w.writers[subDir] = ww
 
@@ -302,5 +313,38 @@ func (w *WarcWriterConfig) Close() error {
 		}
 	}
 	clear(w.writers)
+	w.hookErrorsMu.Lock()
+	closeErr = errors.Join(closeErr, w.hookErrors)
+	w.hookErrors = nil
+	w.hookErrorsMu.Unlock()
 	return closeErr
+}
+
+// ForDirectory creates an independent writer scope with the same output policy.
+// No writer or mutex is shared with the template.
+func (w *WarcWriterConfig) ForDirectory(dir string) *WarcWriterConfig {
+	return &WarcWriterConfig{
+		FilePrefix:            w.FilePrefix,
+		DefaultTime:           w.DefaultTime,
+		OutDir:                dir,
+		TmpDir:                w.TmpDir,
+		WarcVersion:           w.WarcVersion,
+		WarcFileNameGenerator: w.WarcFileNameGenerator,
+		SubDirPattern:         w.SubDirPattern,
+		writers:               make(map[string]*gowarc.WarcFileWriter),
+		openOutputFileHook:    w.openOutputFileHook,
+		closeOutputFileHook:   w.closeOutputFileHook,
+		WarcFileWriterOptions: append([]gowarc.WarcFileWriterOption(nil), w.WarcFileWriterOptions...),
+	}
+}
+
+// gowarc v3 ignores hook return values. Retain failures until all writers have
+// closed so callers can refuse publication of incomplete output.
+func (w *WarcWriterConfig) recordHookError(err error) error {
+	if err != nil {
+		w.hookErrorsMu.Lock()
+		w.hookErrors = errors.Join(w.hookErrors, err)
+		w.hookErrorsMu.Unlock()
+	}
+	return err
 }
