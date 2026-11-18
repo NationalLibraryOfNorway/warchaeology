@@ -44,6 +44,7 @@ func Preposterous(fs afero.Fs, path string, preHook hooks.OpenInputFileHook, pos
 func PrePostHook(fs afero.Fs, path string, preHook hooks.OpenInputFileHook, postHook hooks.CloseInputFileHook, fn func(fs afero.Fs, path string) (stat.Result, error)) (stat.Result, error) {
 	return PrePostHookContext(context.Background(), fs, path, preHook, postHook, fn)
 }
+
 func PrePostHookContext(ctx context.Context, fs afero.Fs, path string, preHook hooks.OpenInputFileHook, postHook hooks.CloseInputFileHook, fn func(fs afero.Fs, path string) (stat.Result, error)) (stat.Result, error) {
 	if err := preHook.RunContext(ctx, path); err != nil {
 		if errors.Is(err, ErrSkipFile) {
