@@ -49,7 +49,7 @@ func TestDigestIndex_IsRevisit_CorruptValue(t *testing.T) {
 	defer idx.Close()
 
 	err = idx.db.Update(func(txn *badger.Txn) error {
-		return txn.Set([]byte("corrupt"), []byte{9, 1, 2})
+		return txn.Set(digestKey("corrupt"), []byte{9, 1, 2})
 	})
 	if err != nil {
 		t.Fatal(err)

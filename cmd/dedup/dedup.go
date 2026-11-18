@@ -43,23 +43,24 @@ const (
 )
 
 type DedupOptions struct {
-	Paths               []string
-	Concurrency         int
-	DigestIndex         *index.DigestIndex
-	FileIndex           *index.FileIndex
-	WarcWriterConfig    *warcwriterconfig.WarcWriterConfig
-	MinimumSizeGain     int64
-	MinWARCDiskFree     int64
-	MinIndexDiskFree    int64
-	ContinueOnError     bool
-	RecordTypes         []gowarc.RecordType
-	FileWalker          *filewalker.FileWalker
-	WarcRecordOptions   []gowarc.WarcRecordOption
-	Deterministic       bool
-	OpenInputFileHook   hooks.OpenInputFileHook
-	CloseInputFileHook  hooks.CloseInputFileHook
-	OpenOutputFileHook  hooks.OpenOutputFileHook
-	CloseOutputFileHook hooks.CloseOutputFileHook
+	runStarted, runSucceeded bool
+	Paths                    []string
+	Concurrency              int
+	DigestIndex              *index.DigestIndex
+	FileIndex                *index.FileIndex
+	WarcWriterConfig         *warcwriterconfig.WarcWriterConfig
+	MinimumSizeGain          int64
+	MinWARCDiskFree          int64
+	MinIndexDiskFree         int64
+	ContinueOnError          bool
+	RecordTypes              []gowarc.RecordType
+	FileWalker               *filewalker.FileWalker
+	WarcRecordOptions        []gowarc.WarcRecordOption
+	Deterministic            bool
+	OpenInputFileHook        hooks.OpenInputFileHook
+	CloseInputFileHook       hooks.CloseInputFileHook
+	OpenOutputFileHook       hooks.OpenOutputFileHook
+	CloseOutputFileHook      hooks.CloseOutputFileHook
 }
 
 // Close releases the resources owned by the options. Call it after Run returns.
@@ -71,6 +72,9 @@ func (o *DedupOptions) Close() error {
 		o.WarcWriterConfig = nil
 	}
 	if o.DigestIndex != nil {
+		if o.runStarted && o.runSucceeded && err == nil {
+			err = errors.Join(err, o.DigestIndex.CommitOutputRun())
+		}
 		err = errors.Join(err, o.DigestIndex.Close())
 		o.DigestIndex = nil
 	}
@@ -240,15 +244,13 @@ func NewCmdDedup() *cobra.Command {
 
 NOTE: The filtering options only decides which records are candidates for deduplication.
 The remaining records are written as is.`,
-		RunE: func(cmd *cobra.Command, args []string) error {
+		RunE: func(cmd *cobra.Command, args []string) (runErr error) {
 			o, err := flags.ToDedupOptions()
 			if err != nil {
 				return err
 			}
 			defer func() {
-				if err := o.Close(); err != nil {
-					slog.Error("Close options", "error", err)
-				}
+				runErr = errors.Join(runErr, o.Close())
 			}()
 			if err := o.Complete(cmd, args); err != nil {
 				return err
@@ -292,6 +294,12 @@ func (o *DedupOptions) Validate() error {
 // Run processes the inputs and waits for workers to finish.
 // The caller must close the options after Run returns.
 func (o *DedupOptions) Run() (runErr error) {
+	if runErr = o.DigestIndex.BeginOutputRun(); runErr != nil {
+		return runErr
+	}
+	o.runStarted = true
+	o.WarcWriterConfig.WarcFileWriterOptions = append(o.WarcWriterConfig.WarcFileWriterOptions, gowarc.WithFlush(true))
+	defer func() { o.runSucceeded = runErr == nil }()
 	done := make(chan struct{})
 	var processingErr error
 
@@ -398,8 +406,8 @@ func (o *DedupOptions) Run() (runErr error) {
 	return nil
 }
 
-func (o *DedupOptions) handleFile(fs afero.Fs, path string) (stat.Result, error) {
-	result := stat.NewResult(path)
+func (o *DedupOptions) handleFile(fs afero.Fs, path string) (result stat.Result, err error) {
+	result = stat.NewResult(path)
 
 	file, err := fs.Open(path)
 	if err != nil {
@@ -417,7 +425,7 @@ func (o *DedupOptions) handleFile(fs afero.Fs, path string) (stat.Result, error)
 	if o.WarcWriterConfig.OneToOneWriter {
 		defer func() {
 			if writer != nil {
-				_ = writer.Close()
+				err = errors.Join(err, writer.Close())
 			}
 		}()
 	}
@@ -487,33 +495,25 @@ func (o *DedupOptions) handleRecord(writer *gowarc.WarcFileWriter, record gowarc
 		result.AddError(warc.ErrorFrom(record, fmt.Errorf("error creating revisit ref: %w", err)))
 	}
 
-	// determine if the record is a revisit record
-	revisitReference, err := o.DigestIndex.IsRevisit(digest, revisitRef)
 	if err != nil {
-		result.AddError(warc.ErrorFrom(record, fmt.Errorf("error getting revisit ref: %w", err)))
-	}
-
-	// write a normal record if one of:
-	// a - no revisit reference is found
-	// b - the revisit reference is too large compared to the original record (not enough size gain to warrant writing a revisit record)
-	if revisitReference == nil ||
-		int64(revisitRefSize(revisitReference)) >= payloadLength(warcRecord)-o.MinimumSizeGain {
 		return writeRecord(writer, warcRecord)
 	}
-
-	// Make a revisit record. If it fails, write the original record.
-	revisit, err := warcRecord.ToRevisitRecord(revisitReference)
-	if err != nil {
-		result.AddError(warc.ErrorFrom(record, fmt.Errorf("error creating revisit record: %w", err)))
-		return writeRecord(writer, warcRecord)
-	}
-
-	// Write revisit record
-	err = writeRecord(writer, revisit)
-	if err == nil {
-		result.IncrDuplicates()
-	}
-	return err
+	return o.DigestIndex.WriteWithDonor(digest, revisitRef, func(revisitReference *gowarc.RevisitRef) error {
+		if revisitReference == nil || int64(revisitRefSize(revisitReference)) >= payloadLength(warcRecord)-o.MinimumSizeGain {
+			return writeRecord(writer, warcRecord)
+		}
+		revisit, err := warcRecord.ToRevisitRecord(revisitReference)
+		if err != nil {
+			result.AddError(warc.ErrorFrom(record, err))
+			return writeRecord(writer, warcRecord)
+		}
+		defer revisit.Close()
+		err = writeRecord(writer, revisit)
+		if err == nil {
+			result.IncrDuplicates()
+		}
+		return err
+	})
 }
 
 func writeRecord(writer *gowarc.WarcFileWriter, warcRecord gowarc.WarcRecord) error {
