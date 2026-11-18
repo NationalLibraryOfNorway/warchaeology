@@ -7,10 +7,10 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"uuid"
 
 	"google.golang.org/protobuf/proto"
 
-	"github.com/google/uuid"
 	index "github.com/nationallibraryofnorway/warchaeology/v5/internal/cdx"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/cdx/schema"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/server/api"
@@ -29,10 +29,7 @@ type ReportGenerator struct {
 }
 
 func NewReportGenerator(g index.ReportGenerator) (*ReportGenerator, error) {
-	id, err := uuid.NewV7()
-	if err != nil {
-		return nil, err
-	}
+	id := uuid.NewV7()
 	return &ReportGenerator{
 		Id:              id.String(),
 		UpdateInterval:  5 * time.Second,
