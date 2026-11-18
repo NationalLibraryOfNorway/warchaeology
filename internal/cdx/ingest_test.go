@@ -10,6 +10,27 @@ import (
 	"testing/iotest"
 )
 
+func TestIngestValidationAndPostKeys(t *testing.T) {
+	base := `ignored 20200102030405 {"url":"https://example.com/form","filename":"a","offset":9007199254740993,"length":"9223372036854775807","method":"POST","requestBody":"b=2&a=1","nested":{"n":9007199254740993}}`
+	c, e := ParseIngestLine([]byte(base))
+	if e != nil {
+		t.Fatal(e)
+	}
+	q, e := ParseQuery(map[string][]string{"url": {"https://example.com/form"}, "method": {"POST"}, "requestBody": {"b=2&a=1"}})
+	if e != nil || q.Key != c.GetSsu() {
+		t.Fatalf("%s %s %v", q.Key, c.GetSsu(), e)
+	}
+	b, e := Line(c)
+	if e != nil || !strings.Contains(string(b), "9007199254740993") {
+		t.Fatal(string(b), e)
+	}
+	for _, line := range []string{strings.Replace(base, "20200102030405", "00000102030405", 1), strings.Replace(base, "20200102030405", "20200230030405", 1), strings.Replace(base, `"length":"9223372036854775807"`, `"length":"9223372036854775808"`, 1), strings.Replace(base, `"offset":9007199254740993`, `"offset":-1`, 1), strings.Replace(base, `"offset":9007199254740993`, `"offset":1.5`, 1), strings.Replace(base, `"method":"POST"`, `"method":"GET"`, 1), strings.Replace(base, "https://example.com/form", "http:///missing", 1), strings.Replace(base, "https://example.com/form", "not a url", 1), base + " {}", "com,example)/ 2020 http://example.com/ text/html 200 digest - - 100 0 a"} {
+		if _, e = ParseIngestLine([]byte(line)); e == nil {
+			t.Fatalf("accepted %s", line)
+		}
+	}
+}
+
 func TestBinaryRequestPrefix(t *testing.T) {
 	for _, n := range []int{0, 1, 2, 3, 3059, 3060, 3061, 3062, 3063, 3064, 1 << 20} {
 		body := strings.Repeat("x", n)

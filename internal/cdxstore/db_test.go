@@ -180,3 +180,110 @@ func TestSameFileIDOccurrences(t *testing.T) {
 		t.Fatalf("got %d occurrences", n)
 	}
 }
+
+func TestURIRecordIDIsExact(t *testing.T) {
+	ctx := t.Context()
+	d, e := Open(ctx, Options{Format: "badger", Dir: t.TempDir()})
+	if e != nil {
+		t.Fatal(e)
+	}
+	defer d.Close()
+	for i, id := range []string{"https://records.example/id", "https://records.example/id/nested"} {
+		c := &index.Capture{Ssu: "com,example)/", Rid: id, Offset: int64(i), Sts: timestamppb.New(time.Now())}
+		if e = d.WriteCapture(ctx, c); e != nil {
+			t.Fatal(e)
+		}
+	}
+	n := 0
+	if e = d.CapturesByID(ctx, "https://records.example/id", func(c *index.Capture) error {
+		n++
+		if c.GetRid() != "https://records.example/id" {
+			t.Fatal(c.GetRid())
+		}
+		return nil
+	}); e != nil || n != 1 {
+		t.Fatal(n, e)
+	}
+}
+
+type cancelResetBatch struct {
+	kv
+	cancel context.CancelFunc
+}
+
+func (k cancelResetBatch) batch(ctx context.Context, ops []mutation) error {
+	err := k.kv.batch(ctx, ops)
+	k.cancel()
+	return err
+}
+
+func TestInterruptedResetRecovery(t *testing.T) {
+	ctx := t.Context()
+	opts := Options{Format: "badger", Dir: t.TempDir()}
+	db, err := Open(ctx, opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	write := func() {
+		t.Helper()
+		const source = "capture.warc"
+		fileCtx, err := db.BeginFile(ctx, source)
+		if err != nil {
+			t.Fatal(err)
+		}
+		c := &index.Capture{Uri: "https://example.org/", Ssu: "org,example)/", Filename: source, Source: source, Sts: timestamppb.Now()}
+		if err = db.WriteCapture(fileCtx, c); err != nil {
+			t.Fatal(err)
+		}
+		if err = db.FinishFile(fileCtx, source, 100, time.Now()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write()
+	var ops []mutation
+	for i := range 300 {
+		ops = append(ops, mutation{key: fmt.Sprintf("report/%03d", i), value: []byte("report")})
+	}
+	if err = db.kv.batch(ctx, ops); err != nil {
+		t.Fatal(err)
+	}
+	reset, cancel := context.WithCancel(ctx)
+	defer cancel()
+	db.kv = cancelResetBatch{db.kv, cancel}
+	if err = db.Delete(reset); !errors.Is(err, context.Canceled) {
+		t.Fatalf("reset: %v", err)
+	}
+	if err = db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	opts.ReadOnly = true
+	if reader, err := Open(ctx, opts); err == nil {
+		if err := reader.Close(); err != nil {
+			t.Fatal(err)
+		}
+		t.Fatal("read-only open accepted incomplete reset")
+	}
+	opts.ReadOnly = false
+	db, err = Open(ctx, opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if err = db.kv.Scan(ctx, "report/", "report0", func(string, []byte) error { return errors.New("report survived reset") }); err != nil {
+		t.Fatal(err)
+	}
+	if n, err := db.count(ctx); err != nil || n != 0 {
+		t.Fatalf("count=%d error=%v", n, err)
+	}
+	if rev, err := db.TextRevision(ctx); err != nil || rev == "" {
+		t.Fatalf("revision=%q error=%v", rev, err)
+	}
+	if err = db.Scan(ctx, "", "", func(*index.Capture) error { return errors.New("capture survived reset") }); err != nil {
+		t.Fatal(err)
+	}
+	write()
+	if n, err := db.count(ctx); err != nil || n != 1 {
+		t.Fatalf("count after reindex=%d error=%v", n, err)
+	}
+
+}

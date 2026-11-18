@@ -190,6 +190,11 @@ func (o *IndexOptions) indexInput(ctx context.Context, fs afero.Fs, path string)
 	var stage *stagedFile
 	if db, ok := o.Sink.(*cdxstore.DB); ok {
 		stage = &stagedFile{db: db}
+		defer func() {
+			if stage.ctx != nil {
+				err = errors.Join(err, db.DiscardFile(stage.ctx))
+			}
+		}()
 	}
 	_, err = filewalker.PrePostHookContext(ctx, fs, path, o.OpenInputFileHook, o.CloseInputFileHook, func(fs afero.Fs, p string) (stat.Result, error) {
 		return o.handleFile(ctx, fs, p, stage)

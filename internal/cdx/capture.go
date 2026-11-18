@@ -107,7 +107,9 @@ func Properties(c *Capture) (map[string]any, error) {
 		if err := decoder.Decode(&m); err != nil {
 			return nil, err
 		}
-		return m, nil
+		if _, complete := m["url"]; complete {
+			return m, nil
+		}
 	}
 	m["url"] = c.GetUri()
 	if c.GetMct() != "" {

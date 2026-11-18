@@ -2,6 +2,8 @@ package cdxstore
 
 import (
 	"context"
+	"strings"
+	"uuid"
 
 	"errors"
 	"fmt"
@@ -12,7 +14,10 @@ import (
 	"github.com/dgraph-io/badger/v4"
 )
 
+const badgerFormat = "badger"
+
 type kv interface {
+	batch(context.Context, []mutation) error
 	Get(context.Context, string) ([]byte, error)
 	Put(context.Context, string, []byte) error
 	Delete(context.Context, string) error
@@ -22,10 +27,12 @@ type kv interface {
 type Options struct {
 	Format, Dir string
 	ReadOnly    bool
+	IndexOnly   bool
+	Scratch     bool
 }
 
 func openKV(ctx context.Context, o Options) (kv, error) {
-	if o.Format == "badger" {
+	if o.Format == badgerFormat {
 		for _, legacy := range []string{"cdx-index", "id-index"} {
 			if _, e := os.Stat(filepath.Join(o.Dir, legacy)); e == nil {
 				return nil, fmt.Errorf("legacy capture database; reindex into a new directory")
@@ -33,8 +40,8 @@ func openKV(ctx context.Context, o Options) (kv, error) {
 		}
 	}
 	switch o.Format {
-	case "badger":
-		db, e := badger.Open(badger.DefaultOptions(o.Dir).WithReadOnly(o.ReadOnly).WithSyncWrites(true).WithLogger(nil))
+	case badgerFormat:
+		db, e := badger.Open(badger.DefaultOptions(o.Dir).WithReadOnly(o.ReadOnly).WithSyncWrites(!o.Scratch).WithMemTableSize(32 << 20).WithNumMemtables(2).WithBlockCacheSize(16 << 20).WithIndexCacheSize(8 << 20).WithValueLogFileSize(64 << 20).WithLogger(nil))
 		if e != nil {
 			return nil, e
 		}
@@ -104,3 +111,46 @@ func (b *badgerKV) Scan(ctx context.Context, lo, hi string, fn func(string, []by
 }
 
 func (b *badgerKV) Close() error { return b.db.Close() }
+
+type mutation struct {
+	key    string
+	value  []byte
+	remove bool
+}
+
+func (b *badgerKV) batch(ctx context.Context, entries []mutation) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	return b.db.Update(func(tx *badger.Txn) error {
+		for _, e := range entries {
+			var err error
+			if e.remove {
+				err = tx.Delete([]byte(e.key))
+			} else {
+				err = tx.Set([]byte(e.key), e.value)
+			}
+			if err != nil {
+				return err
+			}
+		}
+		return ctx.Err()
+	})
+}
+func (d *DB) batch(ctx context.Context, entries []mutation) error {
+	// The revision is a durable, coalescing notification for derived indexes.
+	// It shares the transaction with publication and deletion markers.
+	for _, op := range entries {
+		if strings.HasPrefix(op.key, "c/") || strings.HasPrefix(op.key, "s/") || strings.HasPrefix(op.key, "u/") || strings.HasPrefix(op.key, "package/") {
+			entries = append(entries, mutation{key: "text-revision", value: []byte(uuid.NewV7().String())})
+			break
+		}
+	}
+	return d.kv.batch(ctx, entries)
+}
+
+// TextRevision changes whenever capture visibility or package metadata changes.
+func (d *DB) TextRevision(ctx context.Context) (string, error) {
+	b, e := d.kv.Get(ctx, "text-revision")
+	return string(b), e
+}

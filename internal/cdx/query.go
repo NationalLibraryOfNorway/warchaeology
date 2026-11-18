@@ -21,6 +21,8 @@ import (
 
 // QuerySource supplies ordered captures without requiring writable metadata APIs.
 const (
+	collapseLast  = "last"
+	matchExact    = "exact"
 	matchDomain   = "domain"
 	paramPageSize = "pageSize"
 	outputJSON    = "json"
@@ -32,7 +34,17 @@ type QuerySource interface {
 type BlockSource interface {
 	ScanPage(context.Context, string, string, int, int, func(*Capture) error) (int, error)
 }
+type QueryState struct {
+	Scanned, Returned int
+	Truncated         bool
+}
+type OrderedQuerySource interface {
+	ScanOrdered(context.Context, Query, func(*Capture) error) error
+}
 type Query struct {
+	ScanLimit                                                  int
+	State                                                      *QueryState
+	Collapse, CollapseTo                                       string
 	Predicate                                                  func(*Capture) bool
 	Lower, Upper, Key, Match, From, To, Order, Closest, Output string
 	Limit, Page, PageSize                                      int
@@ -50,7 +62,7 @@ type captureFilter struct {
 func ParseQuery(v url.Values) (Query, error) {
 	q := Query{Match: v.Get("matchType"), From: v.Get("from"), To: v.Get("to"), Order: v.Get("sort"), Closest: v.Get("closest"), Output: v.Get("output"), Limit: 0, PageSize: 10}
 	raw := v.Get("url")
-	if raw == "" {
+	if raw == "" && v.Get("urlkey") == "" {
 		return q, fmt.Errorf("url is required")
 	}
 	if strings.HasPrefix(raw, "*.") {
@@ -61,13 +73,38 @@ func ParseQuery(v url.Values) (Query, error) {
 		raw = before
 		q.Match = "prefix"
 	}
-	q.Key = CanonicalKey(raw)
+	q.Key = v.Get("urlkey")
+	if q.Key == "" {
+		if v.Get("method") != "" || v.Get("requestBody") != "" {
+			var err error
+			q.Key, err = CaptureURLKey(raw, v.Get("method"), v.Get("requestBody"))
+			if err != nil {
+				return q, err
+			}
+		} else {
+			q.Key = CanonicalKey(raw)
+		}
+	}
+	q.Collapse = v.Get("collapse")
+	q.CollapseTo = v.Get("collapseTo")
+	if q.CollapseTo != "" && q.CollapseTo != "first" && q.CollapseTo != collapseLast {
+		return q, fmt.Errorf("invalid collapseTo")
+	}
+	if q.Collapse != "" {
+		_, width, has := strings.Cut(q.Collapse, ":")
+		if has {
+			n, e := strconv.Atoi(width)
+			if e != nil || n < 1 {
+				return q, fmt.Errorf("invalid collapse width")
+			}
+		}
+	}
 	if q.Match == "" {
-		q.Match = "exact"
+		q.Match = matchExact
 	}
 	q.Lower = q.Key
 	switch q.Match {
-	case "exact":
+	case matchExact:
 		q.Lower += " "
 	case "prefix":
 	case "host":
@@ -116,8 +153,15 @@ func ParseQuery(v url.Values) (Query, error) {
 	if q.Output != "" && q.Output != "cdxj" && q.Output != outputJSON {
 		return q, fmt.Errorf("invalid output")
 	}
-	if f := v.Get("fields"); f != "" {
+	f := v.Get("fields")
+	if f == "" {
+		f = v.Get("fl")
+	}
+	if f != "" {
 		q.Fields = strings.Split(f, ",")
+		for i, f := range q.Fields {
+			q.Fields[i] = fieldAlias(f)
+		}
 	}
 	for _, f := range v["filter"] {
 		c := captureFilter{}
@@ -201,6 +245,7 @@ func (q Query) Accept(c *Capture) bool {
 
 var errLimit = errors.New("query limit reached")
 
+//nolint:gocyclo,maintidx // Ordered sources, pagination and external-sort fallbacks share filter and collapse semantics.
 func (q Query) Run(ctx context.Context, src QuerySource, emit func(*Capture) error) (_ int, resultErr error) {
 	var target time.Time
 	if q.Order == "closest" {
@@ -211,23 +256,77 @@ func (q Query) Run(ctx context.Context, src QuerySource, emit func(*Capture) err
 		}
 	}
 	count := 0
+	if q.State == nil {
+		q.State = &QueryState{}
+	}
 	send := func(c *Capture) error {
 		if q.Limit > 0 && count >= q.Limit {
+			q.State.Truncated = true
 			return errLimit
 		}
 		if e := emit(c); e != nil {
 			return e
 		}
 		count++
+		q.State.Returned = count
 		return nil
 	}
+	rawSend := send
+	var pending *Capture
+	last := ""
+	hasLast := false
+	collapseKey := func(c *Capture) string {
+		field, width, _ := strings.Cut(q.Collapse, ":")
+		m, _ := Properties(c)
+		m["timestamp"] = c.GetSts().AsTime().UTC().Format("20060102150405")
+		m["urlkey"] = c.GetSsu()
+		value := fmt.Sprint(m[fieldAlias(field)])
+		n, _ := strconv.Atoi(width)
+		if n > 0 && len(value) > n {
+			value = value[:n]
+		}
+		return value
+	}
+	if q.Collapse != "" {
+		send = func(c *Capture) error {
+			k := collapseKey(c)
+			if hasLast && k == last {
+				if q.CollapseTo == collapseLast {
+					pending = c
+				}
+				return nil
+			}
+			if q.CollapseTo == collapseLast {
+				if pending != nil {
+					if e := rawSend(pending); e != nil {
+						return e
+					}
+				}
+				pending = c
+			} else {
+				if e := rawSend(c); e != nil {
+					return e
+				}
+			}
+			last = k
+			hasLast = true
+			return nil
+		}
+	}
+	ordered, canOrder := src.(OrderedQuerySource)
+	canOrder = canOrder && q.Match == matchExact && q.Order != "" && !q.Paginate
 	var sorter *Sorter
-	if q.Order != "" {
+	if q.Order != "" && !canOrder {
 		sorter = NewSorter("", false)
 		defer func() { resultErr = errors.Join(resultErr, sorter.Close()) }()
 	}
 	seq := uint64(0)
 	visit := func(c *Capture) error {
+		if q.ScanLimit > 0 && q.State.Scanned >= q.ScanLimit {
+			q.State.Truncated = true
+			return errLimit
+		}
+		q.State.Scanned++
 		if !q.Accept(c) {
 			return nil
 		}
@@ -265,6 +364,8 @@ func (q Query) Run(ctx context.Context, src QuerySource, emit func(*Capture) err
 			cb = nil
 		}
 		pages, err = b.ScanPage(ctx, q.Lower, q.Upper, q.Page, q.PageSize, cb)
+	} else if canOrder {
+		err = ordered.ScanOrdered(ctx, q, visit)
 	} else {
 		err = src.Scan(ctx, q.Lower, q.Upper, visit)
 	}
@@ -315,16 +416,39 @@ func (q Query) Run(ctx context.Context, src QuerySource, emit func(*Capture) err
 			err = sortErr
 		}
 	}
+	if pending != nil && err == nil {
+		if e := rawSend(pending); e != nil && !errors.Is(e, errLimit) {
+			err = e
+		}
+	}
 	return pages, err
 }
 
-func CDXHandler(src QuerySource) http.HandlerFunc {
+func CDXHandler(src QuerySource) http.HandlerFunc { return CDXHandlerWithLimits(src, 10000, 10000) }
+func CDXHandlerWithLimits(src QuerySource, scanLimit, resultLimit int) http.HandlerFunc {
+	return CDXHandlerWithTransform(src, scanLimit, resultLimit, nil)
+}
+
+// CDXHandlerWithTransform projects serialized fields without changing stored
+// captures, query matching, or exported archive locations.
+func CDXHandlerWithTransform(src QuerySource, scanLimit, resultLimit int, transform func(context.Context, *Capture, map[string]any) error) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		q, e := ParseQuery(r.URL.Query())
 		if e != nil {
 			http.Error(w, e.Error(), http.StatusBadRequest)
 			return
 		}
+		q.ScanLimit = scanLimit
+		if q.Limit == 0 || q.Limit > resultLimit {
+			q.Limit = resultLimit
+		}
+		q.State = &QueryState{}
+		w.Header().Set("Trailer", "X-Cdx-Truncated, X-Cdx-Scanned, X-Cdx-Returned, X-Cdx-Error")
+		defer func() {
+			w.Header().Set("X-Cdx-Truncated", strconv.FormatBool(q.State.Truncated))
+			w.Header().Set("X-Cdx-Scanned", strconv.Itoa(q.State.Scanned))
+			w.Header().Set("X-Cdx-Returned", strconv.Itoa(q.State.Returned))
+		}()
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 		if q.Output == outputJSON || q.ShowPages {
 			w.Header().Set("Content-Type", "application/x-ndjson")
@@ -334,6 +458,11 @@ func CDXHandler(src QuerySource) http.HandlerFunc {
 			m, e := Properties(c)
 			if e != nil {
 				return e
+			}
+			if transform != nil {
+				if e := transform(r.Context(), c, m); e != nil {
+					return e
+				}
 			}
 			ts := c.GetSts().AsTime().Format("20060102150405")
 			if q.Output == outputJSON {
@@ -361,6 +490,7 @@ func CDXHandler(src QuerySource) http.HandlerFunc {
 			return e
 		})
 		if e != nil {
+			w.Header().Set("X-Cdx-Error", e.Error())
 			if !wrote {
 				http.Error(w, e.Error(), http.StatusInternalServerError)
 			}
@@ -370,4 +500,16 @@ func CDXHandler(src QuerySource) http.HandlerFunc {
 			_ = json.NewEncoder(w).Encode(map[string]int{"pages": pages, paramPageSize: q.PageSize})
 		}
 	}
+}
+
+func fieldAlias(field string) string {
+	switch field {
+	case "original":
+		return "url"
+	case "mimetype":
+		return "mime"
+	case "statuscode":
+		return "status"
+	}
+	return field
 }

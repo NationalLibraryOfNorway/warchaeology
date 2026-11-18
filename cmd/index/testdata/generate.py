@@ -70,7 +70,9 @@ for name, mime, body, length in cases:
 (root / "post.json").write_text(json.dumps(post, indent=2) + "\n")
 
 import surt
-urls = ["http://010.000.000.001/", "http://example.com:99999/", "http://example.com\\path", "https://bücher.example/", "https://EXAMPLE.com:443/a%2fb?B=2&a=1#frag", "dns:Example.COM", "http://example.com/?a=&b=2"]
+from importlib.metadata import version
+assert version("surt") == "0.3.1"
+urls = ["http://010.000.000.001/", "http://example.com:99999/", "http://example.com\\path", "https://bücher.example/", "https://EXAMPLE.com:443/a%2fb?B=2&a=1#frag", "dns:Example.COM", "http://example.com/?a=&b=2", "http://example.com/../a", "http://example.com/../../a", "http://example.com/a/./b/../c", "http://example.com/%2e%2e/a", "https://example.com/%252F?a=%2520&b=2&a=1", "https://bücher.example/日本語?z=é&a=1", "http://example.com/?z=2&a=3&a=1", "http:///missing", "not a url", "mailto:Person@Example.COM", "https://example.com/form?__wb_method=POST&b=two&a=1"]
 canonical = []
 for url in urls:
     try:

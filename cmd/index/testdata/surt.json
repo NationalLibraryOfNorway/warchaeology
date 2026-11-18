@@ -26,5 +26,49 @@
   {
     "url": "http://example.com/?a=&b=2",
     "reference": "com,example)/?a=&b=2"
+  },
+  {
+    "url": "http://example.com/../a",
+    "reference": "com,example)/../a"
+  },
+  {
+    "url": "http://example.com/../../a",
+    "reference": "com,example)/a"
+  },
+  {
+    "url": "http://example.com/a/./b/../c",
+    "reference": "com,example)/a/c"
+  },
+  {
+    "url": "http://example.com/%2e%2e/a",
+    "reference": "com,example)/../a"
+  },
+  {
+    "url": "https://example.com/%252F?a=%2520&b=2&a=1",
+    "reference": "com,example)/?a=%20&a=1&b=2"
+  },
+  {
+    "url": "https://bücher.example/日本語?z=é&a=1",
+    "reference": "example,xn--bcher-kva)/%e6%97%a5%e6%9c%ac%e8%aa%9e?a=1&z=%c3%a9"
+  },
+  {
+    "url": "http://example.com/?z=2&a=3&a=1",
+    "reference": "com,example)/?a=1&a=3&z=2"
+  },
+  {
+    "url": "http:///missing",
+    "reference": "missing)/"
+  },
+  {
+    "url": "not a url",
+    "reference": "not%20a%20url)/"
+  },
+  {
+    "url": "mailto:Person@Example.COM",
+    "reference": "mailto:person@example.com"
+  },
+  {
+    "url": "https://example.com/form?__wb_method=POST&b=two&a=1",
+    "reference": "com,example)/form?__wb_method=post&a=1&b=two"
   }
 ]

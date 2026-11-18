@@ -9,6 +9,7 @@ import (
 	"math"
 	"mime"
 	"mime/multipart"
+	"net/http"
 	"net/url"
 	"strconv"
 	"strings"
@@ -250,7 +251,7 @@ func RequestMetadata(rec gowarc.Record) (method, query string, err error) {
 		return "", "", nil
 	}
 	method, _, _ = strings.Cut(string(b.ProtocolHeaderBytes()), " ")
-	if method != "POST" && method != "PUT" {
+	if method != http.MethodPost && method != http.MethodPut {
 		return method, "", nil
 	}
 	r, err := b.PayloadBytes()
@@ -265,7 +266,7 @@ func RequestMetadata(rec gowarc.Record) (method, query string, err error) {
 }
 
 func Augment(c *Capture, method, query string) {
-	if method != "POST" && method != "PUT" {
+	if method != http.MethodPost && method != http.MethodPut {
 		return
 	}
 	c.Method = method

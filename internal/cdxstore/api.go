@@ -76,15 +76,24 @@ func (d *DB) ListStorageRef(ctx context.Context, req index.Request, out chan<- i
 	return d.runAsync(ctx, func(ctx context.Context) {
 		defer close(out)
 		n := 0
+		d.visibility.RLock()
+		defer d.visibility.RUnlock()
 		e := d.kv.Scan(ctx, "i/", "i0", func(_ string, v []byte) error {
 			if req.Limit() > 0 && n >= req.Limit() {
 				return errStop
 			}
-			c := &index.Capture{}
-			if e := proto.Unmarshal(v, c); e != nil {
+			raw, e := d.kv.Get(ctx, string(v))
+			if e != nil {
 				return e
 			}
-			ok, e := d.visible(ctx, c)
+			if len(raw) == 0 {
+				return nil
+			}
+			c, e := decodeCapture(string(v), raw)
+			if e != nil {
+				return e
+			}
+			ok, e := d.currentIDCapture(ctx, c)
 			if e != nil {
 				return e
 			}
@@ -113,7 +122,7 @@ func (d *DB) Debug(ctx context.Context, req keyvalue.DebugRequest, out chan<- ke
 }
 
 func (d *DB) CreateReport(ctx context.Context, req index.Request) (*schema.Report, error) {
-	if d.readOnly {
+	if d.readOnly || d.indexOnly {
 		return nil, ErrReadOnly
 	}
 	g, e := keyvalue.NewReportGenerator(d)

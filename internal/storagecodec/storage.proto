@@ -1,0 +1,11 @@
+syntax = "proto3";
+package storagecodec;
+// Encoded using protowire; body is the existing Cdx protobuf without SURT,
+// digest, record ID, or a deterministically reconstructable storage reference.
+message Capture {
+ uint32 version = 1;
+ bytes body = 2;
+ bytes digest = 3;
+ bytes record_id = 4;
+ bool derived_reference = 5;
+}
