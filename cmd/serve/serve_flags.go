@@ -4,9 +4,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/nationallibraryofnorway/warchaeology/v5/internal/server/captures"
-
 	indexcmd "github.com/nationallibraryofnorway/warchaeology/v5/cmd/index"
+	"github.com/nationallibraryofnorway/warchaeology/v5/internal/server/captures"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 )

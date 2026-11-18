@@ -20,7 +20,6 @@ import (
 	"context"
 
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/cdx/schema"
-
 	"github.com/nationallibraryofnorway/whatwg-url/url"
 )
 

@@ -5,12 +5,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"path/filepath"
-	"time"
-	"uuid"
-
 	"strconv"
 	"strings"
 	"sync"
+	"time"
+	"uuid"
 
 	index "github.com/nationallibraryofnorway/warchaeology/v5/internal/cdx"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/cdx/schema"

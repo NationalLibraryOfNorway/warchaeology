@@ -20,10 +20,9 @@ import (
 	"context"
 	"errors"
 
-	"github.com/nationallibraryofnorway/warchaeology/v5/internal/filewalker"
-
 	"github.com/nationallibraryofnorway/gowarc/v3"
 	index "github.com/nationallibraryofnorway/warchaeology/v5/internal/cdx"
+	"github.com/nationallibraryofnorway/warchaeology/v5/internal/filewalker"
 )
 
 type FilePathResolver interface {

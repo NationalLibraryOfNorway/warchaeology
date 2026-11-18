@@ -2,14 +2,12 @@ package cdxstore
 
 import (
 	"context"
-	"strings"
-	"uuid"
-
 	"errors"
 	"fmt"
-
 	"os"
 	"path/filepath"
+	"strings"
+	"uuid"
 
 	"github.com/dgraph-io/badger/v4"
 )

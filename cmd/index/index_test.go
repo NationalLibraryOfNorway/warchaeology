@@ -14,13 +14,12 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/nationallibraryofnorway/warchaeology/v5/internal/cdxstore"
-	"github.com/nationallibraryofnorway/warchaeology/v5/internal/loader"
-
 	"github.com/nationallibraryofnorway/gowarc/v3"
 	cdx "github.com/nationallibraryofnorway/warchaeology/v5/internal/cdx"
+	"github.com/nationallibraryofnorway/warchaeology/v5/internal/cdxstore"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/filewalker"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/filter"
+	"github.com/nationallibraryofnorway/warchaeology/v5/internal/loader"
 	"github.com/spf13/afero"
 )
 

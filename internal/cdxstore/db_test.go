@@ -7,10 +7,9 @@ import (
 	"testing"
 	"time"
 
+	index "github.com/nationallibraryofnorway/warchaeology/v5/internal/cdx"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/cdx/schema"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/server/api"
-
-	index "github.com/nationallibraryofnorway/warchaeology/v5/internal/cdx"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 

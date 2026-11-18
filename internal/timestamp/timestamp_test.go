@@ -17,9 +17,9 @@
 package timestamp_test
 
 import (
-	"github.com/nationallibraryofnorway/warchaeology/v5/internal/timestamp"
-
 	"testing"
+
+	"github.com/nationallibraryofnorway/warchaeology/v5/internal/timestamp"
 )
 
 type TestData struct {
