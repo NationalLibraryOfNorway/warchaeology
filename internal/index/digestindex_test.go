@@ -3,7 +3,7 @@ package index
 import (
 	"testing"
 
-	"github.com/dgraph-io/badger/v3"
+	"github.com/dgraph-io/badger/v4"
 	"github.com/nationallibraryofnorway/gowarc/v3"
 )
 

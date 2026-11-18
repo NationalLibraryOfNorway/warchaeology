@@ -51,11 +51,25 @@ func (f WarcRecordOptionFlags) LaxHostParsing() bool {
 }
 
 func (f WarcRecordOptionFlags) ToWarcRecordOptions() []gowarc.WarcRecordOption {
+	return f.recordOptions(false)
+}
+
+// IndexRecordOptions keeps protocol blocks available for capture metadata extraction.
+func (f WarcRecordOptionFlags) IndexRecordOptions() []gowarc.WarcRecordOption {
+	return f.recordOptions(true)
+}
+
+func (f WarcRecordOptionFlags) recordOptions(parseBlocks bool) []gowarc.WarcRecordOption {
 	options := []gowarc.WarcRecordOption{
 		gowarc.WithBufferTmpDir(f.TempDir()),
 	}
 	if f.LenientValidation() {
-		options = append(options, gowarc.WithNoValidation())
+		if parseBlocks {
+			// gowarc caches the block during spec validation. Keep it readable after Next returns.
+			options = append(options, gowarc.WithSyntaxErrorPolicy(gowarc.ErrIgnore), gowarc.WithSpecViolationPolicy(gowarc.ErrWarn), gowarc.WithUnknownRecordTypePolicy(gowarc.ErrIgnore))
+		} else {
+			options = append(options, gowarc.WithNoValidation())
+		}
 	}
 	if f.StrictValidation() {
 		options = append(options, gowarc.WithStrictValidation())

@@ -1,3 +1,6 @@
+// Copyright 2024 National Library of Norway.
+// SPDX-License-Identifier: Apache-2.0
+
 package flag
 
 import (
@@ -52,10 +55,14 @@ func (f FileWalkerFlags) ToFileWalker() (*filewalker.FileWalker, error) {
 		return nil, fmt.Errorf("failed to create file system: %w", err)
 	}
 
-	return filewalker.New(
+	walker := filewalker.New(
 		filewalker.WithFs(fs),
 		filewalker.WithRecursive(viper.GetBool(Recursive)),
 		filewalker.WithFollowSymlinks(viper.GetBool(FollowSymlinks)),
 		filewalker.WithSuffixes(viper.GetStringSlice(Suffixes)),
-	), nil
+	)
+	if fs.Name() != "OsFs" {
+		walker.SourceRoot = f.SrcFileListFlags.SrcFilesystem()
+	}
+	return walker, nil
 }

@@ -98,12 +98,16 @@ func (f FilterFlags) ToFilter() (*filter.RecordFilter, error) {
 		return nil, fmt.Errorf("failed to parse record types: %w", err)
 	}
 
-	return filter.New(
+	opts := []func(*filter.RecordFilter){
 		filter.WithMimeType(f.MimeType()),
-		filter.WithCodeRange(from, to),
+
 		filter.WithRecordIds(f.RecordId()),
 		filter.WithRecordTypes(recordTypes),
-	), nil
+	}
+	if f.ResponseCode() != "" {
+		opts = append(opts, filter.WithCodeRange(from, to))
+	}
+	return filter.New(opts...), nil
 }
 
 func toRecordTypes(recordTypes []string) (recordType gowarc.RecordType, err error) {

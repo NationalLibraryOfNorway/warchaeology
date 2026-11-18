@@ -1,6 +1,9 @@
 package warc
 
 import (
+	"bytes"
+	"fmt"
+	"io"
 	"iter"
 	"strings"
 
@@ -184,4 +187,38 @@ func Not(predicate func(gowarc.Record) bool) func(gowarc.Record) bool {
 	return func(record gowarc.Record) bool {
 		return !predicate(record)
 	}
+}
+
+// Coverage tracks the physical end of parsed records, including gzip framing.
+type Coverage int64
+
+func (c *Coverage) Add(file io.ReaderAt, r gowarc.Record) error {
+	if err := c.Finish(file, r.Offset); err != nil {
+		return err
+	}
+	if r.Size <= 0 {
+		return fmt.Errorf("unparsed archive bytes at offset %d", *c)
+	}
+	*c = Coverage(r.Offset + r.Size)
+	return nil
+}
+
+// Some producers leave extra line endings between records or at EOF.
+func (c Coverage) Finish(file io.ReaderAt, size int64) error {
+	for int64(c) < size {
+		var framing [256]byte
+		n := min(int64(len(framing)), size-int64(c))
+		b := framing[:n]
+		if _, err := file.ReadAt(b, int64(c)); err != nil {
+			return err
+		}
+		if len(bytes.Trim(b, "\r\n")) != 0 {
+			break
+		}
+		c += Coverage(n)
+	}
+	if int64(c) != size {
+		return fmt.Errorf("incomplete archive: parsed %d of %d bytes", c, size)
+	}
+	return nil
 }

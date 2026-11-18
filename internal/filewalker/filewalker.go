@@ -1,8 +1,12 @@
+// Copyright 2021 National Library of Norway.
+// SPDX-License-Identifier: Apache-2.0
+
 package filewalker
 
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"io/fs"
 	"os"
@@ -20,6 +24,8 @@ type FileWalker struct {
 	// WaitForReaders drains queued member reads before an archive is unmounted.
 	// A nil callback retains mounts until Close for callers that own deferred reads.
 	WaitForReaders func()
+	ArchiveHandler func(context.Context, afero.Fs, string) (bool, error)
+	SourceRoot     string
 	Recursive      bool
 	FollowSymlinks bool
 	Suffixes       []string
@@ -82,7 +88,7 @@ func New(options ...func(*FileWalker)) *FileWalker {
 	return opts
 }
 
-func (fw *FileWalker) hasSuffix(path string) bool {
+func (fw *FileWalker) HasSuffix(path string) bool {
 	if len(fw.Suffixes) == 0 {
 		return true
 	}
@@ -94,14 +100,42 @@ func (fw *FileWalker) hasSuffix(path string) bool {
 	return false
 }
 
+// WalkInputs collects recoverable traversal failures while visiting remaining inputs.
+func (fw *FileWalker) WalkInputs(ctx context.Context, paths []string, keepGoing bool, submit func(afero.Fs, string) error) error {
+	var failures []error
+	for _, root := range paths {
+		err := fw.Walk(ctx, root, func(fs afero.Fs, path string, err error) error {
+			if err == nil {
+				return submit(fs, path)
+			}
+			if !keepGoing || ctx.Err() != nil {
+				return err
+			}
+			failures = append(failures, fmt.Errorf("%s: %w", path, err))
+			return nil
+		})
+		if err != nil {
+			failures = append(failures, fmt.Errorf("%s: %w", root, err))
+		}
+		if ctx.Err() != nil || (err != nil && !keepGoing) {
+			break
+		}
+	}
+	return errors.Join(failures...)
+}
+
 func (fw *FileWalker) Walk(ctx context.Context, path string, walkFn func(fs afero.Fs, path string, err error) error) error {
 	if fw.closed {
 		return os.ErrClosed
 	}
-	return fw.walkDir(ctx, fw.Fs, path, path, "", walkFn)
+	roots := []string(nil)
+	if fw.SourceRoot != "" {
+		roots = []string{fw.SourceRoot}
+	}
+	return fw.walkDir(ctx, fw.Fs, path, path, false, roots, walkFn)
 }
 
-func (fw *FileWalker) walkDir(ctx context.Context, currentFs afero.Fs, root string, dirName string, mountPrefix string, walkFn func(fs afero.Fs, path string, err error) error) error {
+func (fw *FileWalker) walkDir(ctx context.Context, currentFs afero.Fs, root string, dirName string, mounted bool, roots []string, walkFn func(fs afero.Fs, path string, err error) error) error {
 	walkImpl := func(walkFn filepath.WalkFunc) error {
 		// Use the custom walk with path.Join (forward slashes) for virtual
 		// filesystems (zip, tar, ftp) where entry names use forward slashes.
@@ -120,10 +154,13 @@ func (fw *FileWalker) walkDir(ctx context.Context, currentFs afero.Fs, root stri
 			return walkFn(currentFs, path, err)
 		}
 
-		logicalPath := path
-		if mountPrefix != "" {
-			logicalPath = mountPrefix + "!" + path
+		location, err := sourceLocation(&sourceFS{Fs: currentFs, roots: roots}, path)
+		if err != nil {
+			return walkFn(currentFs, path, err)
 		}
+
+		// Quoting preserves filename bytes and separates the mount chain from the member.
+		logicalPath := fmt.Sprintf("%q:%q", location.Roots, location.Path)
 
 		if info.IsDir() {
 			// skip already processed directories
@@ -137,7 +174,9 @@ func (fw *FileWalker) walkDir(ctx context.Context, currentFs afero.Fs, root stri
 				return nil
 			}
 			// skip directories when recursive option is not set
-			if !fw.Recursive {
+			// An archive is one input: visit all of its members. Recursive only
+			// controls directory traversal outside mounted archives.
+			if !fw.Recursive && !mounted && currentFs.Name() != "zipfs" && currentFs.Name() != "tarfs" {
 				return filepath.SkipDir
 			}
 			return nil
@@ -159,9 +198,22 @@ func (fw *FileWalker) walkDir(ctx context.Context, currentFs afero.Fs, root stri
 			if !filepath.IsAbs(linkPath) {
 				linkPath = filepath.Join(filepath.Dir(path), linkPath)
 			}
-			return fw.walkDir(ctx, currentFs, root, linkPath, mountPrefix, walkFn)
+			return fw.walkDir(ctx, currentFs, root, linkPath, mounted, roots, walkFn)
 		}
 
+		if fw.ArchiveHandler != nil {
+			if fw.processedPaths.Contains(logicalPath) {
+				return nil
+			}
+			handled, e := fw.ArchiveHandler(ctx, &sourceFS{Fs: currentFs, roots: roots}, path)
+			if e != nil {
+				return walkFn(currentFs, path, e)
+			}
+			if handled {
+				fw.processedPaths.Add(logicalPath)
+				return nil
+			}
+		}
 		mountedFs, resolveErr := archivefs.ResolveFilesystem(currentFs, path)
 		if resolveErr != nil {
 			return walkFn(currentFs, path, resolveErr)
@@ -177,11 +229,11 @@ func (fw *FileWalker) walkDir(ctx context.Context, currentFs afero.Fs, root stri
 					}()
 				}
 			}
-			return fw.walkDir(ctx, mountedFs, "/", "/", logicalPath, walkFn)
+			return fw.walkDir(ctx, mountedFs, "/", "/", true, append(location.Roots, location.Path), walkFn)
 		}
 
 		// filter files by suffix
-		if !fw.hasSuffix(path) {
+		if !fw.HasSuffix(path) {
 			return nil
 		}
 		// skip already processed files
@@ -191,7 +243,7 @@ func (fw *FileWalker) walkDir(ctx context.Context, currentFs afero.Fs, root stri
 			fw.processedPaths.Add(logicalPath)
 		}
 
-		return walkFn(currentFs, path, nil)
+		return walkFn(&sourceFS{Fs: currentFs, roots: roots}, path, nil)
 	})
 }
 

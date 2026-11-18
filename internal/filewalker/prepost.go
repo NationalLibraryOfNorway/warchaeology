@@ -1,6 +1,7 @@
 package filewalker
 
 import (
+	"context"
 	"errors"
 	"fmt"
 
@@ -41,7 +42,10 @@ func Preposterous(fs afero.Fs, path string, preHook hooks.OpenInputFileHook, pos
 
 // PrePostHook wraps a function with calls to open and close input file hooks.
 func PrePostHook(fs afero.Fs, path string, preHook hooks.OpenInputFileHook, postHook hooks.CloseInputFileHook, fn func(fs afero.Fs, path string) (stat.Result, error)) (stat.Result, error) {
-	if err := preHook.Run(path); err != nil {
+	return PrePostHookContext(context.Background(), fs, path, preHook, postHook, fn)
+}
+func PrePostHookContext(ctx context.Context, fs afero.Fs, path string, preHook hooks.OpenInputFileHook, postHook hooks.CloseInputFileHook, fn func(fs afero.Fs, path string) (stat.Result, error)) (stat.Result, error) {
+	if err := preHook.RunContext(ctx, path); err != nil {
 		if errors.Is(err, ErrSkipFile) {
 			return nil, err
 		}
@@ -50,8 +54,8 @@ func PrePostHook(fs afero.Fs, path string, preHook hooks.OpenInputFileHook, post
 
 	result, resultErr := fn(fs, path)
 
-	if err := postHook.Run(path, result, resultErr); err != nil {
-		return nil, fmt.Errorf("failed to run close input file hook: %w", err)
+	if err := postHook.RunContext(ctx, path, result, resultErr); err != nil {
+		return result, errors.Join(resultErr, fmt.Errorf("failed to run close input file hook: %w", err))
 	}
 
 	return result, resultErr
