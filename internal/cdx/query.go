@@ -321,6 +321,9 @@ func (q Query) Run(ctx context.Context, src QuerySource, emit func(*Capture) err
 		defer func() { resultErr = errors.Join(resultErr, sorter.Close()) }()
 	}
 	seq := uint64(0)
+	availability, checkAvailability := src.(interface {
+		Available(context.Context, *Capture) (bool, error)
+	})
 	visit := func(c *Capture) error {
 		if q.ScanLimit > 0 && q.State.Scanned >= q.ScanLimit {
 			q.State.Truncated = true
@@ -329,6 +332,12 @@ func (q Query) Run(ctx context.Context, src QuerySource, emit func(*Capture) err
 		q.State.Scanned++
 		if !q.Accept(c) {
 			return nil
+		}
+		if checkAvailability {
+			ok, err := availability.Available(ctx, c)
+			if err != nil || !ok {
+				return err
+			}
 		}
 		if sorter == nil {
 			return send(c)

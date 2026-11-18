@@ -36,7 +36,7 @@ func TestReplayRedirectToClosestCapture(t *testing.T) {
 	if err := os.WriteFile(source, []byte(records.String()), 0600); err != nil {
 		t.Fatal(err)
 	}
-	db, err := cdxstore.Open(t.Context(), cdxstore.Options{Format: "badger", Dir: t.TempDir()})
+	db, err := cdxstore.Open(t.Context(), cdxstore.Options{Format: badgerFormat, Dir: t.TempDir()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -47,7 +47,7 @@ func TestReplayRedirectToClosestCapture(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	handler := (&ServeOptions{prefix: "/archive"}).databaseHandler(db)
+	handler := (&ServeOptions{prefix: "/archive"}).databaseHandler(t.Context(), db)
 	const base = "http://example.test/archive/warcserver/web/"
 	for _, timestamp := range []string{"20200101000000id_", "2020id_", "20200101000000"} {
 		r := httptest.NewRequestWithContext(t.Context(), http.MethodGet, base+timestamp+"/http://example.org/target?q=1", nil)
@@ -119,7 +119,7 @@ func TestNativeEscapedCaptures(t *testing.T) {
 	if err := os.WriteFile(source, []byte(records.String()), 0600); err != nil {
 		t.Fatal(err)
 	}
-	opts := cdxstore.Options{Format: "badger", Dir: t.TempDir()}
+	opts := cdxstore.Options{Format: badgerFormat, Dir: t.TempDir()}
 	db, err := cdxstore.Open(t.Context(), opts)
 	if err != nil {
 		t.Fatal(err)
@@ -137,7 +137,7 @@ func TestNativeEscapedCaptures(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer db.Close()
-	handler := (&ServeOptions{}).databaseHandler(db)
+	handler := (&ServeOptions{}).databaseHandler(t.Context(), db)
 	get := func(path string) string {
 		w := httptest.NewRecorder()
 		handler.ServeHTTP(w, httptest.NewRequestWithContext(t.Context(), http.MethodGet, path, nil))

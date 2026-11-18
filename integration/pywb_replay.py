@@ -32,11 +32,18 @@ with tempfile.TemporaryDirectory() as tmp:
         s.bind(("127.0.0.1", 0))
         port = s.getsockname()[1]
     endpoint = f"http://127.0.0.1:{port}/cdx"
-    process = subprocess.Popen([binary, "serve", "--index-format", "zipnum", "--zipnum-dir", str(cluster), "--address", f"127.0.0.1:{port}"])
+    backend = os.environ.get("WARC_TEST_BACKEND", "zipnum")
+    command = [binary, "serve", "--address", f"127.0.0.1:{port}"]
+    if backend == "collections":
+        command += ["--collections-dir", str(root / "collections")]
+        endpoint = f"http://127.0.0.1:{port}/collections/test/cdx"
+    else:
+        command += ["--index-format", "zipnum", "--zipnum-dir", str(cluster)]
+    process = subprocess.Popen(command)
     try:
         for _ in range(100):
             try:
-                with urllib.request.urlopen(endpoint + "?url=example.com") as response:
+                with urllib.request.urlopen(f"http://127.0.0.1:{port}/ready") as response:
                     assert response.status == 200
                 break
             except OSError:
@@ -45,6 +52,11 @@ with tempfile.TemporaryDirectory() as tmp:
                 time.sleep(.05)
         else:
             raise RuntimeError("CDX server did not start")
+        if backend == "collections":
+            with urllib.request.urlopen(urllib.request.Request(endpoint.removesuffix("/cdx"), method="PUT")) as response:
+                assert response.status == 200
+            with urllib.request.urlopen(urllib.request.Request(endpoint, data=cdx.read_bytes(), method="POST")) as response:
+                assert response.status == 200
         app = FrontEndApp(custom_config={"collections": {"test": {"index": {"type": "cdx", "api_url": endpoint + "?url={url}&closest={closest}&sort=closest", "replay_url": ""}, "archive_paths": [str(root) + "/"]}}, "framed_replay": False})
         client = Client(app, Response)
         for timestamp in ["20200102030405", "20210102030405"]:
@@ -57,7 +69,12 @@ with tempfile.TemporaryDirectory() as tmp:
         response = client.get("/test/20200102030405id_/https://example.com/form?__wb_method=POST&a=hello%20world&b=+")
         assert response.status_code == 201, (response.status, response.data)
         assert response.data == b"submitted", response.data
-        print("pywb replay passed: normal capture, revisit, POST-derived key")
+        acl = root / "blocked.aclj"
+        acl.write_text('com,example)/ - {"access":"block","url":"https://example.com/"}\n')
+        blocked = FrontEndApp(custom_config={"collections": {"test": {"index": {"type": "cdx", "api_url": endpoint + "?url={url}&closest={closest}&sort=closest", "replay_url": ""}, "archive_paths": [str(root) + "/"], "acl_paths": [str(acl)]}}, "framed_replay": False})
+        response = Client(blocked, Response).get("/test/20200102030405id_/https://example.com/")
+        assert response.status_code in (403, 451), (response.status, response.data)
+        print("pywb replay passed: normal capture, revisit, POST-derived key, pywb ACL", backend)
     finally:
         process.send_signal(signal.SIGINT)
         process.wait(timeout=35)

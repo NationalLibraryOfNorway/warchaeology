@@ -7,9 +7,11 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/nationallibraryofnorway/warchaeology/v5/internal/hooks"
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"testing"
 
 	cdx "github.com/nationallibraryofnorway/warchaeology/v5/internal/cdx"
@@ -166,5 +168,61 @@ func TestContinuePastInvalidWACZ(t *testing.T) {
 	}
 	if !reflect.DeepEqual(entries(t, out.String()), entries(t, f.Cdxj)) {
 		t.Fatalf("missing sibling captures: %s", out.String())
+	}
+}
+
+func TestWACZInputHooks(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("requires shell hooks")
+	}
+	dir := t.TempDir()
+	name := filepath.Join(dir, "input.wacz")
+	if err := os.WriteFile(name, leafPackage(t), 0600); err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct{ name, exit string }{{"accept", "0"}, {"reject", "1"}, {"skip", "10"}, {"excluded", "1"}} {
+		t.Run(tc.name, func(t *testing.T) {
+			log := filepath.Join(t.TempDir(), "closed")
+			t.Setenv("HOOK_LOG", log)
+			open := filepath.Join(dir, "open")
+			closeHook := filepath.Join(dir, "close")
+			if err := os.WriteFile(open, []byte("#!/bin/sh\nexit "+tc.exit+"\n"), 0700); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(closeHook, []byte("#!/bin/sh\nprintf '%s' \"$WARC_FILE_NAME\" > \"$HOOK_LOG\"\n"), 0700); err != nil {
+				t.Fatal(err)
+			}
+			var out bytes.Buffer
+			sink, err := cdx.NewOutput(&out, "-", "cdxj", "", false)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer sink.Close()
+			o := options(sink, name)
+			defer o.Close()
+			if tc.name == "excluded" {
+				o.FileWalker.Suffixes = []string{".warc.gz"}
+			}
+			o.OpenInputFileHook, err = hooks.NewOpenInputFileHook("index", open)
+			if err != nil {
+				t.Fatal(err)
+			}
+			o.CloseInputFileHook, err = hooks.NewCloseInputFileHook("index", closeHook)
+			if err != nil {
+				t.Fatal(err)
+			}
+			err = o.Run(t.Context())
+			if (err != nil) != (tc.name == "reject") || (out.Len() > 0) != (tc.name == "accept") {
+				t.Fatalf("output %q, error %v", out.String(), err)
+			}
+			closed, err := os.ReadFile(log)
+			if tc.name == "accept" {
+				if err != nil || string(closed) != name {
+					t.Fatalf("close hook: %q, %v", closed, err)
+				}
+			} else if !errors.Is(err, os.ErrNotExist) {
+				t.Fatalf("unexpected close hook: %q, %v", closed, err)
+			}
+		})
 	}
 }
