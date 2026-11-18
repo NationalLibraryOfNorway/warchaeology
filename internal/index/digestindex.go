@@ -2,14 +2,18 @@ package index
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
+	"sync"
 
 	"github.com/dgraph-io/badger/v4"
 	"github.com/nationallibraryofnorway/gowarc/v3"
 )
 
 type DigestIndex struct {
+	mu        sync.Mutex
 	dir       string
 	db        *badger.DB
 	keepIndex bool
@@ -18,8 +22,11 @@ type DigestIndex struct {
 func NewDigestIndex(indexDir string, keepIndex bool, newIndex bool) (*DigestIndex, error) {
 	dir := filepath.Join(indexDir, "digest-index")
 
-	db, err := badger.Open(badger.DefaultOptions(dir).WithLoggingLevel(badger.WARNING))
+	db, err := badger.Open(badger.DefaultOptions(dir).WithLoggingLevel(badger.WARNING).WithSyncWrites(true))
 	if err != nil {
+		if strings.Contains(err.Error(), "manifest has unsupported version") {
+			return nil, fmt.Errorf("incompatible donor index; reprocess with fresh donor and processed-file indexes and a fresh output directory: %w", err)
+		}
 		return nil, err
 	}
 
@@ -36,6 +43,43 @@ func NewDigestIndex(indexDir string, keepIndex bool, newIndex bool) (*DigestInde
 		}
 	}
 
+	if err = db.Update(func(tx *badger.Txn) error {
+		item, e := tx.Get([]byte("!format"))
+		if e == nil {
+			return item.Value(func(b []byte) error {
+				if string(b) != "dedup-v2" {
+					return fmt.Errorf("incompatible donor index; rebuild in a fresh directory")
+				}
+				return nil
+			})
+		}
+		if e != badger.ErrKeyNotFound {
+			return e
+		}
+		it := tx.NewIterator(badger.DefaultIteratorOptions)
+		defer it.Close()
+		it.Rewind()
+		if it.Valid() {
+			return fmt.Errorf("legacy donor index; rebuild in a fresh directory")
+		}
+		return tx.Set([]byte("!format"), []byte("dedup-v2"))
+	}); err != nil {
+		_ = db.Close()
+		return nil, err
+	}
+	if err = db.View(func(tx *badger.Txn) error {
+		_, e := tx.Get([]byte("!pending-output"))
+		if e == badger.ErrKeyNotFound {
+			return nil
+		}
+		if e != nil {
+			return e
+		}
+		return fmt.Errorf("unfinished dedup output; use a fresh index and output directory")
+	}); err != nil {
+		_ = db.Close()
+		return nil, err
+	}
 	return idx, nil
 }
 
@@ -45,21 +89,21 @@ func (digestIndex *DigestIndex) GetDir() string {
 
 func (digestIndex *DigestIndex) IsRevisit(key string, revisitRef *gowarc.RevisitRef) (*gowarc.RevisitRef, error) {
 	var revisitReference *gowarc.RevisitRef
-	val, err := MarshalRevisitRef(revisitRef)
+	val, err := marshalDonor(revisitRef)
 	if err != nil {
 		return nil, err
 	}
 	err = runWithConflictRetry(func() error {
 		return digestIndex.db.Update(func(txn *badger.Txn) error {
-			item, err := txn.Get([]byte(key))
+			item, err := txn.Get(digestKey(key))
 			if err == badger.ErrKeyNotFound {
-				return txn.Set([]byte(key), val)
+				return txn.Set(digestKey(key), val)
 			}
 			if err != nil {
 				return err
 			}
 			return item.Value(func(val []byte) error {
-				rr, err := UnmarshalRevisitRef(val)
+				rr, err := unmarshalDonor(val)
 				revisitReference = rr
 				return err
 			})
