@@ -17,9 +17,11 @@ builds:
       - amd64
       - "386"
     binary: warc
+    ldflags:
+      - -s -w -X main.version={{.Version}} -X main.commit={{.Commit}} -X main.date={{.Date}}
 
 archives:
-  - format: tar.gz
+  - formats: [tar.gz]
     name_template: >-
       {{ .ProjectName }}_
       {{- title .Os }}_
@@ -30,7 +32,7 @@ archives:
       {{- if .Mips }}_{{ .Mips }}{{ end }}
     format_overrides:
       - goos: windows
-        format: zip
+        formats: [zip]
     builds_info:
       group: root
       owner: root
