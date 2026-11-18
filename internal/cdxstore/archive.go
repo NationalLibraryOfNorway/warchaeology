@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 
@@ -37,3 +38,5 @@ func (d *DB) ArchiveSource(ctx context.Context, id string) (*schema.FileInfo, st
 }
 
 func ArchiveID(source string) string { return identity(source) }
+
+var ErrArchiveChanged = errors.New("archive source changed; reindex before replay")

@@ -37,7 +37,8 @@ func (f ServeFlags) AddFlags(cmd *cobra.Command) {
 
 func (f ServeFlags) ToOptions() (*ServeOptions, error) {
 	o := &ServeOptions{
-		address:        viper.GetString("address"),
+		address:  viper.GetString("address"),
+		fulltext: viper.GetBool("fulltext"), textDir: viper.GetString("fulltext-dir"), textRebuild: viper.GetBool("fulltext-rebuild"),
 		collectionsDir: viper.GetString("collections-dir"),
 		httpOptions:    captures.Options{MaxBytes: viper.GetInt64("upload-max-bytes"), MaxLine: viper.GetInt("upload-max-line"), UploadTimeout: viper.GetDuration("upload-timeout"), ScanLimit: viper.GetInt("query-scan-limit"), ResultLimit: viper.GetInt("query-result-limit")},
 		prefix:         strings.TrimRight(viper.GetString("path-prefix"), "/"),

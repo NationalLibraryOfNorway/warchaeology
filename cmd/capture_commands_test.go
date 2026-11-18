@@ -1,7 +1,9 @@
 package cmd
 
 import (
+	"bytes"
 	"context"
+	"github.com/nationallibraryofnorway/warchaeology/v5/internal/cdxstore"
 	"io"
 	"os"
 	"path/filepath"
@@ -125,5 +127,43 @@ func TestRedupeSymlinkContainment(t *testing.T) {
 	entries, err := os.ReadDir(inside)
 	if err != nil || len(entries) != 0 {
 		t.Fatalf("published entries %v, %v", entries, err)
+	}
+}
+
+func TestFulltextRejectsBeforeIngestion(t *testing.T) {
+	opts := cdxstore.Options{Dir: t.TempDir(), Format: "badger", IndexOnly: true}
+	db, err := cdxstore.Open(t.Context(), opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	const row = `org,example)/ 20200101000000 {"url":"https://example.org/","filename":"old.warc","offset":"0","length":"1"}`
+	if _, err = db.Upload(t.Context(), strings.NewReader(row), cdxstore.UploadOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	var before, after bytes.Buffer
+	if err = db.Export(t.Context(), &before); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err = executeCaptureCommand(t, "index", "--fulltext", "--index-format=badger", "--badger-dir", opts.Dir, "../testdata/warc/convert.warc"); err == nil {
+		t.Fatal("accepted index-only database")
+	}
+	db, err = cdxstore.Open(t.Context(), opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if err := db.Close(); err != nil {
+			t.Error(err)
+		}
+	}()
+	if err = db.Export(t.Context(), &after); err != nil || after.String() != before.String() {
+		t.Fatal(err, after.String())
+	}
+	stats, err := db.Stats(t.Context())
+	if err != nil || stats["captures"] != int64(1) {
+		t.Fatal(err, stats)
 	}
 }

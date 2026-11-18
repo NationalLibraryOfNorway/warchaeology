@@ -4,11 +4,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/nationallibraryofnorway/warchaeology/v5/internal/fulltext"
+	"github.com/nationallibraryofnorway/warchaeology/v5/internal/server/searchui"
 	"io"
 	"log/slog"
 	"net"
 	"net/http"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"syscall"
 	"time"
@@ -81,6 +84,8 @@ func NewCmdServe() *cobra.Command {
 }
 
 type ServeOptions struct {
+	fulltext, textRebuild              bool
+	textDir                            string
 	httpOptions                        captures.Options
 	collectionsDir                     string
 	address, prefix, format, zipnumDir string
@@ -115,6 +120,12 @@ func (o *ServeOptions) Complete(cmd *cobra.Command, args []string) error {
 }
 
 func (o *ServeOptions) Validate() error {
+	if o.fulltext && (o.collectionsDir != "" || o.format != badgerFormat) {
+		return errors.New("fulltext requires a single native Badger database")
+	}
+	if o.textRebuild && (!o.fulltext || o.readOnly) {
+		return errors.New("fulltext-rebuild requires writable fulltext mode")
+	}
 	if o.httpOptions.MaxBytes < 0 || o.httpOptions.MaxLine < 0 || o.httpOptions.UploadTimeout < 0 || o.httpOptions.ScanLimit < 0 || o.httpOptions.ResultLimit < 0 {
 		return fmt.Errorf("HTTP limits must be positive")
 	}
@@ -209,6 +220,61 @@ func (o *ServeOptions) Run(ctx context.Context) error {
 		}
 		o.closer = db
 		handler = o.databaseHandler(ctx, db)
+		if o.fulltext && db.IndexOnly() {
+			return errors.New("fulltext requires registered native archive sources")
+		}
+		var textIndex *fulltext.Index
+		var syncer *fulltext.Synchronizer
+		if o.fulltext {
+			dir := o.textDir
+			if dir == "" {
+				dir = filepath.Join(o.database.Dir, "fulltext")
+			}
+			if o.readOnly {
+				textIndex, err = fulltext.OpenReadOnly(dir)
+			} else {
+				textIndex, err = fulltext.Open(dir)
+			}
+			if err != nil {
+				return err
+			}
+			defer textIndex.Close()
+			syncer = &fulltext.Synchronizer{Index: textIndex, DB: db}
+			if !o.readOnly {
+				workerCtx, stop := context.WithCancel(ctx)
+				done := make(chan struct{})
+				go func() {
+					defer close(done)
+					force := o.textRebuild
+					for {
+						if e := syncer.Sync(workerCtx, force); e != nil && workerCtx.Err() == nil {
+							slog.Error("Text indexing failed", "error", e)
+						}
+						force = false
+						select {
+						case <-workerCtx.Done():
+							return
+						case <-time.After(2 * time.Second):
+						}
+					}
+				}()
+				defer func() { stop(); <-done }()
+			}
+		}
+		console := searchui.New(textIndex, syncer)
+		if o.fulltext {
+			previous := handler
+			handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				p := strings.TrimPrefix(r.URL.Path, o.prefix)
+				if p == "/search" || p == "/search/status" {
+					http.StripPrefix(o.prefix, console).ServeHTTP(w, r)
+				} else if strings.HasPrefix(p, "/console/") {
+					http.StripPrefix(o.prefix+"/console", console).ServeHTTP(w, r)
+				} else {
+					previous.ServeHTTP(w, r)
+				}
+			})
+		}
 		// Browser-origin writes must not cross from archived pages into management.
 		previous := handler
 		handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -233,6 +299,8 @@ func (o *ServeOptions) Run(ctx context.Context) error {
 		})
 		if o.hasInputs {
 			o.ingestion.Sink = db
+			o.ingestion.Fulltext = false
+			o.ingestion.TextRebuild = false
 		}
 	}
 	var ingestion *indexcmd.IndexOptions

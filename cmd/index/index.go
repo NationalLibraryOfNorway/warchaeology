@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/nationallibraryofnorway/warchaeology/v5/internal/fulltext"
 	"io"
 	"log/slog"
 	"os"
@@ -60,6 +61,8 @@ func NewCmdIndex() *cobra.Command {
 }
 
 type IndexOptions struct {
+	Fulltext, TextRebuild  bool
+	TextDir                string
 	format, output, tmpDir string
 	WaczIndex              string
 	WaczConfig             string
@@ -100,7 +103,13 @@ func (o *IndexOptions) Validate() error {
 	if o.WaczIndex != "" && o.WaczIndex != "auto" && o.WaczIndex != "warc" {
 		return errors.New("wacz-index must be auto or warc")
 	}
-	if len(o.Paths) == 0 {
+	if o.TextRebuild && !o.Fulltext {
+		return errors.New("fulltext-rebuild requires fulltext")
+	}
+	if o.Fulltext && o.format != "badger" {
+		return errors.New("fulltext requires index-format badger")
+	}
+	if len(o.Paths) == 0 && !o.Fulltext {
 		return errors.New("missing file or directory name")
 	}
 	if o.Concurrency <= 0 {
@@ -126,6 +135,12 @@ func (o *IndexOptions) Run(ctx context.Context) error {
 	if o.Sink == nil {
 		if err := o.openSink(ctx); err != nil {
 			return err
+		}
+	}
+	if o.Fulltext {
+		db, ok := o.Sink.(*cdxstore.DB)
+		if !ok || db.IndexOnly() {
+			return errors.New("fulltext requires a native capture database")
 		}
 	}
 	ctx, cancel := context.WithCancel(ctx)
@@ -172,7 +187,24 @@ func (o *IndexOptions) Run(ctx context.Context) error {
 	if e := ctx.Err(); e != nil {
 		return e
 	}
-	return o.Sink.Flush(ctx)
+	if err := o.Sink.Flush(ctx); err != nil {
+		return err
+	}
+	if o.Fulltext {
+		db := o.Sink.(*cdxstore.DB)
+		dir := o.TextDir
+		if dir == "" {
+			dir = filepath.Join(o.database.Dir, "fulltext")
+		}
+		idx, err := fulltext.Open(dir)
+		if err != nil {
+			return err
+		}
+		syncer := fulltext.Synchronizer{Index: idx, DB: db}
+		err = syncer.Sync(ctx, o.TextRebuild)
+		return errors.Join(err, idx.Close())
+	}
+	return nil
 }
 
 func (o *IndexOptions) openSink(ctx context.Context) error {
