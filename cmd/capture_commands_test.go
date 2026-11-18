@@ -62,6 +62,39 @@ func TestZipnumSubcommands(t *testing.T) {
 	}
 }
 
+func TestCaptureCommandValidation(t *testing.T) {
+	for _, tt := range []struct {
+		name string
+		args []string
+		env  map[string]string
+		want string
+	}{
+		{"readonly inputs", []string{"serve", "--read-only", "capture.warc"}, nil, "rejects ingestion"},
+		{"zipnum inputs", []string{"serve", "--index-format", "zipnum", "capture.warc"}, nil, "does not accept ingestion"},
+		{"zipnum database flag", []string{"serve", "--index-format", "zipnum", "--badger-dir", "db"}, nil, "badger-dir is not valid"},
+		{"zipnum database environment", []string{"serve", "--index-format", "zipnum"}, map[string]string{"WARC_BADGER_DIR": "db"}, "badger-dir is not valid"},
+		{"zipnum layout environment", []string{"zipnum", "build", "missing.cdxj"}, map[string]string{"WARC_LINES": "0"}, "line and block counts must be positive"},
+		{"zipnum merge inputs", []string{"zipnum", "merge", "missing"}, nil, "accepts 2 arg(s)"},
+		{"zipnum add inputs", []string{"zipnum", "add", "missing"}, nil, "accepts 2 arg(s)"},
+		{"zipnum repartition inputs", []string{"zipnum", "repartition", "one", "two"}, nil, "accepts 1 arg(s)"},
+		{"invalid prefix", []string{"serve", "--path-prefix", "invalid"}, nil, "path-prefix must start"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			viper.Reset()
+			t.Cleanup(viper.Reset)
+			for k, v := range tt.env {
+				t.Setenv(k, v)
+			}
+			command := NewWarcCommand()
+			command.SetOut(io.Discard)
+			command.SetErr(io.Discard)
+			command.SetArgs(tt.args)
+			if err := command.Execute(); err == nil || !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("error = %v, want %q", err, tt.want)
+			}
+		})
+	}
+}
 
 func executeCaptureCommand(t *testing.T, args ...string) error {
 	t.Helper()

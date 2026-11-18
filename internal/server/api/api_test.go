@@ -49,7 +49,8 @@ func TestParse(t *testing.T) {
 				"limit": {"100"},
 			},
 			want: &SearchRequest{
-				limit: 100,
+				originalURI: "http://www.nb.no",
+				limit:       100,
 			},
 		},
 		// parse does not set default limit
@@ -59,7 +60,8 @@ func TestParse(t *testing.T) {
 				"limit": {"0"},
 			},
 			want: &SearchRequest{
-				limit: 0,
+				originalURI: "http://example.com/?q=1",
+				limit:       0,
 			},
 		},
 		// to cannot be before from and should error
@@ -80,8 +82,9 @@ func TestParse(t *testing.T) {
 				"sort":    {"closest"},
 			},
 			want: &SearchRequest{
-				closest: "20020101000000",
-				sort:    index.SortClosest,
+				originalURI: "http://example.com/",
+				closest:     "20020101000000",
+				sort:        index.SortClosest,
 			},
 		},
 	}

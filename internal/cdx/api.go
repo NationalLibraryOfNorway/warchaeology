@@ -53,6 +53,7 @@ const (
 
 type Request interface {
 	Url() *url.Url
+	OriginalURI() string
 	Ssurt() string
 	Sort() Sort
 	DateRange() DateRange

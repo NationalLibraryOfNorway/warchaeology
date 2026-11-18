@@ -16,6 +16,7 @@ import (
 	"github.com/nationallibraryofnorway/warchaeology/v5/cmd/index"
 	"github.com/nationallibraryofnorway/warchaeology/v5/cmd/internal/flag"
 	"github.com/nationallibraryofnorway/warchaeology/v5/cmd/ls"
+	"github.com/nationallibraryofnorway/warchaeology/v5/cmd/serve"
 	"github.com/nationallibraryofnorway/warchaeology/v5/cmd/validate"
 	"github.com/nationallibraryofnorway/warchaeology/v5/cmd/version"
 	"github.com/nationallibraryofnorway/warchaeology/v5/cmd/zipnum"
@@ -50,7 +51,7 @@ func NewWarcCommand() *cobra.Command {
 	// Add flags
 	flag.AddPersistentFlags(cmd)
 
-	cmd.AddCommand(index.NewCmdIndex(), zipnum.NewCmdZipnum())
+	cmd.AddCommand(index.NewCmdIndex(), serve.NewCmdServe(), zipnum.NewCmdZipnum())
 
 	// Add subcommands
 	cmd.AddCommand(ls.NewCmdList())           // ls

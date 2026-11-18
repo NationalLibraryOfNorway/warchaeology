@@ -25,7 +25,14 @@ func (d *DB) Search(ctx context.Context, req index.Request, out chan<- index.Cdx
 	return d.runAsync(ctx, func(ctx context.Context) {
 		defer close(out)
 		q := queryFromRequest(req)
+		var uri string
+		if req.MatchType() == index.MatchTypeVerbatim {
+			uri = req.OriginalURI()
+		}
 		q.Predicate = func(c *index.Capture) bool {
+			if uri != "" && c.GetUri() != uri {
+				return false
+			}
 			if dr := req.DateRange(); dr != nil && !dr.Contains(c.GetSts().AsTime().Unix()) {
 				return false
 			}

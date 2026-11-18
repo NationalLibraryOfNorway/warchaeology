@@ -89,21 +89,24 @@ type SearchRequest struct {
 
 	FilterMap map[string]string
 
-	whatwgUrl *whatwgUrl.Url
-	dateRange *DateRange
-	limit     int
-	filter    Filter
-	ssurt     string
-	matchType index.MatchType
-	sort      index.Sort
-	closest   string
-	output    string
-	fields    []string
+	originalURI string
+	whatwgUrl   *whatwgUrl.Url
+	dateRange   *DateRange
+	limit       int
+	filter      Filter
+	ssurt       string
+	matchType   index.MatchType
+	sort        index.Sort
+	closest     string
+	output      string
+	fields      []string
 }
 
 func (c *SearchRequest) Url() *whatwgUrl.Url {
 	return c.whatwgUrl
 }
+
+func (c *SearchRequest) OriginalURI() string { return c.originalURI }
 
 func (c *SearchRequest) Closest() string {
 	return c.closest
@@ -194,6 +197,7 @@ func (c *SearchRequest) Parse(values url.Values) error {
 		if err != nil {
 			return fmt.Errorf("failed to parse url: %w", err)
 		}
+		c.originalURI = urlStr
 		c.whatwgUrl = u
 		c.ssurt = index.CanonicalKey(u.String())
 	}
@@ -268,13 +272,14 @@ func (c *SearchRequest) Parse(values url.Values) error {
 	return nil
 }
 
-func ClosestRequest(closest string, url *whatwgUrl.Url) *SearchRequest {
+func ClosestRequest(closest, originalURI string, url *whatwgUrl.Url) *SearchRequest {
 	return &SearchRequest{
-		whatwgUrl: url,
-		ssurt:     index.CanonicalKey(url.String()),
-		limit:     10,
-		sort:      index.SortClosest,
-		closest:   closest,
-		matchType: index.MatchTypeVerbatim,
+		whatwgUrl:   url,
+		originalURI: originalURI,
+		ssurt:       index.CanonicalKey(url.String()),
+		limit:       1,
+		sort:        index.SortClosest,
+		closest:     closest,
+		matchType:   index.MatchTypeVerbatim,
 	}
 }
