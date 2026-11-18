@@ -61,6 +61,8 @@ func NewCmdIndex() *cobra.Command {
 
 type IndexOptions struct {
 	format, output, tmpDir string
+	WaczIndex              string
+	WaczConfig             string
 	sort                   bool
 	stdout                 io.Writer
 	database               cdxstore.Options
@@ -85,10 +87,19 @@ type IndexOptions struct {
 func (o *IndexOptions) Complete(cmd *cobra.Command, args []string) error {
 	o.Paths = append(o.Paths, args...)
 	o.stdout = cmd.OutOrStdout()
+	for _, name := range []string{"id", "record-type", "mime-type", "response-code", "offset", "nth", "limit", flag.StrictValidation, flag.LenientValidation, flag.LaxHostParsing, "force", "post-append"} {
+		if flag.Explicit(cmd, name) {
+			o.WaczIndex = "warc"
+			break
+		}
+	}
 	return nil
 }
 
 func (o *IndexOptions) Validate() error {
+	if o.WaczIndex != "" && o.WaczIndex != "auto" && o.WaczIndex != "warc" {
+		return errors.New("wacz-index must be auto or warc")
+	}
 	if len(o.Paths) == 0 {
 		return errors.New("missing file or directory name")
 	}
@@ -129,10 +140,15 @@ func (o *IndexOptions) Run(ctx context.Context) error {
 			cancel()
 		}
 	}
+	o.FileWalker.ArchiveHandler = o.handleWACZ
 	pool := workerpool.New(ctx, o.Concurrency)
 	for _, path := range o.Paths {
 		e := o.FileWalker.Walk(ctx, path, func(fs afero.Fs, path string, e error) error {
 			if e != nil {
+				if o.ContinueOnError && ctx.Err() == nil {
+					fail(fmt.Errorf("%s: %w", path, e))
+					return nil
+				}
 				return e
 			}
 			return pool.Submit(func() {

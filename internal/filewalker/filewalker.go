@@ -17,6 +17,7 @@ import (
 )
 
 type FileWalker struct {
+	ArchiveHandler func(context.Context, afero.Fs, string) (bool, error)
 	SourceRoot     string
 	Recursive      bool
 	FollowSymlinks bool
@@ -80,7 +81,7 @@ func New(options ...func(*FileWalker)) *FileWalker {
 	return opts
 }
 
-func (fw *FileWalker) hasSuffix(path string) bool {
+func (fw *FileWalker) HasSuffix(path string) bool {
 	if len(fw.Suffixes) == 0 {
 		return true
 	}
@@ -164,6 +165,19 @@ func (fw *FileWalker) walkDir(ctx context.Context, currentFs afero.Fs, root stri
 			return fw.walkDir(ctx, currentFs, root, linkPath, mountPrefix, roots, walkFn)
 		}
 
+		if fw.ArchiveHandler != nil {
+			if fw.processedPaths.Contains(logicalPath) {
+				return nil
+			}
+			handled, e := fw.ArchiveHandler(ctx, &sourceFS{Fs: currentFs, roots: roots}, path)
+			if e != nil {
+				return walkFn(currentFs, path, e)
+			}
+			if handled {
+				fw.processedPaths.Add(logicalPath)
+				return nil
+			}
+		}
 		mountedFs, resolveErr := archivefs.ResolveFilesystem(currentFs, path)
 		if resolveErr != nil {
 			return walkFn(currentFs, path, resolveErr)
@@ -176,7 +190,7 @@ func (fw *FileWalker) walkDir(ctx context.Context, currentFs afero.Fs, root stri
 		}
 
 		// filter files by suffix
-		if !fw.hasSuffix(path) {
+		if !fw.HasSuffix(path) {
 			return nil
 		}
 		// skip already processed files

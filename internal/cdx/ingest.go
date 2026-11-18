@@ -55,6 +55,15 @@ func CaptureURLKey(raw, method, body string) (string, error) {
 // ParseIngestLine deliberately ignores the supplied key. Extension numbers are
 // kept as json.Number until their original decimal representation is marshaled.
 func ParseIngestLine(line []byte) (*Capture, error) {
+	return parseCaptureLine(line, false)
+}
+
+// ParseIndexedLine validates an embedded capture while retaining its stored lookup key.
+func ParseIndexedLine(line []byte) (*Capture, error) {
+	return parseCaptureLine(line, true)
+}
+
+func parseCaptureLine(line []byte, retainKey bool) (*Capture, error) {
 	parts := bytes.SplitN(line, []byte(" "), 3)
 	if len(parts) != 3 || len(parts[0]) == 0 || len(parts[1]) != 14 {
 		return nil, fmt.Errorf("expected CDXJ key timestamp JSON object")
@@ -129,7 +138,16 @@ func ParseIngestLine(line []byte) (*Capture, error) {
 		return nil, fmt.Errorf("invalid status")
 	}
 	c.Hsc = int32(status)
-	if c.Ssu, err = CaptureURLKey(c.GetUri(), c.GetMethod(), c.GetRequestBody()); err != nil {
+	if retainKey {
+		if _, err = CaptureURLKey(c.GetUri(), c.GetMethod(), c.GetRequestBody()); err != nil {
+			return nil, err
+		}
+		key := string(parts[0])
+		if len(key) > 60000 || strings.ContainsFunc(key, unicode.IsControl) {
+			return nil, fmt.Errorf("invalid stored URL key")
+		}
+		c.Ssu = key
+	} else if c.Ssu, err = CaptureURLKey(c.GetUri(), c.GetMethod(), c.GetRequestBody()); err != nil {
 		return nil, err
 	}
 	if strings.ContainsAny(c.GetFilename(), "\x00\r\n") {

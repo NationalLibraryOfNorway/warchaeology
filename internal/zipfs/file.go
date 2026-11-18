@@ -2,10 +2,13 @@ package zipfs
 
 import (
 	"archive/zip"
+	"hash"
+	"hash/crc32"
 	"io"
 	"os"
 	"path"
 	"sort"
+	"strings"
 	"sync"
 	"syscall"
 
@@ -13,59 +16,23 @@ import (
 )
 
 type File struct {
-	mu            sync.Mutex
-	dirPos        int
-	readErr       error
-	fs            *Fs
-	zipfile       *zip.File
-	pseudodir     *pseudoDir
-	reader        io.ReadCloser
-	offset        int64
-	isdir, closed bool
-	buf           []byte
-}
-
-func (f *File) fillBuffer(end int64) error {
-	if f.readErr != nil {
-		return f.readErr
-	}
-	if f.reader == nil {
-		r, err := f.zipfile.Open()
-		if err != nil {
-			return err
-		}
-		f.reader = r
-	}
-	size := int64(f.zipfile.UncompressedSize64)
-	if end > size {
-		end = size
-	}
-	if end > int64(len(f.buf)) {
-		buf := make([]byte, end-int64(len(f.buf)))
-		n, err := io.ReadFull(f.reader, buf)
-		f.buf = append(f.buf, buf[:n]...)
-		if err != nil {
-			f.readErr = err
-			return err
-		}
-	}
-	if int64(len(f.buf)) == size {
-		// Force validation of the checksum even for an exact-size read.
-		var extra [1]byte
-		_, err := f.reader.Read(extra[:])
-		if err != nil && err != io.EOF {
-			f.readErr = err
-			return err
-		}
-	}
-	return nil
+	mu             sync.Mutex
+	dirPos         int
+	fs             *Fs
+	zipfile        *zip.File
+	pseudodir      *pseudoDir
+	reader         io.ReadCloser
+	offset         int64
+	isdir, closed  bool
+	readerOffset   int64
+	checksum       hash.Hash32
+	checksumOffset int64
 }
 
 func (f *File) Close() (err error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.closed = true
-	f.buf = nil
 	if f.reader != nil {
 		err = f.reader.Close()
 		f.reader = nil
@@ -106,15 +73,65 @@ func (f *File) readAt(p []byte, off int64) (int, error) {
 	if int64(len(p)) < size-off {
 		end = off + int64(len(p))
 	}
-	err := f.fillBuffer(end)
-	if off >= int64(len(f.buf)) {
-		return 0, err
+	if f.zipfile.Method == zip.Store {
+		raw, err := f.zipfile.OpenRaw()
+		if err != nil {
+			return 0, err
+		}
+		reader, ok := raw.(io.ReaderAt)
+		if !ok {
+			return 0, syscall.EIO
+		}
+		n, err := reader.ReadAt(p, off)
+		if off == 0 {
+			f.checksum = crc32.NewIEEE()
+			f.checksumOffset = 0
+		}
+		if f.checksum != nil {
+			if off != f.checksumOffset {
+				f.checksum = nil
+			} else {
+				f.checksum.Write(p[:n])
+				f.checksumOffset += int64(n)
+				unknownChildCRC := f.fs.allowMissingNestedCRC && f.zipfile.CRC32 == 0 && strings.EqualFold(path.Ext(f.zipfile.Name), ".wacz")
+				if f.checksumOffset == size && !unknownChildCRC && f.checksum.Sum32() != f.zipfile.CRC32 {
+					return n, zip.ErrChecksum
+				}
+			}
+		}
+		return n, err
 	}
-	n := copy(p, f.buf[off:])
-	if err == nil && n < len(p) {
-		err = io.EOF
+	if f.reader == nil || off < f.readerOffset {
+		if f.reader != nil {
+			_ = f.reader.Close()
+		}
+		r, e := f.zipfile.Open()
+		if e != nil {
+			return 0, e
+		}
+		f.reader = r
+		f.readerOffset = 0
 	}
-	return n, err
+	if off > f.readerOffset {
+		n, e := io.CopyN(io.Discard, f.reader, off-f.readerOffset)
+		f.readerOffset += n
+		if e != nil {
+			return 0, e
+		}
+	}
+	n, e := io.ReadFull(f.reader, p[:int(end-off)])
+	f.readerOffset += int64(n)
+	if f.readerOffset == size && e == nil {
+		var tail [1]byte
+		_, check := f.reader.Read(tail[:])
+		if check != io.EOF {
+			e = check
+		}
+	}
+	if e == nil && n < len(p) {
+		e = io.EOF
+	}
+	return n, e
 }
 
 func (f *File) Seek(offset int64, whence int) (int64, error) {

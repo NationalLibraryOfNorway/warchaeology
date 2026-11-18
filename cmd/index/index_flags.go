@@ -31,6 +31,7 @@ func (f IndexFlags) AddFlags(cmd *cobra.Command) {
 	f.ConcurrencyFlags.AddFlags(cmd)
 	f.InputHookFlags.AddFlags(cmd)
 	f.CaptureDatabaseFlags.AddFlags(cmd)
+	cmd.Flags().String("wacz-index", "auto", "WACZ indexing: auto imports embedded indexes; warc indexes contained WARCs")
 	cmd.Flags().String("index-format", "cdxj", "cdxj, cdxpb or badger")
 	cmd.Flags().String("index-out", "-", "output filename or - for stdout")
 	cmd.Flags().String("index-tmp-dir", "", "temporary sort directory")
@@ -40,11 +41,14 @@ func (f IndexFlags) AddFlags(cmd *cobra.Command) {
 }
 
 func (f IndexFlags) ToOptions() (*IndexOptions, error) {
+	parser := f.WarcRecordOptionFlags
 	o := &IndexOptions{
+		WaczConfig:        fmt.Sprintf("strict=%t;lenient=%t;lax-host-parsing=%t", parser.StrictValidation(), parser.LenientValidation(), parser.LaxHostParsing()),
+		WaczIndex:         viper.GetString("wacz-index"),
 		Concurrency:       f.ConcurrencyFlags.Concurrency(),
 		Force:             f.WarcIteratorFlags.Force(),
 		ContinueOnError:   f.ErrorFlags.ContinueOnError(),
-		WarcRecordOptions: f.WarcRecordOptionFlags.ToWarcRecordOptions(),
+		WarcRecordOptions: parser.ToWarcRecordOptions(),
 		PostAppend:        viper.GetBool("post-append"),
 		DirRoot:           viper.GetString("dir-root"),
 		Offset:            f.WarcIteratorFlags.Offset(),

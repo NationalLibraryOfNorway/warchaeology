@@ -14,8 +14,9 @@ import (
 const statOperation = "stat"
 
 type Fs struct {
-	r     *zip.Reader
-	files map[string]map[string]*zip.File
+	allowMissingNestedCRC bool
+	r                     *zip.Reader
+	files                 map[string]map[string]*zip.File
 }
 
 // splitpath splits a path into directory and file parts.
@@ -64,6 +65,14 @@ func New(r *zip.Reader) afero.Fs {
 			dv = d
 		}
 	}
+	return fs
+}
+
+// NewWACZ accepts Browsertrix's zero CRC placeholders for stored child WACZs.
+// Nonzero child CRCs and all other members retain normal checksum validation.
+func NewWACZ(r *zip.Reader) afero.Fs {
+	fs := New(r).(*Fs)
+	fs.allowMissingNestedCRC = true
 	return fs
 }
 

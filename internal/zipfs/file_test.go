@@ -137,3 +137,85 @@ func TestEmptyArchiveHasRoot(t *testing.T) {
 		t.Fatalf("empty root = %v, %v", entries, err)
 	}
 }
+
+type countedReader struct {
+	*bytes.Reader
+	bytesRead int
+}
+
+func (r *countedReader) ReadAt(p []byte, off int64) (int, error) {
+	n, e := r.Reader.ReadAt(p, off)
+	r.bytesRead += n
+	return n, e
+}
+func TestStoredMemberLateReadIsBounded(t *testing.T) {
+	var b bytes.Buffer
+	w := zip.NewWriter(&b)
+	entry, e := w.CreateHeader(&zip.FileHeader{Name: "large.warc", Method: zip.Store})
+	if e != nil {
+		t.Fatal(e)
+	}
+	payload := make([]byte, 8<<20)
+	copy(payload[len(payload)-4:], "tail")
+	entry.Write(payload)
+	w.Close()
+	backing := &countedReader{Reader: bytes.NewReader(b.Bytes())}
+	zr, e := zip.NewReader(backing, int64(b.Len()))
+	if e != nil {
+		t.Fatal(e)
+	}
+	backing.bytesRead = 0
+	f, e := New(zr).Open("large.warc")
+	if e != nil {
+		t.Fatal(e)
+	}
+	defer f.Close()
+	out := make([]byte, 4)
+	if _, e = f.ReadAt(out, int64(len(payload)-4)); e != nil {
+		t.Fatal(e)
+	}
+	if string(out) != "tail" || backing.bytesRead > 4096 {
+		t.Fatalf("read=%q bytes=%d", out, backing.bytesRead)
+	}
+}
+
+func TestBrowsertrixChildCRCPlaceholder(t *testing.T) {
+	for _, name := range []string{"child.wacz", "data.warc"} {
+		for _, wacz := range []bool{false, true} {
+			var b bytes.Buffer
+			writer := zip.NewWriter(&b)
+			entry, e := writer.CreateRaw(&zip.FileHeader{Name: name, Method: zip.Store, CRC32: 0, CompressedSize64: 6, UncompressedSize64: 6})
+			if e != nil {
+				t.Fatal(e)
+			}
+			if _, e = entry.Write([]byte("abcdef")); e != nil {
+				t.Fatal(e)
+			}
+			if e = writer.Close(); e != nil {
+				t.Fatal(e)
+			}
+			zr, e := zip.NewReader(bytes.NewReader(b.Bytes()), int64(b.Len()))
+			if e != nil {
+				t.Fatal(e)
+			}
+			fs := New(zr)
+			if wacz {
+				fs = NewWACZ(zr)
+			}
+			f, e := fs.Open(name)
+			if e != nil {
+				t.Fatal(e)
+			}
+			out := make([]byte, 6)
+			_, e = f.ReadAt(out, 0)
+			f.Close()
+			if wacz && name == "child.wacz" {
+				if e != nil {
+					t.Fatal(e)
+				}
+			} else if !errors.Is(e, zip.ErrChecksum) {
+				t.Fatalf("name=%s wacz=%v error=%v", name, wacz, e)
+			}
+		}
+	}
+}

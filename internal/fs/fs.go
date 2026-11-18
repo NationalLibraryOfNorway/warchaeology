@@ -75,7 +75,7 @@ func ResolveFilesystem(fs afero.Fs, name string, options ...func(*fsOptions)) (a
 			return nil, ErrUnsupportedFilesystem
 		}
 	} else {
-		switch filepath.Ext(name) {
+		switch strings.ToLower(filepath.Ext(name)) {
 		case ".tar":
 			kind = archiveTar
 		case ".tgz":
@@ -113,7 +113,11 @@ func ResolveFilesystem(fs afero.Fs, name string, options ...func(*fsOptions)) (a
 		if err != nil {
 			return nil, errors.Join(err, f.Close())
 		}
-		return &mountedFS{Fs: zipfs.New(r), closer: f}, nil
+		mounted := zipfs.New(r)
+		if strings.EqualFold(filepath.Ext(name), ".wacz") {
+			mounted = zipfs.NewWACZ(r)
+		}
+		return &mountedFS{Fs: mounted, closer: f}, nil
 	}
 	defer f.Close()
 	if kind == archiveTGZ {

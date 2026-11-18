@@ -92,3 +92,8 @@ func (c sourceClosers) Close() error {
 	}
 	return e
 }
+
+// WithSourceRoots associates a mounted filesystem with its reopenable mount chain.
+func WithSourceRoots(fs afero.Fs, roots []string) afero.Fs {
+	return &sourceFS{Fs: fs, roots: append([]string(nil), roots...)}
+}
