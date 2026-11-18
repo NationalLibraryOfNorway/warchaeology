@@ -1,0 +1,11 @@
+{
+  "Architecture": "x86_64",
+  "CPU(s)": "14",
+  "Model name": "Intel(R) Core(TM) Ultra 5 225U",
+  "Thread(s) per core": "2",
+  "Core(s) per socket": "12",
+  "Socket(s)": "1",
+  "go": "go version go1.27.4 linux/amd64",
+  "filesystem": "btrfs",
+  "notes": "Shared host; engines sequential within each runner. Production tests/builds ran during portions of measurement. Peak allocated disk sampled at 100ms. External sort child RSS is not included."
+}
