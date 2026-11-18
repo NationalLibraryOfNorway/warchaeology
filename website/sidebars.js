@@ -12,6 +12,8 @@ module.exports = {
       items: [
         'guides/redupe',
         'guides/capture-indexes',
+      'guides/search-and-replay',
+        'guides/writable-captures',
         'guides/archive-inputs',
         'guides/configuration',
         'guides/hooks',

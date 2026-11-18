@@ -5,7 +5,8 @@ title: Capture indexing, serving and zipnum
 `warc index` creates replay capture indexes separately from the processing and
 deduplication indexes. It accepts WARC and WARC.gz files and directories, plus
 warchaeology's archive mounts. ARC indexing, Kafka,
-standalone CDXJ serving and AMF decoding are not implemented.
+standalone CDXJ file serving and AMF decoding are not implemented. For writable
+CDXJ collections, see [writable capture collections](writable-captures.md).
 
 ## Export captures
 
@@ -79,8 +80,9 @@ Database routes include `/cdx`, `/file`, `/file/:filename`, `/id`, `/id/:urn`,
 `/record/:urn`, `/report`, `/report/:id`, `/debug` and the imported `/warcserver`
 CDX/resource routes. CDX supports exact, prefix, host and domain matching, date
 bounds, substring/exact/regex filters, `fields`, positive limits, reverse and
-closest ordering, CDXJ and newline-delimited JSON. Closest and reverse queries
-use external sorting rather than retaining all captures in memory.
+closest ordering, CDXJ and newline-delimited JSON. Exact-URL closest and reverse queries
+use ordered seeks; other sorted queries use external sorting. Interactive queries
+now have separate scan/result caps and explicit truncation trailers.
 
 Flags use the existing Viper configuration and `WARC_*` environment mapping,
 e.g. `WARC_INDEX_FORMAT`, `WARC_BADGER_DIR` and `WARC_ADDRESS`.
@@ -149,9 +151,13 @@ text/binary bodies, content lengths and the 4,096-character query limit.
 `cmd/index/testdata/generate.py` regenerates them with the pinned reference.
 
 Indexing and queries use whatwg-url/surt v0.9.0. The SURT fixture explicitly records
-two differences from the Python reference: HTTP backslashes become path separators
+differences from the pinned internetarchive/surt 0.3.1 reference: HTTP backslashes become path separators
 (`http://example.com\path` becomes `com,example)/path`), and opaque DNS URLs retain
-case (`dns:Example.COM`). Original URI evidence is retained. AMF bodies use opaque
+case (`dns:Example.COM` and `mailto:Person@Example.COM`). Leading `/../a`
+and `/%2e%2e/a` normalize to `/a`, whereas the Python reference retains `/../a`.
+Other tested dot segments, escaping, Unicode, query ordering and POST augmentation
+match the pinned reference. HTTP ingestion rejects malformed absolute URLs rather
+than accepting the reference library’s permissive repairs. Original URI evidence is retained. AMF bodies use opaque
 base64 binary extraction rather than AMF decoding.
 
 ```sh
@@ -172,5 +178,74 @@ narrow queries that avoid unrelated corrupt parts.
 
 Use [`warc redupe`](redupe.md) to resolve source revisits and rebuild independently
 replayable UTC years before generating their CDXJ indexes. Capture databases now
-use format v2 to retain every record-ID occurrence, including repeated IDs at
-different offsets within one source file. Reindex v1 databases into a new directory.
+use format v3 to retain every record-ID occurrence, including repeated IDs at
+different offsets within one source file. Reindex v1/v2 databases into a new directory.
+
+## WACZ packages
+
+Positional `.wacz` files are indexed as packages without requiring `--recursive`:
+
+```sh
+warc index capture.wacz
+warc index --index-format badger --badger-dir ./captures capture.wacz
+warc serve --badger-dir ./captures capture.wacz
+warc serve --wacz-index warc capture.wacz
+```
+
+The default `--wacz-index auto` imports embedded CDXJ (`.cdx`, `.cdxj`, and
+ gzip-compressed variants, including concatenated gzip blocks). When no index
+exists it indexes the contained WARCs. A malformed embedded index fails instead
+of silently falling back. `--wacz-index warc` explicitly indexes the WARCs;
+explicit record filters and WARC parsing options also select native indexing.
+The output default remains CDXJ; `serve` defaults to Badger in `./warcdb`.
+
+Badger retains container membership and structured source locations. Identical
+member filenames in different packages remain distinct. Completed unchanged
+packages reuse their index; package metadata fingerprints are cache checks, not
+cryptographic verification of all WARC payloads. WARCs stay inside the WACZ.
+Stored ZIP members support direct offset reads; deflated members use bounded
+streaming decompression and may need to reread preceding bytes when seeking.
+Keep packages immutable while serving them.
+
+Embedded CDX does not supply a complete record-ID catalogue. URL/time retrieval
+uses the package/member location; ID lookups and ID-dependent revisits may need
+native indexing. An existing index-only database cannot host native WACZ content;
+choose a fresh database directory.
+
+### Multi-WACZ bundles and manifests
+
+The same commands accept Browsertrix multi-WACZ bundles. The importer follows
+`datapackage.json` child resources when present and discovers nested `.wacz`
+members when there is no child manifest. It retains outer-package → child-package
+→ WARC locations, supports up to 16 WACZ levels, and never extracts the packages.
+A package may contain both WARCs and child packages. Missing, duplicate, unsafe,
+or remote child references fail explicitly. Unchanged bundles reuse their index;
+replacing a bundle removes captures belonging to children that were removed.
+Completed children can remain published after a later child's failure; retrying
+finishes the package without duplicating captures.
+
+Original manifest JSON is preserved for every package, including descriptive
+metadata, resource hashes, and extension fields. Read it from the server:
+
+```sh
+warc serve --badger-dir ./captures collection.wacz
+curl --fail http://localhost:9999/packages
+```
+
+`GET /packages` streams NDJSON package records with `source`, `children`,
+`sources` (WARC members), `manifest`, `version`, and `fingerprint`. It honors
+`--path-prefix` and is available in read-only serving. An empty fingerprint means
+package publication has not completed. Check the `X-Packages-Error` trailer for
+streaming failures. The manifest is omitted when absent; its hashes are retained,
+not automatically verified against every WARC byte. Browsertrix's zero CRC
+placeholders for stored child WACZs are accepted; other member checksums retain
+their existing validation.
+
+Standalone JSON manifests referencing separate files or remote URLs, HTTP WACZ
+downloads, and a replay UI are not included.
+
+## Full-text search and pywb
+
+See [full-text search and replay](search-and-replay.md) for `--fulltext`, the
+search console and API, vanilla pywb configuration using `/pywb/cdx` plus HTTP
+WARC ranges. Experimental browser replay and live-leak monitoring are deferred.

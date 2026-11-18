@@ -37,7 +37,7 @@ warc convert warc FILE/DIR ... [flags]
   -C, --concurrent-writers int           maximum number of WARC files written concurrently.
                                          This may create at least this many output files even with a single input file. (default 16)
       --continue-on-error[=true|false]   continue processing remaining files and directories after errors
-      --default-date string              fallback date used when records are missing WARC-Date metadata (time is set to 12:00 UTC) (default "2026-11-17")
+      --default-date string              fallback date used when records are missing WARC-Date metadata (time is set to 12:00 UTC) (default "2026-11-18")
       --file-size string                 maximum size of each WARC output file (default "1GB")
       --flush[=true|false]               sync each WARC file to disk after every record
   -f, --force[=true|false]               continue iterating even when record read errors occur

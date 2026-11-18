@@ -92,3 +92,10 @@ IDs and unresolved payload dependencies block publication of affected years.
 Audit before rewriting, and use a separate output directory. Reuse the same
 working index only with unchanged sources and configuration. Completed years are
 checksum-checked on restart, and interrupted years are rebuilt from the beginning.
+
+## Lean capture and workload stores
+
+Capture v3, donor v2 and redupe ledger v2 require fresh directories. Follow the
+[rebuild and export/import procedures](writable-captures.md#layout-upgrades-and-workload-boundaries);
+old layouts are rejected and never silently reinterpreted. Production continues
+to use Badger. Pebble is confined to `benchmarks/cdxstorage`.

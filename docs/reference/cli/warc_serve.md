@@ -20,11 +20,15 @@ warc serve [FILE/DIR...] [flags]
                                                 WARC_HOOK_TYPE contains the hook type (OpenInputFile, CloseInputFile, OpenOutputFile, CloseOutputFile)
                                                 WARC_FILE_NAME contains the file name of the input file
                                                 WARC_ERROR_COUNT contains the number of errors found if the file was validated and the validation failed
+      --collections-dir string              directory of independently writable collections
   -c, --concurrency int                     number of input files to process in parallel (default 21)
       --continue-on-error[=true|false]      continue processing remaining files and directories after errors
       --dir-root string                     export filenames relative to this directory
   -f, --force[=true|false]                  continue iterating even when record read errors occur
       --ftp-pool-size int32                 size of the FTP connection pool (default 1)
+      --fulltext[=true|false]               index available text extracts in embedded Bleve
+      --fulltext-dir string                 text index directory (default: BADGER-DIR/fulltext)
+      --fulltext-rebuild[=true|false]       rebuild text search from registered captures
   -h, --help[=true|false]                   help for serve
       --id strings                          only process records with these record IDs; repeat the flag or use a comma-separated list
       --index-format string                 badger or zipnum (default "badger")
@@ -49,6 +53,8 @@ warc serve [FILE/DIR...] [flags]
                                                 WARC_FILE_NAME contains the file name of the input file
       --path-prefix string                  prefix for all routes
       --post-append[=true|false]            include paired request method and body in capture keys
+      --query-result-limit int              maximum returned interactive captures (default 10000)
+      --query-scan-limit int                maximum captures examined by interactive queries (default 10000)
       --read-only[=true|false]              reject ingestion and report mutations
   -t, --record-type strings                 only process records with these record types; repeat the flag or use a comma-separated list.
                                             Legal values:
@@ -66,6 +72,10 @@ warc serve [FILE/DIR...] [flags]
       --suffixes strings                    only process files with these suffixes (default [.warc,.warc.gz])
   -s, --symlinks[=true|false]               follow symbolic links while walking
       --tmp-dir string                      directory used for temporary files (default "/tmp")
+      --upload-max-bytes int                maximum decoded CDXJ request bytes (default 134217728)
+      --upload-max-line int                 maximum CDXJ line bytes (default 1048576)
+      --upload-timeout duration             maximum upload duration (default 5m0s)
+      --wacz-index string                   WACZ indexing: auto imports embedded indexes; warc indexes contained WARCs (default "auto")
       --warcserver-prefix-max-records int   warcserver prefix result limit (default 1000)
       --zipnum-dir string                   immutable published zipnum cluster
 ```
@@ -82,4 +92,6 @@ warc serve [FILE/DIR...] [flags]
 ### SEE ALSO
 
 * [warc](warc.md)     - A tool for handling warc files
+* [warc serve compact](warc_serve_compact.md)     - Reclaim capture database storage offline
+* [warc serve restore](warc_serve_restore.md)     - Restore a capture backup offline into a new directory
 

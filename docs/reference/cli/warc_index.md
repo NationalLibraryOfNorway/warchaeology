@@ -24,6 +24,9 @@ warc index FILE/DIR... [flags]
       --dir-root string                  export filenames relative to this directory
   -f, --force[=true|false]               continue iterating even when record read errors occur
       --ftp-pool-size int32              size of the FTP connection pool (default 1)
+      --fulltext[=true|false]            index available text extracts in embedded Bleve
+      --fulltext-dir string              text index directory (default: BADGER-DIR/fulltext)
+      --fulltext-rebuild[=true|false]    rebuild text search from registered captures
   -h, --help[=true|false]                help for index
       --id strings                       only process records with these record IDs; repeat the flag or use a comma-separated list
       --index-format string              cdxj, cdxpb or badger (default "cdxj")
@@ -63,6 +66,7 @@ warc index FILE/DIR... [flags]
       --suffixes strings                 only process files with these suffixes (default [.warc,.warc.gz])
   -s, --symlinks[=true|false]            follow symbolic links while walking
       --tmp-dir string                   directory used for temporary files (default "/tmp")
+      --wacz-index string                WACZ indexing: auto imports embedded indexes; warc indexes contained WARCs (default "auto")
 ```
 
 ### Options inherited from parent commands
