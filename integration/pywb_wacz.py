@@ -53,18 +53,20 @@ for mode, archive in [("leaf", leaf), ("nested", package({"child.wacz": leaf, "d
         root = Path(tmp)
         source = root / "collection.wacz"
         source.write_bytes(archive)
+        standalone = root / fixture["name"]
+        standalone.write_bytes(warc_bytes)
         warc_port, pywb_port = port(), port()
         origin = f"http://127.0.0.1:{warc_port}/archive"
         frontend = f"http://127.0.0.1:{pywb_port}"
-        config = {"collections": {"test": {"index": {"type": "cdx", "api_url": origin + "/pywb/cdx?url={url}&closest={closest}&sort=closest&from={from}&to={to}", "replay_url": ""}, "archive_paths": [origin + "/archives/"]}}, "framed_replay": False}
+        config = {"collections": {"test": {"index": "cdx+" + origin + "/archives/cdx", "archive_paths": [origin + "/archives/"]}}, "framed_replay": False}
         (root / "config.yaml").write_text(json.dumps(config))
         with (root / "server.log").open("w+") as log:
-            server = subprocess.Popen([binary, "serve", "--address", f"127.0.0.1:{warc_port}", "--path-prefix", "/archive", "--badger-dir", str(root / "db"), str(source)], stdout=log, stderr=log)
+            server = subprocess.Popen([binary, "serve", "--address", f"127.0.0.1:{warc_port}", "--path-prefix", "/archive", "--badger-dir", str(root / "db"), str(source), str(standalone)], stdout=log, stderr=log)
             pywb = None
             try:
                 wait(origin + "/ready", server).close()
                 for _ in range(100):
-                    lines = urllib.request.urlopen(origin + "/pywb/cdx?url=https://example.com/").read().splitlines()
+                    lines = urllib.request.urlopen(origin + "/archives/cdx?url=https://example.com/").read().splitlines()
                     if lines:
                         break
                     time.sleep(.05)

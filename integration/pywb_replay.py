@@ -57,7 +57,7 @@ with tempfile.TemporaryDirectory() as tmp:
                 assert response.status == 200
             with urllib.request.urlopen(urllib.request.Request(endpoint, data=cdx.read_bytes(), method="POST")) as response:
                 assert response.status == 200
-        app = FrontEndApp(custom_config={"collections": {"test": {"index": {"type": "cdx", "api_url": endpoint + "?url={url}&closest={closest}&sort=closest", "replay_url": ""}, "archive_paths": [str(root) + "/"]}}, "framed_replay": False})
+        app = FrontEndApp(custom_config={"collections": {"test": {"index": "cdx+" + endpoint, "archive_paths": [str(root) + "/"]}}, "framed_replay": False})
         client = Client(app, Response)
         for timestamp in ["20200102030405", "20210102030405"]:
             response = client.get(f"/test/{timestamp}id_/https://example.com/")
@@ -71,7 +71,7 @@ with tempfile.TemporaryDirectory() as tmp:
         assert response.data == b"submitted", response.data
         acl = root / "blocked.aclj"
         acl.write_text('com,example)/ - {"access":"block","url":"https://example.com/"}\n')
-        blocked = FrontEndApp(custom_config={"collections": {"test": {"index": {"type": "cdx", "api_url": endpoint + "?url={url}&closest={closest}&sort=closest", "replay_url": ""}, "archive_paths": [str(root) + "/"], "acl_paths": [str(acl)]}}, "framed_replay": False})
+        blocked = FrontEndApp(custom_config={"collections": {"test": {"index": "cdx+" + endpoint, "archive_paths": [str(root) + "/"], "acl_paths": [str(acl)]}}, "framed_replay": False})
         response = Client(blocked, Response).get("/test/20200102030405id_/https://example.com/")
         assert response.status_code in (403, 451), (response.status, response.data)
         print("pywb replay passed: normal capture, revisit, POST-derived key, pywb ACL", backend)

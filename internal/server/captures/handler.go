@@ -177,7 +177,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	switch {
-	case (route == "/cdx" || route == "/warcserver/cdx") && r.Method == http.MethodGet:
+	case route == "/cdx" && r.Method == http.MethodGet:
 		cdx.CDXHandlerWithLimits(db, h.ScanLimit, h.ResultLimit)(w, r)
 	case (route == "/cdx" || route == "/delete") && r.Method == http.MethodPost:
 		h.upload(w, r, db, route == "/delete")
@@ -224,7 +224,12 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/x-ndjson")
 		http.ServeFile(w, r, name)
 	default:
-		http.Error(w, "method or route not supported", http.StatusMethodNotAllowed)
+		switch route {
+		case "/cdx", "/delete", "/export", "/backup", "/packages", "/stats":
+			http.Error(w, "method not supported", http.StatusMethodNotAllowed)
+		default:
+			http.NotFound(w, r)
+		}
 	}
 }
 func writeJSON(w http.ResponseWriter, v any) {

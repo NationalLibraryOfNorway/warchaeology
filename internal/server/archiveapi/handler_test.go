@@ -69,7 +69,7 @@ func TestVirtualArchiveRangeAndCDX(t *testing.T) {
 			}
 			h := New(db, 100, 100)
 			w := httptest.NewRecorder()
-			h.ServeHTTP(w, httptest.NewRequest("GET", "/pywb/cdx?url=https://example.org/", nil))
+			h.ServeHTTP(w, httptest.NewRequest("GET", "/archives/cdx?url=https://example.org/", nil))
 			if w.Code != 200 {
 				t.Fatalf("%d %s", w.Code, w.Body.String())
 			}
@@ -156,7 +156,7 @@ func TestArchiveScanLimitCountsUploads(t *testing.T) {
 	for _, order := range []string{"", "&sort=reverse", "&sort=closest&closest=2021"} {
 		for _, limit := range []int{1, 3} {
 			w := httptest.NewRecorder()
-			New(db, limit, 10).ServeHTTP(w, httptest.NewRequestWithContext(ctx, "GET", "/pywb/cdx?url=https://example.org/"+order, nil))
+			New(db, limit, 10).ServeHTTP(w, httptest.NewRequestWithContext(ctx, "GET", "/archives/cdx?url=https://example.org/"+order, nil))
 			r := w.Result()
 			if err := r.Body.Close(); err != nil {
 				t.Fatal(err)

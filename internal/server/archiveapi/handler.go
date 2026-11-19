@@ -35,7 +35,7 @@ func New(db *cdxstore.DB, scanLimit, resultLimit int) http.Handler {
 		resultLimit = 10000
 	}
 	mux := http.NewServeMux()
-	mux.HandleFunc("GET /pywb/cdx", cdx.CDXHandlerWithTransform(source{db}, scanLimit, resultLimit, func(ctx context.Context, c *cdx.Capture, fields map[string]any) error {
+	mux.HandleFunc("GET /archives/cdx", cdx.CDXHandlerWithTransform(source{db}, scanLimit, resultLimit, func(ctx context.Context, c *cdx.Capture, fields map[string]any) error {
 		id := cdxstore.ArchiveID(c.GetSource())
 		name := "capture.warc"
 		if strings.HasSuffix(c.GetFilename(), ".gz") {

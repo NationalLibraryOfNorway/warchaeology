@@ -219,7 +219,6 @@ func (o *ServeOptions) Run(ctx context.Context) error {
 			resultLimit = 10000
 		}
 		mux.HandleFunc("GET "+o.prefix+cdxPath, cdx.CDXHandlerWithLimits(reader, scanLimit, resultLimit))
-		mux.HandleFunc("GET "+o.prefix+"/warcserver/cdx", cdx.CDXHandlerWithLimits(reader, scanLimit, resultLimit))
 		handler = mux
 	} else {
 		o.database.IndexOnly = !o.hasInputs
@@ -341,10 +340,9 @@ func (o *ServeOptions) databaseHandler(ctx context.Context, db *cdxstore.DB) htt
 	opts.ReadOnly = o.readOnly
 	native, _ := captures.New(ctx, opts, db)
 	archives := archiveapi.New(db, native.ScanLimit, native.ResultLimit)
-	router.HandlerFunc("GET", o.prefix+"/warcserver/cdx", cdx.CDXHandlerWithLimits(db, native.ScanLimit, native.ResultLimit))
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		path := strings.TrimPrefix(r.URL.Path, o.prefix)
-		if !db.IndexOnly() && (path == "/pywb/cdx" || strings.HasPrefix(path, "/archives/")) {
+		if !db.IndexOnly() && strings.HasPrefix(path, "/archives/") {
 			http.StripPrefix(o.prefix, archives).ServeHTTP(w, r)
 			return
 		}

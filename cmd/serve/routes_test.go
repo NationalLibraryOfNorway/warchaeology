@@ -6,7 +6,6 @@ import (
 	"fmt"
 	indexcmd "github.com/nationallibraryofnorway/warchaeology/v5/cmd/index"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/cdx/schema"
-	"github.com/nationallibraryofnorway/warchaeology/v5/internal/cdxstore"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/filewalker"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/server/api"
 	"github.com/spf13/afero"
@@ -17,7 +16,39 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/nationallibraryofnorway/warchaeology/v5/internal/cdxstore"
 )
+
+func TestRemovedCDXRoutes(t *testing.T) {
+	for _, indexOnly := range []bool{false, true} {
+		db, err := cdxstore.Open(t.Context(), cdxstore.Options{Format: "badger", Dir: t.TempDir(), IndexOnly: indexOnly})
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = db.Close() })
+		o := &ServeOptions{prefix: "/archive"}
+		handler := o.databaseHandler(t.Context(), db)
+		for _, path := range []string{"/warcserver/cdx", "/pywb/cdx"} {
+			response := httptest.NewRecorder()
+			handler.ServeHTTP(response, httptest.NewRequest("GET", "/archive"+path+"?url=https://example.org/", nil))
+			if response.Code != 404 {
+				t.Fatalf("indexOnly=%v %s: got %d", indexOnly, path, response.Code)
+			}
+		}
+		for _, path := range []string{"/cdx", "/archives/cdx"} {
+			response := httptest.NewRecorder()
+			handler.ServeHTTP(response, httptest.NewRequest("GET", "/archive"+path+"?url=https://example.org/", nil))
+			want := 200
+			if indexOnly && path == "/archives/cdx" {
+				want = 404
+			}
+			if response.Code != want {
+				t.Fatalf("indexOnly=%v %s: got %d want %d", indexOnly, path, response.Code, want)
+			}
+		}
+	}
+}
 
 func TestReplayRedirectToClosestCapture(t *testing.T) {
 	const destination = "https://example.org/target?q=1"
