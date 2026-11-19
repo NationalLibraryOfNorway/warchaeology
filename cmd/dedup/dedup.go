@@ -7,10 +7,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/nationallibraryofnorway/warchaeology/v5/internal/warcdigest"
 	"log/slog"
 	"os/signal"
 	"slices"
 	"sort"
+	"strings"
 	"syscall"
 
 	"github.com/nationallibraryofnorway/gowarc/v3"
@@ -503,22 +505,19 @@ func (o *DedupOptions) handleRecord(writer *gowarc.WarcFileWriter, record gowarc
 		return writeRecord(writer, warcRecord)
 	}
 
-	digest, err := getDigest(warcRecord)
-	if err != nil {
-		result.AddError(warc.ErrorFrom(record, fmt.Errorf("failed to get digest: %w", err)))
-	}
-
 	if len(record.Validation) > 0 {
 		for _, err := range record.Validation {
 			result.AddError(warc.ErrorFrom(record, err))
 		}
+		return writeRecord(writer, warcRecord)
 	}
-
-	// write response if no digest is found because we can't make a revisit record without a digest)
+	digest, err := getDigest(warcRecord)
+	if err != nil {
+		result.AddError(warc.ErrorFrom(record, err))
+	}
 	if digest == "" {
 		return writeRecord(writer, warcRecord)
 	}
-
 	profile := getRevisitProfile(warcRecord)
 
 	// Write response if no profile is found (can't make a revisit record without a profile)
@@ -572,43 +571,69 @@ func getRevisitProfile(warcRecord gowarc.WarcRecord) string {
 	}
 }
 
-// getDigest returns the digest of a record. If the record does not have a digest, it will be calculated and validated.
-func getDigest(warcRecord gowarc.WarcRecord) (string, error) {
-	if warcRecord.WarcHeader().Has(gowarc.WarcPayloadDigest) {
-		return warcRecord.WarcHeader().Get(gowarc.WarcPayloadDigest), nil
+// getDigest produces a donor key only for a complete, verified payload.
+func getDigest(r gowarc.WarcRecord) (string, error) {
+	h := r.WarcHeader()
+	if h.Has(gowarc.WarcTruncated) {
+		return "", nil
 	}
-	if warcRecord.WarcHeader().Has(gowarc.WarcBlockDigest) {
-		return warcRecord.WarcHeader().Get(gowarc.WarcBlockDigest), nil
+	for _, field := range *h {
+		if strings.HasPrefix(strings.ToLower(field.Name), "warc-segment-") {
+			return "", nil
+		}
 	}
-	// Calculate and validate digest (generates digest if repair is enabled)
-	if err := warcRecord.Block().Cache(); err != nil {
-		return "", fmt.Errorf("could not cache record: %w", err)
+	label := h.Get(gowarc.WarcPayloadDigest)
+	switch r.Type() {
+	case gowarc.Response:
+		if _, ok := r.Block().(gowarc.HttpResponseBlock); !ok {
+			return "", nil
+		}
+	case gowarc.Resource:
+		if label == "" {
+			label = h.Get(gowarc.WarcBlockDigest)
+		}
+	default:
+		return "", nil
 	}
-	if _, err := warcRecord.ValidateDigest(); err != nil {
-		return "", fmt.Errorf("failed to validate digest: %w", err)
+	if label == "" {
+		return "", nil
 	}
-	// If repair was enabled, headers were added by ValidateDigest
-	if warcRecord.WarcHeader().Has(gowarc.WarcPayloadDigest) {
-		return warcRecord.WarcHeader().Get(gowarc.WarcPayloadDigest), nil
+	if err := r.Block().Cache(); err != nil {
+		return "", err
 	}
-	if warcRecord.WarcHeader().Has(gowarc.WarcBlockDigest) {
-		return warcRecord.WarcHeader().Get(gowarc.WarcBlockDigest), nil
+	if n, err := r.ContentLength(); err != nil || n != r.Block().Size() {
+		return "", errors.New("invalid content length")
 	}
-
-	// No digest found
-	return "", nil
+	if declared := h.Get(gowarc.WarcBlockDigest); declared != "" && !warcdigest.Equal(declared, r.Block().BlockDigest()) {
+		return "", errors.New("block digest mismatch")
+	}
+	switch block := r.Block().(type) {
+	case gowarc.PayloadBlock:
+		if !warcdigest.Equal(label, block.PayloadDigest()) {
+			return "", errors.New("payload digest mismatch")
+		}
+	default:
+		raw, err := block.RawBytes()
+		if err != nil {
+			return "", err
+		}
+		if err := warcdigest.Verify(label, raw); err != nil {
+			return "", err
+		}
+	}
+	alg, digest, err := warcdigest.Parse(label)
+	if err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("%s/%s:%x", r.Type(), alg, digest), nil
 }
 
-func payloadLength(warcRecord gowarc.WarcRecord) int64 {
-	var length int64
-	switch block := warcRecord.Block().(type) {
-	case gowarc.ProtocolHeaderBlock:
-		length, _ = warcRecord.ContentLength()
-		length -= int64(len(block.ProtocolHeaderBytes()))
-	case gowarc.WarcFieldsBlock:
-		length = block.Size()
+func payloadLength(r gowarc.WarcRecord) int64 {
+	size := r.Block().Size()
+	if b, ok := r.Block().(gowarc.ProtocolHeaderBlock); ok {
+		size -= int64(len(b.ProtocolHeaderBytes()))
 	}
-	return length
+	return size
 }
 
 func revisitRefSize(revisitReference *gowarc.RevisitRef) int {
