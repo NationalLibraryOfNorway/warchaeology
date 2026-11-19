@@ -6,6 +6,7 @@ toolchain go1.27.3
 
 require (
 	github.com/awesome-gocui/gocui v1.1.0
+	github.com/blevesearch/bleve/v2 v2.6.3
 	github.com/dgraph-io/badger/v4 v4.3.1
 	github.com/jackc/puddle v1.3.0
 	github.com/jlaffaye/ftp v0.2.4
@@ -31,7 +32,6 @@ require (
 require (
 	github.com/RoaringBitmap/roaring/v2 v2.14.5 // indirect
 	github.com/bits-and-blooms/bitset v1.24.2 // indirect
-	github.com/blevesearch/bleve/v2 v2.6.3 // indirect
 	github.com/blevesearch/bleve_index_api v1.4.1 // indirect
 	github.com/blevesearch/geo v0.2.8 // indirect
 	github.com/blevesearch/go-faiss v1.1.5 // indirect
