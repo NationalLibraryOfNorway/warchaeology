@@ -77,6 +77,8 @@ func (idx *FileIndex) SaveFileStats(key string, result stat.Result) error {
 	return err
 }
 
+func (idx *FileIndex) Sync() error { return idx.db.Sync() }
+
 func (idx *FileIndex) Close() error {
 	var err error
 	if idx.db != nil {
