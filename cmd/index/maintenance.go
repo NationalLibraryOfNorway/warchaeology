@@ -28,7 +28,7 @@ func addMaintenanceCommands(cmd *cobra.Command) {
 			if _, e := os.Stat(args[0]); e != nil {
 				return e
 			}
-			db, e := cdxstore.Open(cmd.Context(), cdxstore.Options{Format: "badger", Dir: args[0]})
+			db, e := cdxstore.Open(cmd.Context(), cdxstore.Options{Format: badgerFormat, Dir: args[0]})
 			if e != nil {
 				return e
 			}

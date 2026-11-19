@@ -12,9 +12,9 @@ collections through CDXJ uploads, see [writable index collections](writable-capt
 ```sh
 warc index capture.warc.gz                         # unsorted CDXJ on stdout
 warc index --sort capture.warc.gz > captures.cdxj  # sorted, exact-line deduplication
-warc index -r --index-out captures.cdxj.gz warcs/  # sorted gzip output
-warc index --post-append --dir-root warcs --index-out captures.cdxj warcs/a.warc.gz
-warc index --index-format cdxpb --index-out captures.pb capture.warc.gz
+warc index -r --index-file captures.cdxj.gz warcs/  # sorted gzip output
+warc index --post-append --dir-root warcs --index-file captures.cdxj warcs/a.warc.gz
+warc index --index-format cdxpb --index-file captures.pb capture.warc.gz
 ```
 
 Named CDXJ outputs are sorted using 8 MiB memory runs and at most 32 merge inputs.
@@ -43,8 +43,8 @@ Use a length-delimited protobuf decoder, such as Go's `protodelim.UnmarshalFrom`
 ## Databases
 
 ```sh
-warc index --index-format badger --badger-dir ./captures warcs/a.warc.gz
-warc index reset --index-format badger --badger-dir ./captures
+warc index --index-format badger --index-dir ./captures warcs/a.warc.gz
+warc index reset --index-format badger --index-dir ./captures
 ```
 
 Badger **v4** is the supported database backend and is used throughout
@@ -63,9 +63,9 @@ successful retry removes obsolete captures and record IDs from that source.
 ## Database serving
 
 ```sh
-warc serve --badger-dir ./captures
-warc serve --badger-dir ./captures --read-only
-warc serve --badger-dir ./captures warcs/a.warc.gz
+warc serve --index-dir ./captures
+warc serve --index-dir ./captures --read-only
+warc serve --index-dir ./captures warcs/a.warc.gz
 ```
 
 The defaults are Badger and `:9999`. Inputs trigger one background ingestion pass;
@@ -82,8 +82,8 @@ Indexing and serving share the default index database location:
 | macOS | `~/Library/Application Support/warchaeology/warcdb` |
 | Windows | `%LOCALAPPDATA%\warchaeology\warcdb` |
 
-Use `--badger-dir` or `WARC_BADGER_DIR` to select another directory. To continue
-using an existing working-directory database, pass `--badger-dir ./warcdb`.
+Use `--index-dir` or `WARC_INDEX_DIR` to select another directory. To continue
+using an existing working-directory database, pass `--index-dir ./warcdb`.
 
 Database routes include `/cdx`, `/file`, `/file/:filename`, `/id`, `/id/:urn`,
 `/record/:urn`, `/report`, `/report/:id`, `/debug` and the imported `/warcserver`
@@ -94,7 +94,7 @@ use ordered seeks; other sorted queries use external sorting. Interactive querie
 now have separate scan/result caps and explicit truncation trailers.
 
 Flags use the existing Viper configuration and `WARC_*` environment mapping,
-e.g. `WARC_INDEX_FORMAT`, `WARC_BADGER_DIR` and `WARC_ADDRESS`.
+e.g. `WARC_INDEX_FORMAT`, `WARC_INDEX_DIR` and `WARC_ADDRESS`.
 
 ## Immutable zipnum clusters
 
@@ -196,8 +196,8 @@ Pass `.wacz` files directly to index or serve them:
 
 ```sh
 warc index capture.wacz
-warc index --index-format badger --badger-dir ./captures capture.wacz
-warc serve --badger-dir ./captures capture.wacz
+warc index --index-format badger --index-dir ./captures capture.wacz
+warc serve --index-dir ./captures capture.wacz
 warc serve --wacz-index warc capture.wacz
 ```
 
@@ -237,7 +237,7 @@ Original manifest JSON is preserved for every package, including descriptive
 metadata, resource hashes, and extension fields. Read it from the server:
 
 ```sh
-warc serve --badger-dir ./captures collection.wacz
+warc serve --index-dir ./captures collection.wacz
 curl --fail http://localhost:9999/packages
 ```
 

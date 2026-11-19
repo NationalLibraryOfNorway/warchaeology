@@ -8,8 +8,8 @@ connect pywb to the server's CDX lookup and WARC-byte endpoints.
 ## Search available text
 
 ```sh
-warc index --index-format badger --badger-dir ./captures --fulltext collection.wacz
-warc serve --badger-dir ./captures --fulltext
+warc index --index-format badger --index-dir ./captures --fulltext collection.wacz
+warc serve --index-dir ./captures --fulltext
 ```
 
 Open `http://localhost:9999/console/`. The HTML/CSS console includes text search,
@@ -39,7 +39,7 @@ warchaeology/
     └── fulltext/
 ```
 
-`--badger-dir ./captures` places the text index in `./captures/fulltext`.
+`--index-dir ./captures` places the text index in `./captures/fulltext`.
 Use `--fulltext-dir` to choose a separate location. Badger retains capture and
 package metadata; the Bleve index can be rebuilt from the archive sources.
 `serve` checks for catalogue changes every two seconds and reprocesses the
@@ -68,10 +68,10 @@ reports that a WACZ needs reindexing, run
 `warc index --index-format badger --fulltext collection.wacz` with the original package to register its fingerprint.
 Open `http://localhost:9999/console/` to search as indexing progresses.
 
-For a database stored elsewhere, add `--badger-dir`:
+For a database stored elsewhere, add `--index-dir`:
 
 ```sh
-warc serve --badger-dir ./captures --fulltext
+warc serve --index-dir ./captures --fulltext
 ```
 
 ### Rebuild the text index
@@ -90,7 +90,7 @@ warc serve --fulltext
 ```
 
 The first command finishes text indexing and exits; the second starts the search
-server. Both use the default database. Add the same `--badger-dir` to both
+server. Both use the default database. Add the same `--index-dir` to both
 commands when using another database.
 
 If an upgrade requires a new text index format, add
@@ -266,7 +266,7 @@ To generate an index with paths relative to the archive root:
 
 ```sh
 warc index --recursive --dir-root /srv/warcs \
-  --index-out captures.cdxj /srv/warcs
+  --index-file captures.cdxj /srv/warcs
 ```
 
 Here `/srv/warcs` is the indexing host's path; pywb can mount the same files at

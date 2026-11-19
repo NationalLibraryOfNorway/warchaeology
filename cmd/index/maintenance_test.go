@@ -172,7 +172,7 @@ func restoreConcurrently(t *testing.T, backup, restored string) {
 	if completed != 1 {
 		t.Fatalf("successful restores = %d, want one", completed)
 	}
-	db, err := cdxstore.Open(t.Context(), cdxstore.Options{Format: "badger", Dir: restored, ReadOnly: true})
+	db, err := cdxstore.Open(t.Context(), cdxstore.Options{Format: badgerFormat, Dir: restored, ReadOnly: true})
 	if err != nil {
 		t.Fatal(err)
 	}

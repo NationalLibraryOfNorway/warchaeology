@@ -784,3 +784,81 @@ func TestRejectSwappedCompletion(t *testing.T) {
 		}
 	}
 }
+
+func TestReportCannotModifyPublishedPeriod(t *testing.T) {
+	o := testOptions(t, fixtureFile(t, resource(t, "source", "2023-01-01T00:00:00Z")))
+	if err := o.Run(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	period := filepath.Join(o.OutputDir, "2023")
+	before, err := directoryChecksums(period)
+	if err != nil {
+		t.Fatal(err)
+	}
+	o.ReportPath = filepath.Join(period, "manifest.jsonl")
+	if err := o.Run(t.Context()); err == nil {
+		t.Fatal("accepted report inside period")
+	}
+	after, err := directoryChecksums(period)
+	if err != nil || !reflect.DeepEqual(before, after) {
+		t.Fatalf("period changed: %v", err)
+	}
+}
+
+func TestReportPathAliases(t *testing.T) {
+	o := testOptions(t, fixtureFile(t, resource(t, "source", "2023-01-01T00:00:00Z")))
+	if err := o.Run(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if err := o.Close(); err != nil {
+		t.Fatal(err)
+	}
+	period := filepath.Join(o.OutputDir, "2023")
+	marker := filepath.Join(period, "manifest.jsonl")
+	alias := filepath.Join(t.TempDir(), "period")
+	if err := os.Symlink(period, alias); err != nil {
+		t.Skipf("symbolic links unavailable: %v", err)
+	}
+	o.ReportPath = filepath.Join(alias, "elsewhere.json")
+	if err := o.checkReportPaths(t.Context()); err == nil {
+		t.Fatal("allowed report through symlink to period")
+	}
+	o.ReportPath = filepath.Join(o.OutputDir, "report.json")
+	findings := o.ReportPath + ".findings.jsonl"
+	if err := os.Link(marker, findings); err != nil {
+		t.Skipf("hard links unavailable: %v", err)
+	}
+	before, err := os.ReadFile(marker)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f, err := createFindings(findings)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatal(err)
+	}
+	after, err := os.ReadFile(marker)
+	if err != nil || !bytes.Equal(before, after) {
+		t.Fatal("findings truncated published manifest")
+	}
+}
+
+func resource(t *testing.T, id, date string) gowarc.WarcRecord {
+	t.Helper()
+	b := gowarc.NewRecordBuilder(gowarc.Resource, gowarc.WithAddMissingDigest(true))
+	b.AddWarcHeader(gowarc.WarcRecordID, "<urn:uuid:"+id+">")
+	b.AddWarcHeader(gowarc.WarcDate, date)
+	b.AddWarcHeader(gowarc.WarcTargetURI, "https://example.org/"+id)
+	b.AddWarcHeader(gowarc.ContentType, "application/octet-stream")
+	if _, err := b.WriteString(testPayload); err != nil {
+		t.Fatal(err)
+	}
+	wr, _, err := b.Build()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = wr.Close() })
+	return wr
+}

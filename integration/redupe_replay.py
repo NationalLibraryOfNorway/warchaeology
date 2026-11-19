@@ -74,7 +74,7 @@ with tempfile.TemporaryDirectory() as tmp:
         isolated = root / f"isolated-{year}"
         shutil.move(str(yearly / str(year)), isolated)
         cdx = root / f"{year}.cdxj"
-        subprocess.run([binary, "index", "--index-out", str(cdx), str(isolated)], check=True)
+        subprocess.run([binary, "index", "--index-file", str(cdx), str(isolated)], check=True)
         app = FrontEndApp(custom_config={
             "collections": {"year": {"index": str(cdx), "archive_paths": [str(isolated) + "/"]}},
             "framed_replay": False,

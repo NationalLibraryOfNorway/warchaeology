@@ -28,7 +28,7 @@ with tempfile.TemporaryDirectory() as tmp:
     warc = root / fixture["name"]
     warc.write_bytes(base64.b64decode(fixture["warc"]))
     cdx = root / "index.cdxj"
-    subprocess.run([binary, "index", "--post-append", "--index-out", str(cdx), str(warc)], check=True)
+    subprocess.run([binary, "index", "--post-append", "--index-file", str(cdx), str(warc)], check=True)
     cluster = root / "cluster"
     subprocess.run([binary, "zipnum", "build", str(cdx), "--output-dir", str(cluster), "--lines", "1", "--blocks", "2"], check=True)
     with socket.socket() as s:

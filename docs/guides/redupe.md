@@ -127,7 +127,7 @@ workers and closes readers, writers, and databases.
 Generate CDXJ with the existing index command:
 
 ```sh
-warc index --index-out yearly/2023.cdxj yearly/2023/
+warc index --index-file yearly/2023.cdxj yearly/2023/
 ```
 
 Point your replay system at that index and only the corresponding period's WARC

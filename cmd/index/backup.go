@@ -27,7 +27,7 @@ func backupIndex(ctx context.Context, dir, filename string) (err error) {
 	}
 	// An exclusive Badger handle prevents a server from opening either index
 	// while the two snapshots are taken.
-	db, err := cdxstore.Open(ctx, cdxstore.Options{Format: "badger", Dir: dir})
+	db, err := cdxstore.Open(ctx, cdxstore.Options{Format: badgerFormat, Dir: dir})
 	if err != nil {
 		return err
 	}

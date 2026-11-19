@@ -90,11 +90,11 @@ user and group IDs when mounting a writable archive directory:
 ```shell
 docker run --rm --user "$(id -u):$(id -g)" \
   -v "$PWD:/data" -w /data \
-  warchaeology index --index-format badger --badger-dir ./warcdb capture.wacz
+  warchaeology index --index-format badger --index-dir ./warcdb capture.wacz
 
 docker run --rm --user "$(id -u):$(id -g)" \
   -v "$PWD:/data" -w /data -p 9999:9999 \
-  warchaeology serve --badger-dir ./warcdb capture.wacz
+  warchaeology serve --index-dir ./warcdb capture.wacz
 ```
 
 The mounted directory retains the index database between runs. File hooks that

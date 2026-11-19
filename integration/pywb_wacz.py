@@ -64,7 +64,7 @@ for mode, archive in [("leaf", leaf), ("nested", package({"child.wacz": leaf, "d
         config = {"collections": {"test": {"index": "cdx+" + origin + "/archives/cdx", "archive_paths": [origin + "/archives/"]}}, "framed_replay": False}
         (root / "config.yaml").write_text(json.dumps(config))
         with (root / "server.log").open("w+") as log:
-            server = subprocess.Popen([binary, "serve", "--address", f"127.0.0.1:{warc_port}", "--path-prefix", "/archive", "--badger-dir", str(root / "db"), str(source), str(standalone)], stdout=log, stderr=log)
+            server = subprocess.Popen([binary, "serve", "--address", f"127.0.0.1:{warc_port}", "--path-prefix", "/archive", "--index-dir", str(root / "db"), str(source), str(standalone)], stdout=log, stderr=log)
             pywb = None
             try:
                 wait(origin + "/ready", server).close()

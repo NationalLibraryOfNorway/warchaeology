@@ -13,8 +13,8 @@ warc index reset [flags]
 
 ```
       --badger-database string   Badger database name
-      --badger-dir string        Badger index database directory (default "/home/vscode/.local/share/warchaeology/warcdb")
   -h, --help[=true|false]        help for reset
+      --index-dir string         Badger index database directory (default "/home/vscode/.local/share/warchaeology/warcdb")
       --index-format string      database backend: badger (default "badger")
 ```
 
@@ -30,4 +30,3 @@ warc index reset [flags]
 ### SEE ALSO
 
 * [warc index](warc_index.md)     - Index WARC captures
-

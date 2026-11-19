@@ -100,3 +100,16 @@ func (c sourceClosers) Close() error {
 func WithSourceRoots(fs afero.Fs, roots []string) afero.Fs {
 	return &sourceFS{Fs: fs, roots: append([]string(nil), roots...)}
 }
+
+func localRootPath(root string) string {
+	scheme, local, ok := strings.Cut(root, "://")
+	if ok {
+		switch strings.ToLower(scheme) {
+		case "ftp":
+			return ""
+		case "zip", "tar", "tgz":
+			return local
+		}
+	}
+	return root
+}

@@ -35,7 +35,7 @@ Start with an audit, then write the yearly collection and index a completed year
 warc redupe --audit --verify-payloads --report audit.json --recursive sources/
 warc redupe --output-dir yearly --index-dir working-index \
   --report transformation.json --recursive sources/
-warc index --index-out yearly/2023.cdxj yearly/2023/
+warc index --index-file yearly/2023.cdxj yearly/2023/
 ```
 
 Supply older donor WARCs as well as the captures you want to reorganize. Each period

@@ -39,7 +39,7 @@ func (f IndexFlags) AddFlags(cmd *cobra.Command) {
 	cmd.Flags().String("fulltext-dir", "", "Bleve index directory (default: fulltext subdirectory of the index database)")
 	cmd.Flags().String("wacz-index", "auto", "WACZ indexing: auto imports embedded indexes; warc indexes contained WARCs")
 	cmd.Flags().String("index-format", "cdxj", "cdxj, cdxpb or badger")
-	cmd.Flags().String("index-out", "-", "output filename or - for stdout")
+	cmd.Flags().String(flag.IndexFile, "-", "index export filename or - for stdout")
 	cmd.Flags().String("index-tmp-dir", "", "temporary sort directory")
 	cmd.Flags().Bool("sort", false, "sort and deduplicate stdout CDXJ")
 	cmd.Flags().String("dir-root", "", "export filenames relative to this directory")
@@ -65,7 +65,7 @@ func (f IndexFlags) ToOptions() (*IndexOptions, error) {
 		Limit:             f.WarcIteratorFlags.Limit(),
 	}
 	o.format = viper.GetString("index-format")
-	o.output = viper.GetString("index-out")
+	o.output = viper.GetString(flag.IndexFile)
 	o.tmpDir = viper.GetString("index-tmp-dir")
 	o.sort = viper.GetBool("sort")
 	var e error
@@ -99,6 +99,5 @@ func (f IndexFlags) ToOptions() (*IndexOptions, error) {
 	if e != nil {
 		return nil, fmt.Errorf("file walker: %w", e)
 	}
-	o.FileWalker.SourceRoot = f.FileWalkerFlags.SrcFileListFlags.SrcFilesystem()
 	return o, nil
 }

@@ -84,7 +84,7 @@ warc dedup --recursive --output-dir deduplicated warcs/
 warc index capture.warc.gz
 
 # Write a sorted, compressed index from a directory tree
-warc index --recursive --index-out captures.cdxj.gz warcs/
+warc index --recursive --index-file captures.cdxj.gz warcs/
 
 # Import an embedded index
 warc index capture.wacz > captures.cdxj
@@ -108,11 +108,11 @@ warc serve capture.wacz
 warc serve --read-only
 
 # Use a separate index database for a collection
-warc serve --badger-dir ./news-index news.wacz
+warc serve --index-dir ./news-index news.wacz
 ```
 
 Indexing and serving accept `.warc`, `.warc.gz` and `.wacz` inputs by default.
-Without `--badger-dir`, the index database is stored in the OS-specific user data
+Without `--index-dir`, the index database is stored in the OS-specific user data
 directory under `warchaeology/warcdb`.
 
 Query a running server from another terminal:
@@ -253,7 +253,7 @@ warc redupe --interval month --output-dir monthly --recursive sources/
 warc redupe --interval day --output-dir daily --recursive sources/
 
 # Generate a replay index for one year
-warc index --index-out yearly/2025.cdxj yearly/2025/
+warc index --index-file yearly/2025.cdxj yearly/2025/
 ```
 
 [Time-based preservation guide](docs/guides/redupe.md)

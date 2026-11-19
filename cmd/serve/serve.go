@@ -81,15 +81,18 @@ type ServeOptions struct {
 
 func (o *ServeOptions) Complete(cmd *cobra.Command, args []string) error {
 	o.hasInputs = o.hasInputs || len(args) > 0
+	if flag.Explicit(cmd, flag.IndexFile) {
+		return errors.New("index-file is not valid for serving")
+	}
 	if o.collectionsDir != "" {
-		for _, name := range []string{"badger-dir", "badger-database", "zipnum-dir"} {
+		for _, name := range []string{flag.IndexDir, "badger-database", "zipnum-dir"} {
 			if flag.Explicit(cmd, name) {
 				o.incompatible = append(o.incompatible, name)
 			}
 		}
 	}
 	if o.format == zipnumFormat {
-		for _, name := range []string{"badger-dir", "badger-database", "index-out", "post-append", "input-file"} {
+		for _, name := range []string{flag.IndexDir, "badger-database", "post-append", "input-file"} {
 			if flag.Explicit(cmd, name) {
 				o.incompatible = append(o.incompatible, name)
 			}

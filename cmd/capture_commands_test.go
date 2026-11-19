@@ -4,6 +4,8 @@
 package cmd
 
 import (
+	"archive/tar"
+	"archive/zip"
 	"bytes"
 	"context"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/cdxstore"
@@ -76,8 +78,13 @@ func TestCaptureCommandValidation(t *testing.T) {
 	}{
 		{"readonly inputs", []string{"serve", "--read-only", "capture.warc"}, nil, "rejects ingestion"},
 		{"zipnum inputs", []string{"serve", "--index-format", "zipnum", "capture.warc"}, nil, "does not accept ingestion"},
-		{"zipnum database flag", []string{"serve", "--index-format", "zipnum", "--badger-dir", "db"}, nil, "badger-dir is not valid"},
-		{"zipnum database environment", []string{"serve", "--index-format", "zipnum"}, map[string]string{"WARC_BADGER_DIR": "db"}, "badger-dir is not valid"},
+		{"zipnum database flag", []string{"serve", "--index-format", "zipnum", "--index-dir", "db"}, nil, "index-dir is not valid"},
+		{"zipnum database environment", []string{"serve", "--index-format", "zipnum"}, map[string]string{"WARC_INDEX_DIR": "db"}, "index-dir is not valid"},
+		{"badger export filename", []string{"index", "--index-format", "badger", "--index-file", "-"}, nil, "index-file requires"},
+		{"file export database directory", []string{"index", "capture.warc"}, map[string]string{"WARC_INDEX_DIR": "db"}, "index-dir requires"},
+		{"serve export filename", []string{"serve", "--index-file", "captures.cdxj"}, nil, "index-file is not valid"},
+		{"old export flag", []string{"index", "--index-out", "captures.cdxj"}, nil, "unknown flag: --index-out"},
+		{"old database flag", []string{"index", "--badger-dir", "db"}, nil, "unknown flag: --badger-dir"},
 		{"zipnum layout environment", []string{"zipnum", "build", "missing.cdxj"}, map[string]string{"WARC_LINES": "0"}, "line and block counts must be positive"},
 		{"zipnum merge inputs", []string{"zipnum", "merge", "missing"}, nil, "accepts 2 arg(s)"},
 		{"zipnum add inputs", []string{"zipnum", "add", "missing"}, nil, "accepts 2 arg(s)"},
@@ -110,6 +117,138 @@ func executeCaptureCommand(t *testing.T, args ...string) error {
 	command.SetErr(io.Discard)
 	command.SetArgs(args)
 	return command.Execute()
+}
+
+func TestArchiveOutputsRejectInputAliases(t *testing.T) {
+	warc, err := os.ReadFile("../testdata/warc/single-record.warc")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"index direct", "index directory", "index source list", "redupe archive", "redupe findings", "redupe explicit mount"} {
+		t.Run(name, func(t *testing.T) {
+			dir := t.TempDir()
+			source := filepath.Join(dir, "source.warc")
+			if name == "redupe findings" {
+				source = filepath.Join(dir, "report.json.findings.jsonl")
+			}
+			input := warc
+			if name == "redupe archive" || name == "redupe explicit mount" {
+				source = filepath.Join(dir, "bundle.tar")
+				var data bytes.Buffer
+				w := tar.NewWriter(&data)
+				if err := w.WriteHeader(&tar.Header{Name: "source.warc", Size: int64(len(warc)), Mode: 0600}); err != nil {
+					t.Fatal(err)
+				}
+				if _, err := w.Write(warc); err != nil {
+					t.Fatal(err)
+				}
+				if err := w.Close(); err != nil {
+					t.Fatal(err)
+				}
+				input = data.Bytes()
+			}
+			if err := os.WriteFile(source, input, 0600); err != nil {
+				t.Fatal(err)
+			}
+			var args []string
+			switch name {
+			case "index direct":
+				args = []string{"index", "--index-file", source, source}
+			case "index directory":
+				alias := filepath.Join(dir, "index.cdxj")
+				if err := os.Link(source, alias); err != nil {
+					t.Fatal(err)
+				}
+				args = []string{"index", "--index-file", alias, dir}
+			case "index source list":
+				alias := filepath.Join(dir, "index.cdxj")
+				if err := os.Symlink(source, alias); err != nil {
+					t.Skipf("creating a symlink: %v", err)
+				}
+				list := filepath.Join(dir, "sources.txt")
+				if err := os.WriteFile(list, []byte(source+"\n"), 0600); err != nil {
+					t.Fatal(err)
+				}
+				args = []string{"index", "--index-file", alias, "--source-file-list", list}
+			case "redupe archive":
+				args = []string{"redupe", "--audit", "--report", source, source}
+			case "redupe findings":
+				args = []string{"redupe", "--audit", "--report", filepath.Join(dir, "report.json"), source}
+			case "redupe explicit mount":
+				args = []string{"redupe", "--audit", "--report", source, "--input-file", "tar://" + source, "/"}
+			}
+			if err := executeCaptureCommand(t, args...); err == nil || !strings.Contains(err.Error(), "aliases archive input") {
+				t.Fatalf("expected archive collision, got %v", err)
+			}
+			data, err := os.ReadFile(source)
+			if err != nil || !bytes.Equal(data, input) {
+				t.Fatalf("source changed: %v", err)
+			}
+		})
+	}
+}
+
+func TestIndexDestinationConfiguration(t *testing.T) {
+	root := t.TempDir()
+	config := filepath.Join(root, "warc.yaml")
+	db := filepath.Join(root, "db")
+	if err := os.WriteFile(config, []byte("index-format: badger\nindex-dir: "+filepath.ToSlash(db)+"\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := executeCaptureCommand(t, "--config", config, "index", "../testdata/warc/single-record.warc"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(db, "MANIFEST")); err != nil {
+		t.Fatal(err)
+	}
+	file := filepath.Join(root, "captures.cdxj")
+	t.Setenv("WARC_INDEX_FILE", file)
+	if err := executeCaptureCommand(t, "index", "../testdata/warc/single-record.warc"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(file); err != nil {
+		t.Fatalf("export file was not created: %v", err)
+	}
+}
+
+func TestWACZRevalidatesAfterParserConfigChange(t *testing.T) {
+	dir := t.TempDir()
+	source := filepath.Join(dir, "collection.wacz")
+	var buf bytes.Buffer
+	z := zip.NewWriter(&buf)
+	member, err := z.Create("archive/data.warc")
+	if err != nil {
+		t.Fatal(err)
+	}
+	const record = "WARC/1.1\r\nWARC-Type: resource\r\nWARC-Date: 2026-11-17T00:00:00Z\r\nWARC-Record-ID: <urn:example:original>\r\nWARC-Target-URI: foo://bad^host/\r\nContent-Type: text/plain\r\nContent-Length: 0\r\n\r\n\r\n\r\n"
+	if _, err := io.WriteString(member, record); err != nil {
+		t.Fatal(err)
+	}
+	if err := z.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(source, buf.Bytes(), 0600); err != nil {
+		t.Fatal(err)
+	}
+	args := []string{"index", "--index-format", "badger", "--index-dir", filepath.Join(dir, "db"), source}
+	t.Setenv("WARC_STRICT", "false")
+	if err := executeCaptureCommand(t, args...); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("WARC_STRICT", "true")
+	if err := executeCaptureCommand(t, args...); err == nil {
+		t.Fatal("strict mode reused the permissive checkpoint")
+	}
+	config := filepath.Join(dir, "config.yaml")
+	if err := os.WriteFile(config, []byte("lax-host-parsing: true\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := executeCaptureCommand(t, append(args, "--config", config)...); err != nil {
+		t.Fatal(err)
+	}
+	if err := executeCaptureCommand(t, args...); err == nil {
+		t.Fatal("strict mode reused the lax host checkpoint")
+	}
 }
 
 func TestRedupeSymlinkContainment(t *testing.T) {
@@ -150,7 +289,7 @@ func TestFulltextRejectsBeforeIngestion(t *testing.T) {
 	if err := db.Close(); err != nil {
 		t.Fatal(err)
 	}
-	if err = executeCaptureCommand(t, "index", "--fulltext", "--index-format=badger", "--badger-dir", opts.Dir, "../testdata/warc/convert.warc"); err == nil {
+	if err = executeCaptureCommand(t, "index", "--fulltext", "--index-format=badger", "--index-dir", opts.Dir, "../testdata/warc/convert.warc"); err == nil {
 		t.Fatal("accepted index-only database")
 	}
 	db, err = cdxstore.Open(t.Context(), opts)

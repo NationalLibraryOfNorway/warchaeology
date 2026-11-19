@@ -14,7 +14,7 @@ warc serve [FILE/DIR...] [flags]
 ```
       --address string                      HTTP listen address (default ":9999")
       --badger-database string              Badger database name
-      --badger-dir string                   Badger index database directory (default "/home/vscode/.local/share/warchaeology/warcdb")
+      --index-dir string                   Badger index database directory (default "/home/vscode/.local/share/warchaeology/warcdb")
       --close-input-file-hook string        command to run after closing each input file; the command receives these environment variables:
                                                 WARC_COMMAND contains the subcommand name
                                                 WARC_HOOK_TYPE contains the hook type (OpenInputFile, CloseInputFile, OpenOutputFile, CloseOutputFile)
@@ -32,7 +32,6 @@ warc serve [FILE/DIR...] [flags]
   -h, --help[=true|false]                   help for serve
       --id strings                          only process records with these record IDs; repeat the flag or use a comma-separated list
       --index-format string                 badger or zipnum (default "badger")
-      --index-out string                    output filename or - for stdout (default "-")
       --index-tmp-dir string                temporary sort directory
   -i, --input-file string                   input filesystem source; default is the local OS filesystem
                                             Legal values:

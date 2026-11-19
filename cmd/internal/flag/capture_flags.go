@@ -16,9 +16,11 @@ import (
 
 type CaptureDatabaseFlags struct{}
 
+const IndexFile = "index-file"
+
 func (CaptureDatabaseFlags) AddFlags(cmd *cobra.Command) {
 	f := cmd.Flags()
-	f.String("badger-dir", "", "Badger index database directory (default: warchaeology/warcdb in the user data directory)")
+	f.String(IndexDir, "", "Badger index database directory (default: warchaeology/warcdb in the user data directory)")
 	f.String("badger-database", "", "Badger database name")
 }
 
@@ -51,12 +53,12 @@ func defaultCaptureDirectory() (string, error) {
 
 func (CaptureDatabaseFlags) ToOptions() (cdxstore.Options, error) {
 	format := viper.GetString("index-format")
-	dir := viper.GetString("badger-dir")
+	dir := viper.GetString(IndexDir)
 	if dir == "" {
 		var err error
 		dir, err = defaultCaptureDirectory()
 		if err != nil {
-			return cdxstore.Options{}, fmt.Errorf("set --badger-dir to select a capture database: %w", err)
+			return cdxstore.Options{}, fmt.Errorf("set --index-dir to select a capture database: %w", err)
 		}
 	}
 	dir = filepath.Join(dir, viper.GetString("badger-database"))

@@ -13,7 +13,6 @@ warc index FILE/DIR... [flags]
 
 ```
       --badger-database string           Badger database name
-      --badger-dir string                Badger index database directory (default "/home/vscode/.local/share/warchaeology/warcdb")
       --close-input-file-hook string     command to run after closing each input file; the command receives these environment variables:
                                              WARC_COMMAND contains the subcommand name
                                              WARC_HOOK_TYPE contains the hook type (OpenInputFile, CloseInputFile, OpenOutputFile, CloseOutputFile)
@@ -29,8 +28,9 @@ warc index FILE/DIR... [flags]
       --fulltext-rebuild[=true|false]    rebuild text search from registered captures
   -h, --help[=true|false]                help for index
       --id strings                       only process records with these record IDs; repeat the flag or use a comma-separated list
+      --index-dir string                 Badger index database directory (default "/home/vscode/.local/share/warchaeology/warcdb")
+      --index-file string                index export filename or - for stdout (default "-")
       --index-format string              cdxj, cdxpb or badger (default "cdxj")
-      --index-out string                 output filename or - for stdout (default "-")
       --index-tmp-dir string             temporary sort directory
   -i, --input-file string                input filesystem source; default is the local OS filesystem
                                          Legal values:
@@ -85,4 +85,3 @@ warc index FILE/DIR... [flags]
 * [warc index compact](warc_index_compact.md)     - Reclaim index database storage offline
 * [warc index reset](warc_index_reset.md)     - Reset the selected index database
 * [warc index restore](warc_index_restore.md)     - Restore an index database backup offline into a new directory
-

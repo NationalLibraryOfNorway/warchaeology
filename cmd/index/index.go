@@ -46,6 +46,16 @@ func NewCmdIndex() *cobra.Command {
 				return err
 			}
 			defer func() { err = errors.Join(err, o.Close()) }()
+			if o.format == badgerFormat && flag.Explicit(cmd, flag.IndexFile) {
+				return errors.New("index-file requires index-format cdxj or cdxpb")
+			}
+			if o.format != badgerFormat {
+				for _, name := range []string{flag.IndexDir, "badger-database"} {
+					if flag.Explicit(cmd, name) {
+						return fmt.Errorf("%s requires index-format badger", name)
+					}
+				}
+			}
 			if err = o.Complete(cmd, args); err != nil {
 				return err
 			}
@@ -63,6 +73,8 @@ func NewCmdIndex() *cobra.Command {
 	addMaintenanceCommands(cmd)
 	return cmd
 }
+
+const badgerFormat = "badger"
 
 type IndexOptions struct {
 	Fulltext, TextRebuild  bool
@@ -110,7 +122,7 @@ func (o *IndexOptions) Validate() error {
 	if o.TextRebuild && !o.Fulltext {
 		return errors.New("fulltext-rebuild requires fulltext")
 	}
-	if o.Fulltext && o.format != "badger" {
+	if o.Fulltext && o.format != badgerFormat {
 		return errors.New("fulltext requires index-format badger")
 	}
 	if len(o.Paths) == 0 && !o.Fulltext {
@@ -137,6 +149,11 @@ func (o *IndexOptions) Close() error {
 
 func (o *IndexOptions) Run(ctx context.Context) error {
 	if o.Sink == nil {
+		if o.format != badgerFormat && o.output != "-" && o.output != "" {
+			if err := o.FileWalker.CheckOutputPaths(ctx, o.Paths, o.output); err != nil {
+				return err
+			}
+		}
 		if err := o.openSink(ctx); err != nil {
 			return err
 		}
@@ -216,7 +233,7 @@ func (o *IndexOptions) openSink(ctx context.Context) error {
 	switch o.format {
 	case "cdxj", "cdxpb":
 		o.Sink, err = cdx.NewOutput(o.stdout, o.output, o.format, o.tmpDir, o.sort)
-	case "badger":
+	case badgerFormat:
 		o.Sink, err = cdxstore.Open(ctx, o.database)
 	default:
 		return fmt.Errorf("unknown index format %q", o.format)

@@ -4,6 +4,13 @@ title: Migration notes
 
 ## Changes after v5
 
+### Index destination flags
+
+Use `--index-file` for CDXJ and protobuf exports and `--index-dir` for the
+Badger capture database. Update scripts and config that used `index-out` or
+`badger-dir`. The environment variables are `WARC_INDEX_FILE` and
+`WARC_INDEX_DIR`.
+
 ### Archive paths are literal
 
 The `zip://`, `tar://`, and `tgz://` prefixes now select only the archive format.

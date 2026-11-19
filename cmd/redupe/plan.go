@@ -127,6 +127,9 @@ func (o *RedupeOptions) Run(ctx context.Context) (err error) {
 	if err = o.Validate(); err != nil {
 		return err
 	}
+	if err = o.checkReportPaths(ctx); err != nil {
+		return err
+	}
 	if o.configuration == nil {
 		o.configuration = map[string]any{}
 	}

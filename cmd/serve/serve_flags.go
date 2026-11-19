@@ -8,6 +8,7 @@ import (
 	"time"
 
 	indexcmd "github.com/nationallibraryofnorway/warchaeology/v5/cmd/index"
+	"github.com/nationallibraryofnorway/warchaeology/v5/cmd/internal/flag"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/server/captures"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -19,6 +20,7 @@ func NewServeFlags() ServeFlags { return ServeFlags{IndexFlags: indexcmd.NewInde
 
 func (f ServeFlags) AddFlags(cmd *cobra.Command) {
 	f.IndexFlags.AddFlags(cmd)
+	cmd.Flags().Lookup(flag.IndexFile).Hidden = true
 	_ = cmd.Flags().Set("index-format", badgerFormat)
 	cmd.Flags().Lookup("index-format").DefValue = badgerFormat
 	cmd.Flags().Lookup("index-format").Usage = "badger or zipnum"

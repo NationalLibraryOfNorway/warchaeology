@@ -8,12 +8,15 @@ import (
 	"context"
 	"crypto/rand"
 	"errors"
+	"fmt"
+	"github.com/nationallibraryofnorway/warchaeology/v5/internal/publication"
 	"io"
 	"os"
 	"os/signal"
 	"path/filepath"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/dgraph-io/badger/v4"
 	"github.com/nationallibraryofnorway/warchaeology/v5/cmd/internal/flag"
@@ -174,12 +177,59 @@ func (o *RedupeOptions) Complete(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
+func (o *RedupeOptions) checkReportPaths(ctx context.Context) error {
+	if o.OutputDir != "" {
+		root, err := resolvedPath(o.OutputDir)
+		if err != nil {
+			return err
+		}
+		paths := []string{o.IndexDir}
+		if o.ReportPath != "" {
+			paths = append(paths, o.ReportPath, o.ReportPath+".findings.jsonl")
+		}
+		for _, p := range paths {
+			if p == "" {
+				continue
+			}
+			resolved, err := resolvedPath(p)
+			if err != nil {
+				return err
+			}
+			abs, err := filepath.Abs(p)
+			if err != nil {
+				return err
+			}
+			parent, err := resolvedPath(filepath.Dir(abs))
+			if err != nil {
+				return err
+			}
+			for _, dest := range []string{resolved, filepath.Join(parent, filepath.Base(abs))} {
+				if !strings.EqualFold(filepath.VolumeName(root), filepath.VolumeName(dest)) {
+					continue
+				}
+				rel, err := filepath.Rel(root, dest)
+				if err != nil {
+					return err
+				}
+				first, _, _ := strings.Cut(rel, string(filepath.Separator))
+				if managedPeriod(first) {
+					return fmt.Errorf("destination inside managed period: %s", p)
+				}
+			}
+		}
+	}
+	if o.ReportPath != "" {
+		return o.FileWalker.CheckOutputPaths(ctx, o.Paths, o.ReportPath, o.ReportPath+".findings.jsonl")
+	}
+	if o.IndexDir != "" {
+		return o.FileWalker.CheckOutputPaths(ctx, o.Paths, filepath.Join(o.IndexDir, "findings.jsonl"))
+	}
+	return nil
+}
+
 func (o *RedupeOptions) Validate() error {
 	if err := o.validateInterval(); err != nil {
 		return err
-	}
-	if strings.HasSuffix(o.ReportPath, ".warc") || strings.HasSuffix(o.ReportPath, ".warc.gz") {
-		return errors.New("report must not overwrite a WARC source")
 	}
 	if !o.Audit {
 		output, err := resolvedPath(o.OutputDir)
@@ -347,7 +397,7 @@ func (o *RedupeOptions) open(ctx context.Context) (err error) {
 			auditPath = o.findings.Name()
 		}
 	} else {
-		o.findings, err = os.Create(auditPath)
+		o.findings, err = createFindings(auditPath)
 	}
 	if err == nil {
 		o.report.FindingsArtifact = auditPath
@@ -365,6 +415,18 @@ func (o *RedupeOptions) validateInterval() error {
 	default:
 		return errors.New("interval must be year, month or day")
 	}
+}
+
+func managedPeriod(name string) bool {
+	if strings.HasPrefix(name, ".redupe-") {
+		return true
+	}
+	for _, layout := range []string{"2006", "2006-01", "2006-01-02"} {
+		if _, err := time.Parse(layout, name); err == nil {
+			return true
+		}
+	}
+	return false
 }
 
 // Resolve existing ancestors of destinations that will be created by open.
@@ -385,4 +447,19 @@ func resolvedPath(path string) (string, error) {
 		return "", err
 	}
 	return filepath.Join(parent, filepath.Base(path)), nil
+}
+
+// Replace the directory entry so a hard-linked old findings file is never truncated.
+func createFindings(path string) (*os.File, error) {
+	f, err := os.CreateTemp(filepath.Dir(path), ".findings-*")
+	if err != nil {
+		return nil, err
+	}
+	if err = f.Close(); err == nil {
+		err = publication.Rename(f.Name(), path, true)
+	}
+	if err != nil {
+		return nil, errors.Join(err, os.Remove(f.Name()))
+	}
+	return os.OpenFile(path, os.O_WRONLY, 0600)
 }

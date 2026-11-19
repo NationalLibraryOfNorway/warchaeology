@@ -135,7 +135,7 @@ Restore either backup format into a new directory:
 
 ```sh
 warc index restore news.backup ./restored-news
-warc serve --badger-dir ./restored-news
+warc serve --index-dir ./restored-news
 ```
 
 Stop any server using the restore destination. Restore requires a nonexistent
