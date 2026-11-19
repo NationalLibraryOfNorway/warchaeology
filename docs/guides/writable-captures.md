@@ -107,31 +107,52 @@ separate from zipnum block pagination. Export and backup report stream failures
 through `X-Export-Error` and `X-Backup-Error` trailers. Check them before accepting
 an artifact. Long exports hold a publication read lock and can delay writers.
 
-## Backup and offline restore
+## Backup, restore and compaction
+
+Back up a running server through HTTP:
 
 ```sh
 curl --fail http://localhost:9999/archive/collections/news/backup -o news.backup
-warc serve restore news.backup ./restored-news
+```
+
+Or stop the server and back up its database directory:
+
+```sh
+warc index backup ./collections/news news.backup
+```
+
+The HTTP endpoint returns a native Badger backup and excludes full text.
+The offline command creates a ZIP archive containing `badger.backup` and a
+Bleve snapshot under `fulltext/` when that subdirectory exists. It uses Badger's
+backup API and Bleve's snapshot-copy API. Both indexes must be closed before
+running the command; it refuses databases in use. No extra flags are needed.
+
+The offline command requires a new backup filename and publishes it only after
+the backup is complete. Allow temporary disk space for the Bleve snapshot as well
+as the backup archive.
+
+Restore either backup format into a new directory:
+
+```sh
+warc index restore news.backup ./restored-news
 warc serve --badger-dir ./restored-news
 ```
 
 Stop any server using the restore destination. Restore requires a nonexistent
 directory, verifies the current format, and performs recovery before returning.
 The backup includes capture data, secondary references, source checkpoints,
-capability metadata and publication state. It does not include WARC files.
+capability metadata and publication state. Offline backups also restore the
+included Bleve index, so text search can resume without rereading archive text.
+After restoring an HTTP backup, use `warc serve --fulltext` to rebuild text search.
+Neither backup format includes the original WARC or WACZ files.
 Copying open Badger files is not a supported backup procedure.
 
-After stopping the server, run `warc serve compact ./restored-news` to compact
+After stopping the server, run `warc index compact ./restored-news` to compact
 obsolete versions and perform value-log garbage collection. Maintenance holds
 an exclusive database handle. Reclamation can require temporary disk space;
 the benchmark records maintenance peaks separately from final allocation.
 
-## Layout upgrades and workload boundaries
-
-To upgrade a v1/v2 index database, export CDXJ with the old executable and
-import into a fresh v3 collection. Verify capture counts and queries before
-retiring the old executable and database directory. To preserve native retrieval
-and record-ID occurrences, reindex the original WARCs into a fresh full database.
+## Storage and workload boundaries
 
 The shared codec uses versioned protobuf envelopes, binary algorithm-tagged
 digests, compact UUIDs with a lossless URI fallback, nanosecond protobuf timestamps
@@ -140,8 +161,8 @@ indexes reference captures instead of duplicating them. Native source cleanup
 uses source-specific references. Index storage uses Badger v4.3.1. Storage
 benchmarks and their configurations are available in `benchmarks/cdxstorage`.
 
-Dedup donor indexes have a separate v2 marker. Rebuild legacy donor indexes in
-fresh directories. Deduplication syncs output records before registering them
+A donor is a record that stores the payload referenced by a revisit record.
+Deduplication syncs output records before registering them
 as provisional donors. A run remains provisional until its WARC writers close
 successfully and publish outputs.
 Unfinished output runs refuse donor-index reuse after restart; recover by
@@ -152,7 +173,7 @@ an interrupted run.
 Redupe stores rebuildable inventory/planning state separately from its small,
 synced publication ledger. Occurrence indexes reference one stored capture.
 Fingerprint, exact URI/date, ambiguity, chain and year-scope checks remain.
-The scratch directory is removed as a unit on close. Legacy redupe ledgers require
-a fresh index directory. Complete diagnostic findings stream to the report's
+The scratch directory is removed as a unit on close. Complete diagnostic findings
+stream to the report's
 `findingsArtifact`; inline lists are limited to 100 entries per year and 100
 run-level entries. Preserve the artifact with the audit report.

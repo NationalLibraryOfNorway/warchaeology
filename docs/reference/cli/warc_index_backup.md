@@ -1,18 +1,22 @@
 ---
-title: "warc serve compact"
+title: "warc index backup"
 ---
-## warc serve compact
+## warc index backup
 
-Reclaim index database storage offline
+Back up an index database offline
+
+### Synopsis
+
+Back up a stopped index database and its fulltext subdirectory to a new archive. Source WARC and WACZ files are not included.
 
 ```
-warc serve compact DIRECTORY [flags]
+warc index backup DIRECTORY BACKUP [flags]
 ```
 
 ### Options
 
 ```
-  -h, --help[=true|false]   help for compact
+  -h, --help[=true|false]   help for backup
 ```
 
 ### Options inherited from parent commands
@@ -26,4 +30,4 @@ warc serve compact DIRECTORY [flags]
 
 ### SEE ALSO
 
-* [warc serve](warc_serve.md)     - Serve an index database or immutable zipnum cluster
+* [warc index](warc_index.md)     - Index WARC captures

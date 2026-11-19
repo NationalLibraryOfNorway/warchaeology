@@ -14,7 +14,7 @@ warc serve [FILE/DIR...] [flags]
 ```
       --address string                      HTTP listen address (default ":9999")
       --badger-database string              Badger database name
-      --badger-dir string                   Badger database directory (default "./warcdb")
+      --badger-dir string                   Badger index database directory (default "/home/vscode/.local/share/warchaeology/warcdb")
       --close-input-file-hook string        command to run after closing each input file; the command receives these environment variables:
                                                 WARC_COMMAND contains the subcommand name
                                                 WARC_HOOK_TYPE contains the hook type (OpenInputFile, CloseInputFile, OpenOutputFile, CloseOutputFile)
@@ -27,7 +27,7 @@ warc serve [FILE/DIR...] [flags]
   -f, --force[=true|false]                  continue iterating even when record read errors occur
       --ftp-pool-size int32                 size of the FTP connection pool (default 1)
       --fulltext[=true|false]               index available text extracts in embedded Bleve
-      --fulltext-dir string                 text index directory (default: BADGER-DIR/fulltext)
+      --fulltext-dir string                 Bleve index directory (default: fulltext subdirectory of the index database)
       --fulltext-rebuild[=true|false]       rebuild text search from registered captures
   -h, --help[=true|false]                   help for serve
       --id strings                          only process records with these record IDs; repeat the flag or use a comma-separated list
@@ -69,7 +69,7 @@ warc serve [FILE/DIR...] [flags]
       --sort[=true|false]                   sort and deduplicate stdout CDXJ
       --source-file-list string             path to a file listing input paths, one per line
       --strict[=true|false]                 fail on the first validation error
-      --suffixes strings                    only process files with these suffixes (default [.warc,.warc.gz])
+      --suffixes strings                    only process files with these suffixes (default [.warc,.warc.gz,.wacz])
   -s, --symlinks[=true|false]               follow symbolic links while walking
       --tmp-dir string                      directory used for temporary files (default "/tmp")
       --upload-max-bytes int                maximum decoded CDXJ request bytes (default 134217728)
@@ -92,6 +92,4 @@ warc serve [FILE/DIR...] [flags]
 ### SEE ALSO
 
 * [warc](warc.md)     - A tool for handling warc files
-* [warc serve compact](warc_serve_compact.md)     - Reclaim index database storage offline
-* [warc serve restore](warc_serve_restore.md)     - Restore an index database backup offline into a new directory
 

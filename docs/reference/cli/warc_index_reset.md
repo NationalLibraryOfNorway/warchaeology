@@ -13,7 +13,7 @@ warc index reset [flags]
 
 ```
       --badger-database string   Badger database name
-      --badger-dir string        Badger database directory (default "./warcdb")
+      --badger-dir string        Badger index database directory (default "/home/vscode/.local/share/warchaeology/warcdb")
   -h, --help[=true|false]        help for reset
       --index-format string      database backend: badger (default "badger")
 ```

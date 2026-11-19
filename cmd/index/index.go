@@ -57,6 +57,7 @@ func NewCmdIndex() *cobra.Command {
 	}
 	flags.AddFlags(cmd)
 	cmd.AddCommand(reset.NewCmdReset())
+	addMaintenanceCommands(cmd)
 	return cmd
 }
 

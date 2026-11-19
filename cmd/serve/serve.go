@@ -8,7 +8,6 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
-	"os"
 	"os/signal"
 	"path/filepath"
 	"strings"
@@ -60,35 +59,6 @@ func NewCmdServe() *cobra.Command {
 		},
 	}
 	flags.AddFlags(cmd)
-	cmd.AddCommand(&cobra.Command{
-		Use:   "restore BACKUP NEW-DIRECTORY",
-		Short: "Restore an index database backup offline into a new directory",
-		Args:  cobra.ExactArgs(2),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			f, e := os.Open(args[0])
-			if e != nil {
-				return e
-			}
-			defer f.Close()
-			return cdxstore.Restore(cmd.Context(), args[1], f)
-		},
-	})
-	cmd.AddCommand(&cobra.Command{
-		Use:   "compact DIRECTORY",
-		Short: "Reclaim index database storage offline",
-		Args:  cobra.ExactArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) (err error) {
-			if _, e := os.Stat(args[0]); e != nil {
-				return e
-			}
-			db, e := cdxstore.Open(cmd.Context(), cdxstore.Options{Format: badgerFormat, Dir: args[0]})
-			if e != nil {
-				return e
-			}
-			defer func() { err = errors.Join(err, db.Close()) }()
-			return db.Compact(cmd.Context())
-		},
-	})
 	return cmd
 }
 

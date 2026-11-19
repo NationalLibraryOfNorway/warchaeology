@@ -336,8 +336,13 @@ func (d *DB) Backup(ctx context.Context, w io.Writer) error {
 	return err
 }
 
-// Restore requires an empty directory and never modifies an existing database.
-func Restore(ctx context.Context, dir string, r io.Reader) (err error) {
+// Restore requires a new directory and never modifies an existing database.
+func Restore(ctx context.Context, dir string, r io.Reader) error {
+	return RestoreWithFulltext(ctx, dir, r, "")
+}
+
+// RestoreWithFulltext also installs a validated, staged full-text index when supplied.
+func RestoreWithFulltext(ctx context.Context, dir string, r io.Reader, textDir string) (err error) {
 	dir = filepath.Clean(dir)
 	if err = os.MkdirAll(filepath.Dir(dir), 0750); err != nil {
 		return err
@@ -380,7 +385,10 @@ func Restore(ctx context.Context, dir string, r io.Reader) (err error) {
 	if err != nil {
 		return err
 	}
-	err = restored.Close()
+	if textDir != "" {
+		err = os.Rename(textDir, filepath.Join(dir, "fulltext"))
+	}
+	err = errors.Join(err, restored.Close())
 	complete = err == nil
 	return err
 }
