@@ -39,19 +39,23 @@ func (e *missingTarget) target() string {
 }
 
 type auditEvidence struct {
-	Header   string            `json:"header,omitempty"`
-	Payload  map[string]string `json:"payload,omitempty"`
-	Declared string            `json:"declared,omitempty"`
-	Issue    string            `json:"issue,omitempty"`
+	BlockVerified bool              `json:"blockVerified,omitempty"`
+	Header        string            `json:"header,omitempty"`
+	Payload       map[string]string `json:"payload,omitempty"`
+	Declared      string            `json:"declared,omitempty"`
+	Issue         string            `json:"issue,omitempty"`
 }
 
 func measureRecord(r gowarc.WarcRecord) (*auditEvidence, error) {
 	ev := &auditEvidence{Declared: r.WarcHeader().Get(gowarc.WarcPayloadDigest)}
-	if block, ok := r.Block().(gowarc.ProtocolHeaderBlock); ok {
+	if block, ok := r.Block().(gowarc.ProtocolHeaderBlock); ok && len(block.ProtocolHeaderBytes()) > 0 {
 		ev.Header = hashString(string(block.ProtocolHeaderBytes()))
 	}
-	if d := r.WarcHeader().Get(gowarc.WarcBlockDigest); d != "" && !warcdigest.Equal(d, r.Block().BlockDigest()) {
-		ev.Issue = "block digest mismatch"
+	if d := r.WarcHeader().Get(gowarc.WarcBlockDigest); d != "" {
+		ev.BlockVerified = warcdigest.Equal(d, r.Block().BlockDigest())
+		if !ev.BlockVerified {
+			ev.Issue = "block digest mismatch"
+		}
 	}
 	if r.Type() != gowarc.Response && r.Type() != gowarc.Resource {
 		return ev, nil
@@ -71,7 +75,7 @@ func measureRecord(r gowarc.WarcRecord) (*auditEvidence, error) {
 		return nil, err
 	}
 	ev.Payload = map[string]string{"md5": hex.EncodeToString(m.Sum(nil)), "sha1": hex.EncodeToString(a.Sum(nil)), "sha256": hex.EncodeToString(b.Sum(nil)), "sha512": hex.EncodeToString(c.Sum(nil))}
-	if ev.Declared != "" && !ev.matches(ev.Declared) {
+	if ev.Issue == "" && ev.Declared != "" && !ev.matches(ev.Declared) {
 		ev.Issue = "donor payload digest mismatch"
 	}
 	return ev, nil
@@ -82,19 +86,23 @@ func (e *auditEvidence) matches(label string) bool {
 }
 
 type auditFinding struct {
-	Status string `json:"status"`
-	File   string `json:"file"`
-	Offset int64  `json:"offset"`
-	ID     string `json:"recordId,omitempty"`
-	Target string `json:"target,omitempty"`
-	Detail string `json:"detail,omitempty"`
+	Digest    string `json:"digest,omitempty"`
+	NewOffset *int64 `json:"newOffset,omitempty"`
+	Status    string `json:"status"`
+	File      string `json:"file"`
+	Offset    int64  `json:"offset"`
+	ID        string `json:"recordId,omitempty"`
+	Target    string `json:"target,omitempty"`
+	Detail    string `json:"detail,omitempty"`
 }
 type auditSummary struct {
-	Files    int            `json:"filesExamined"`
-	Revisits int            `json:"revisitsExamined"`
-	Missing  int            `json:"distinctMissingTargets"`
-	Complete bool           `json:"scanComplete"`
-	Counts   map[string]int `json:"counts"`
+	Destination string         `json:"recoveryDirectory,omitempty"`
+	Verified    *auditSummary  `json:"afterRecovery,omitempty"`
+	Files       int            `json:"filesExamined"`
+	Revisits    int            `json:"revisitsExamined"`
+	Missing     int            `json:"distinctMissingTargets"`
+	Complete    bool           `json:"scanComplete"`
+	Counts      map[string]int `json:"counts"`
 }
 type collection struct {
 	*RedupeOptions
@@ -130,6 +138,14 @@ func (a *collection) inventoryRoot(ctx context.Context, root string) error {
 			return err
 		}
 		if walkErr == nil {
+			if d.Type()&os.ModeSymlink != 0 {
+				info, err := os.Stat(path)
+				if err != nil || info.IsDir() {
+					a.failed = true
+					a.summary.Complete = false
+					return a.finding(auditFinding{Status: "unreadable", File: rel, Detail: "directory or broken symlink excluded"})
+				}
+			}
 			if d.IsDir() || !warcPath(path) {
 				return nil
 			}
@@ -138,6 +154,9 @@ func (a *collection) inventoryRoot(ctx context.Context, root string) error {
 				walkErr = errors.New("archive is not a regular file")
 			} else {
 				_, walkErr = a.inventoryFile(ctx, afero.NewOsFs(), path, func(e *entry) error {
+					if err := a.put("x/offset/"+hashString(rel)+fmt.Sprintf("/%020d", e.Capture.GetOffset()), e.Capture.GetRef()); err != nil {
+						return err
+					}
 					return a.put("x/local/"+hashString(e.Capture.GetSource()), rel)
 				})
 			}
@@ -189,6 +208,7 @@ func (a *collection) assess(ctx context.Context, e *entry, originals *collection
 	if c.GetSrt() != actionRevisit {
 		return f, nil, nil
 	}
+	f.Digest = e.Audit.Declared
 	donor, chain, err := a.resolve(ctx, e, map[string]bool{})
 	var missing *missingTarget
 	if errors.As(err, &missing) {
@@ -203,6 +223,11 @@ func (a *collection) assess(ctx context.Context, e *entry, originals *collection
 	} else {
 		f.Status = "output-consistent"
 		for _, link := range append([]*entry{e}, chain...) {
+			if link.Capture.GetSrt() == actionRevisit && ((donor.Capture.GetSrt() == "response") != (link.Audit.Header != "") || (donor.Capture.GetSrt() == "response" && (link.Capture.GetHsc() == 0 || link.Capture.GetHsc() == 304))) {
+				f.Status = "unverifiable"
+				f.Detail = "incompatible capture-specific HTTP headers"
+				break
+			}
 			if link.Issue != "" || link.Audit.Issue != "" {
 				f.Status = "invalid-record"
 				f.Detail = strings.TrimSpace(link.Issue + " " + link.Audit.Issue)
@@ -244,7 +269,7 @@ func (a *collection) assess(ctx context.Context, e *entry, originals *collection
 				}
 				return f, nil, nil
 			}
-			if original.Segmented || original.Issue != "" || original.Audit.Issue != "" || original.Audit.Payload["sha256"] == "" {
+			if !validFull(original) && !staleOriginal(original) {
 				f.Detail = "original cannot be verified"
 				if f.Status == "output-consistent" {
 					f.Status = "unverifiable"
@@ -259,6 +284,9 @@ func (a *collection) assess(ctx context.Context, e *entry, originals *collection
 				}
 			}
 		}
+	}
+	if original != nil && staleOriginal(original) {
+		f.Detail = "original payload header contradicts original bytes; original block digest verified"
 	}
 	return f, original, nil
 }
@@ -331,13 +359,18 @@ func (a *collection) writeReport(w io.Writer) error {
 	return err
 }
 
-type auditOptions struct{ originals, report string }
+type auditOptions struct {
+	originals, report, repair string
+	backups                   []string
+}
 
 func NewCmdAudit() *cobra.Command {
 	var o auditOptions
 	cmd := &cobra.Command{Use: "audit COLLECTION", Short: "Verify revisit references and payloads across a local WARC collection", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error { return o.run(cmd.Context(), args[0], cmd.OutOrStdout()) }}
 	cmd.Flags().StringVar(&o.originals, "originals", "", "directory containing original captures")
 	cmd.Flags().StringVar(&o.report, "report", "", "new JSON report file (default stdout)")
+	cmd.Flags().StringVar(&o.repair, "repair-to", "", "stage verified repairs in a new directory")
+	cmd.Flags().StringArrayVar(&o.backups, "recovery-source", nil, "backup WARC directory (repeatable)")
 	return cmd
 }
 func openInventory(ctx context.Context, work string, roots ...string) (*collection, error) {
@@ -417,9 +450,26 @@ func (o auditOptions) run(ctx context.Context, path string, out io.Writer) (err 
 		}
 		roots = append(roots, o.originals)
 	}
+	for i, p := range o.backups {
+		o.backups[i], err = inputRoot(p)
+		if err != nil {
+			return err
+		}
+		roots = append(roots, o.backups[i])
+	}
+	o.repair, err = freshPath(o.repair, roots)
+	if err != nil {
+		return err
+	}
+	if o.repair != "" {
+		roots = append(roots, o.repair)
+	}
 	o.report, err = freshPath(o.report, roots)
 	if err != nil {
 		return err
+	}
+	if len(o.backups) > 0 && o.repair == "" {
+		return errors.New("--recovery-source requires --repair-to")
 	}
 	work, err := os.MkdirTemp("", "warc-audit-*")
 	if err != nil {
@@ -449,7 +499,11 @@ func (o auditOptions) run(ctx context.Context, path string, out io.Writer) (err 
 			return err
 		}
 	}
-	err = a.examine(ctx, originals, nil)
+	if o.repair != "" {
+		err = o.recoverCollection(ctx, root, work, a, originals)
+	} else {
+		err = a.examine(ctx, originals, nil)
+	}
 	if err != nil {
 		return err
 	}

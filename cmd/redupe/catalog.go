@@ -175,10 +175,15 @@ func (o *RedupeOptions) inventoryFile(ctx context.Context, fs afero.Fs, path str
 	if err != nil {
 		return result, err
 	}
+	var end int64
 	for rec, readErr := range reader.Records() {
 		if readErr != nil {
 			return result, errors.Join(readErr, rec.Close())
 		}
+		if rec.Offset != end || rec.Size <= 0 {
+			return result, errors.Join(fmt.Errorf("unparsed archive bytes at offset %d", end), rec.Close())
+		}
+		end = rec.Offset + rec.Size
 		e, recordErr := inventoryRecord(rec, source, path)
 		if recordErr == nil && o.collectionAudit {
 			e.Audit, recordErr = measureRecord(rec.WarcRecord)
@@ -197,6 +202,9 @@ func (o *RedupeOptions) inventoryFile(ctx context.Context, fs afero.Fs, path str
 			return result, err
 		}
 		result.IncrRecords()
+	}
+	if end == 0 || end != info.Size() {
+		return result, fmt.Errorf("incomplete archive: parsed %d of %d bytes", end, info.Size())
 	}
 	after, err := file.Stat()
 	if err != nil {

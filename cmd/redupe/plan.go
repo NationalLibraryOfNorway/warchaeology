@@ -332,6 +332,10 @@ func referenceSize(r *gowarc.RevisitRef) int64 {
 }
 
 func (o *RedupeOptions) resolve(ctx context.Context, e *entry, seen map[string]bool) (*entry, []*entry, error) {
+	return o.resolveWithBackup(ctx, e, seen, nil)
+}
+
+func (o *RedupeOptions) resolveWithBackup(ctx context.Context, e *entry, seen map[string]bool, backup *entry) (*entry, []*entry, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, nil, err
 	}
@@ -352,58 +356,76 @@ func (o *RedupeOptions) resolve(ctx context.Context, e *entry, seen map[string]b
 		return nil, nil, fmt.Errorf("unsupported revisit profile %q", e.Profile)
 	}
 	seen[ref] = true
-	var candidates []*entry
-	accept := func(c *cdx.Capture) error {
-		candidate, err := o.entry(c.GetRef())
-		if err != nil {
-			return err
-		}
-		if len(candidates) == 0 {
-			candidates = append(candidates, candidate)
-		} else if candidates[0].Fingerprint != candidate.Fingerprint {
-			return errors.New("ambiguous revisit target")
-		}
-		return nil
-	}
-	c := e.Capture
-	var err error
-	if c.GetRoi() != "" {
-		err = o.catalog.CapturesByID(ctx, c.GetRoi(), accept)
-	} else {
-		if c.GetRou() == "" || c.GetRod() == nil {
-			return nil, nil, errors.New("revisit lacks an explicit ID or exact URI and date")
-		}
-		key := cdx.CanonicalKey(c.GetRou())
-		err = o.catalog.Scan(ctx, key+" ", key+"!", func(candidate *cdx.Capture) error {
-			if candidate.GetUri() != c.GetRou() || !candidate.GetSts().AsTime().Equal(c.GetRod().AsTime()) {
-				return nil
-			}
-			// Only exclude differing digests when labels use the same algorithm.
-			a, _, _ := strings.Cut(c.GetDig(), ":")
-			b, _, _ := strings.Cut(candidate.GetDig(), ":")
-			if a != "" && strings.EqualFold(a, b) && !warcdigest.Equal(c.GetDig(), candidate.GetDig()) {
-				return nil
-			}
-			return accept(candidate)
-		})
-	}
+	target, err := o.lookupTarget(ctx, e.Capture)
 	if err != nil {
 		return nil, nil, err
 	}
-	if len(candidates) == 0 {
+	if target == nil && backup != nil && targetMatches(e.Capture, backup.Capture) {
+		target = backup
+	}
+	if target == nil {
 		return nil, nil, &missingTarget{link: e}
 	}
-	if len(candidates) != 1 {
-		return nil, nil, errors.New("ambiguous revisit target")
+	if o.collectionAudit && !targetMatches(e.Capture, target.Capture) {
+		return nil, nil, errors.New("conflicting target URI or date")
 	}
-	donor, chain, err := o.resolve(ctx, candidates[0], seen)
+	donor, chain, err := o.resolveWithBackup(ctx, target, seen, backup)
 	if err != nil {
 		return nil, nil, err
 	}
 	if donor.Capture.GetSrt() != "response" && donor.Capture.GetSrt() != "resource" {
 		return nil, nil, errors.New("unsupported payload donor type")
 	}
-	return donor, append([]*entry{candidates[0]}, chain...), nil
+	return donor, append([]*entry{target}, chain...), nil
+}
+
+func targetMatches(link, candidate *cdx.Capture) bool {
+	return (link.GetRoi() != "" || link.GetRou() != "" && link.GetRod() != nil) &&
+		(link.GetRoi() == "" || link.GetRoi() == candidate.GetRid()) &&
+		(link.GetRou() == "" || link.GetRou() == candidate.GetUri()) &&
+		(link.GetRod() == nil || link.GetRod().AsTime().Equal(candidate.GetSts().AsTime()))
+}
+func (o *RedupeOptions) lookupTarget(ctx context.Context, c *cdx.Capture) (*entry, error) {
+	var found *entry
+	accept := func(c *cdx.Capture) error {
+		candidate, err := o.entry(c.GetRef())
+		if err != nil {
+			return err
+		}
+		if found == nil {
+			found = candidate
+		} else if found.Fingerprint != candidate.Fingerprint {
+			return errors.New("ambiguous revisit target")
+		}
+		return nil
+	}
+	var err error
+	if c.GetRoi() != "" {
+		err = o.catalog.CapturesByID(ctx, c.GetRoi(), accept)
+	} else {
+		if c.GetRou() == "" || c.GetRod() == nil {
+			return nil, errors.New("revisit lacks an explicit ID or exact URI and date")
+		}
+		key := cdx.CanonicalKey(c.GetRou())
+		err = o.catalog.Scan(ctx, key+" ", key+"!", func(candidate *cdx.Capture) error {
+			if candidate.GetUri() != c.GetRou() || !candidate.GetSts().AsTime().Equal(c.GetRod().AsTime()) {
+				return nil
+			}
+			if !o.collectionAudit {
+				// Only exclude differing digests when labels use the same algorithm.
+				a, _, _ := strings.Cut(c.GetDig(), ":")
+				b, _, _ := strings.Cut(candidate.GetDig(), ":")
+				if a != "" && strings.EqualFold(a, b) && !warcdigest.Equal(c.GetDig(), candidate.GetDig()) {
+					return nil
+				}
+			}
+			return accept(candidate)
+		})
+	}
+	if err != nil {
+		return nil, err
+	}
+	return found, nil
 }
 
 func (o *RedupeOptions) reconstruct(ctx context.Context, e *entry) (gowarc.WarcRecord, error) {
@@ -411,6 +433,10 @@ func (o *RedupeOptions) reconstruct(ctx context.Context, e *entry) (gowarc.WarcR
 	if err != nil {
 		return nil, err
 	}
+	return rebuildChain(ctx, e, donor, chain)
+}
+
+func rebuildChain(ctx context.Context, e, donor *entry, chain []*entry) (gowarc.WarcRecord, error) {
 	l := loader.FileStorageLoader{}
 	wr, err := l.RecordByStorageRef(ctx, donor.Capture.GetRef())
 	if err != nil {

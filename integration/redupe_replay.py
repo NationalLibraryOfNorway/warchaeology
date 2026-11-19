@@ -16,6 +16,7 @@ import subprocess
 import tempfile
 
 from pywb.apps.frontendapp import FrontEndApp
+from warcio.archiveiterator import ArchiveIterator
 from warcio.statusandheaders import StatusAndHeaders
 from warcio.warcwriter import WARCWriter
 from werkzeug.test import Client
@@ -60,6 +61,32 @@ with tempfile.TemporaryDirectory() as tmp:
                 )
                 writer.write_record(record)
                 previous_id, previous_date = record_id, date
+
+    # Lose the first member (the full donor) and retain its first direct revisit.
+    surviving = root / "surviving"
+    backup = root / "backup"
+    repaired = root / "repaired"
+    surviving.mkdir()
+    backup.mkdir()
+    with source.open("rb") as stream, source.open("rb") as raw:
+        records = ArchiveIterator(stream)
+        for record, dest in zip(records, (backup, surviving)):
+            offset, size = records.get_record_offset(), records.get_record_length()
+            raw.seek(offset)
+            (dest / "capture.warc.gz").write_bytes(raw.read(size))
+    subprocess.run([binary, "audit", str(surviving), "--repair-to", str(repaired),
+                    "--recovery-source", str(backup), "--report", str(root / "recovery.json")],
+                   check=True)
+    shutil.rmtree(backup)
+    repaired_cdx = root / "repaired.cdxj"
+    subprocess.run([binary, "index", "--index-file", str(repaired_cdx), str(repaired)], check=True)
+    app = FrontEndApp(custom_config={
+        "collections": {"fixed": {"index": str(repaired_cdx), "archive_paths": [str(repaired) + "/"]}},
+        "framed_replay": False,
+    })
+    response = Client(app, Response).get(f"/fixed/20220601000000id_/{url}")
+    assert response.status_code == 200 and response.data == payload, response.status
+    assert response.headers["X-Capture"] == "2022-06-01T00:00:00Z"
 
     yearly = root / "yearly"
     subprocess.run([

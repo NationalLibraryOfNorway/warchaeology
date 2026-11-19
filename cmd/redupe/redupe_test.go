@@ -33,12 +33,17 @@ var testPayload = strings.Repeat("archival payload\n", 400)
 
 func full(t *testing.T, id, date string) gowarc.WarcRecord {
 	t.Helper()
+	return fullWithPayload(t, id, date, testPayload)
+}
+
+func fullWithPayload(t *testing.T, id, date, payload string) gowarc.WarcRecord {
+	t.Helper()
 	b := gowarc.NewRecordBuilder(gowarc.Response, gowarc.WithAddMissingDigest(true))
 	b.AddWarcHeader(gowarc.WarcRecordID, "<urn:uuid:"+id+">")
 	b.AddWarcHeader(gowarc.WarcDate, date)
 	b.AddWarcHeader(gowarc.WarcTargetURI, "https://example.org/"+id)
 	b.AddWarcHeader(gowarc.ContentType, "application/http; msgtype=response")
-	if _, err := fmt.Fprintf(b, "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nX-Capture: %s\r\nContent-Length: %d\r\n\r\n%s", id, len(testPayload), testPayload); err != nil {
+	if _, err := fmt.Fprintf(b, "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nX-Capture: %s\r\nContent-Length: %d\r\n\r\n%s", id, len(payload), payload); err != nil {
 		t.Fatal(err)
 	}
 	wr, _, err := b.Build()
@@ -783,6 +788,24 @@ func TestRejectSwappedCompletion(t *testing.T) {
 		if err := verifyCompletion(dir, "same"); err == nil {
 			t.Fatalf("accepted swapped %s", period)
 		}
+	}
+}
+
+func TestIncompleteSourceCannotPublish(t *testing.T) {
+	data, err := os.ReadFile("../../testdata/warc/single-record.warc")
+	if err != nil {
+		t.Fatal(err)
+	}
+	source := filepath.Join(t.TempDir(), "partial.warc")
+	if err := os.WriteFile(source, append(data, "WARC/1.1"...), 0600); err != nil {
+		t.Fatal(err)
+	}
+	o := testOptions(t, source)
+	if err := o.Run(t.Context()); err == nil || !strings.Contains(err.Error(), "parsed 154 of 162 bytes") {
+		t.Fatalf("inventory error %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(o.OutputDir, "2023")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("published incomplete period: %v", err)
 	}
 }
 
