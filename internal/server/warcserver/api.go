@@ -15,7 +15,7 @@ import (
 )
 
 func parseClosest(u string, closest string) (*api.SearchRequest, error) {
-	if _, err := timestamp.Parse(closest); err != nil {
+	if _, err := timestamp.ParsePartial(closest); err != nil {
 		return nil, err
 	}
 	uri, err := whatwgUrl.Parse(u)

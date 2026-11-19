@@ -15,10 +15,10 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/nationallibraryofnorway/gowarc/v3"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/cdx/schema"
+	"github.com/nationallibraryofnorway/warchaeology/v5/internal/timestamp"
 	"github.com/nationallibraryofnorway/whatwg-url/surt"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
@@ -157,7 +157,7 @@ func Line(c *Capture) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	return []byte(c.GetSsu() + " " + c.GetSts().AsTime().UTC().Format("20060102150405") + " " + string(b)), nil
+	return []byte(c.GetSsu() + " " + timestamp.Format14(c.GetSts().AsTime()) + " " + string(b)), nil
 }
 
 func ParseLine(line []byte) (*Capture, error) {
@@ -165,7 +165,7 @@ func ParseLine(line []byte) (*Capture, error) {
 	if len(fields) != 3 {
 		return nil, fmt.Errorf("invalid CDXJ line")
 	}
-	t, err := time.Parse("20060102150405", fields[1])
+	t, err := timestamp.Parse14(fields[1])
 	if err != nil {
 		return nil, err
 	}

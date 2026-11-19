@@ -19,6 +19,7 @@ import (
 	"github.com/dgraph-io/badger/v4"
 	cdx "github.com/nationallibraryofnorway/warchaeology/v5/internal/cdx"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/storagecodec"
+	"github.com/nationallibraryofnorway/warchaeology/v5/internal/timestamp"
 )
 
 const deletedCapture = "!deleted"
@@ -177,7 +178,7 @@ func (d *DB) Upload(ctx context.Context, r io.Reader, o UploadOptions) (result U
 			if e != nil {
 				return e
 			}
-			prefix := incoming.GetSsu() + " " + incoming.GetSts().AsTime().UTC().Format("20060102150405") + "."
+			prefix := incoming.GetSsu() + " " + timestamp.Format14(incoming.GetSts().AsTime()) + "."
 			exists := false
 			e = d.Scan(ctx, prefix, prefix+"\xff", func(old *cdx.Capture) error {
 				if old.GetOffset() != incoming.GetOffset() || old.GetFilename() != incoming.GetFilename() {

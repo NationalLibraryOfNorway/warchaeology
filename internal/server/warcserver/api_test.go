@@ -7,6 +7,11 @@ import (
 	"context"
 	"net/http"
 	"testing"
+	"time"
+
+	cdx "github.com/nationallibraryofnorway/warchaeology/v5/internal/cdx"
+	"github.com/nationallibraryofnorway/warchaeology/v5/internal/cdxstore"
+	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"github.com/julienschmidt/httprouter"
 )
@@ -51,5 +56,30 @@ func TestParseResourceRequest(t *testing.T) {
 				t.Errorf("got %s, want %s", closest, tt.closest)
 			}
 		})
+	}
+}
+
+func TestRevisitOffsetSelectsUTCCapture(t *testing.T) {
+	db, err := cdxstore.Open(t.Context(), cdxstore.Options{Dir: t.TempDir(), Format: "badger"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	const uri = "https://example.org/"
+	for _, date := range []string{"2019-12-31T23:30:00Z", "2020-01-01T00:30:00Z"} {
+		instant, err := time.Parse(time.RFC3339, date)
+		if err != nil {
+			t.Fatal(err)
+		}
+		c := &cdx.Capture{Uri: uri, Ssu: cdx.CanonicalKey(uri), Sts: timestamppb.New(instant), Ref: date}
+		if err := db.WriteCapture(t.Context(), c); err != nil {
+			t.Fatal(err)
+		}
+	}
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	ref, err := (Handler{Index: db}).resolveRevisit(ctx, uri, "2020-01-01T00:30:00+01:00")
+	if err != nil || ref != "2019-12-31T23:30:00Z" {
+		t.Fatalf("resolved capture %q, %v", ref, err)
 	}
 }

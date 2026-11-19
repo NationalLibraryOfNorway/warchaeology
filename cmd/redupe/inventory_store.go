@@ -13,6 +13,7 @@ import (
 	"github.com/dgraph-io/badger/v4"
 	cdx "github.com/nationallibraryofnorway/warchaeology/v5/internal/cdx"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/storagecodec"
+	"github.com/nationallibraryofnorway/warchaeology/v5/internal/timestamp"
 )
 
 // The occurrence inventory is stored once. All lookup indexes contain only
@@ -31,7 +32,7 @@ func (c *inventoryCatalog) WriteCapture(ctx context.Context, v *cdx.Capture) err
 		return err
 	}
 	ref := v.GetRef()
-	key := "x/lookup-url/" + v.GetSsu() + " " + v.GetSts().AsTime().UTC().Format("20060102150405.000000000") + " " + hashString(ref)
+	key := "x/lookup-url/" + v.GetSsu() + " " + timestamp.FormatNano(v.GetSts().AsTime()) + " " + hashString(ref)
 	return c.o.scratch.Update(func(tx *badger.Txn) error {
 		if err := tx.Set([]byte(key), []byte(hashString(ref))); err != nil {
 			return err

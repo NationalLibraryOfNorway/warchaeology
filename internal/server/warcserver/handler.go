@@ -112,7 +112,12 @@ func (h Handler) index(w http.ResponseWriter, r *http.Request) {
 }
 
 // resolveRevisit resolves a revisit record by looking up the closest matching target URI and date
-func (h Handler) resolveRevisit(ctx context.Context, targetURI string, closest string) (string, error) {
+func (h Handler) resolveRevisit(ctx context.Context, targetURI string, date string) (string, error) {
+	target, err := time.Parse(time.RFC3339Nano, date)
+	if err != nil {
+		return "", fmt.Errorf("invalid WARC-Refers-To-Date: %w", err)
+	}
+	closest := timestamp.Format14(target)
 	closestReq, err := parseClosest(targetURI, closest)
 	if err != nil {
 		return "", fmt.Errorf("failed to parse WARC-Refers-To-Target-URI: %s: %w", targetURI, err)
@@ -201,10 +206,7 @@ func (h Handler) resource(w http.ResponseWriter, r *http.Request) {
 		warcRecord, err = h.Loader.RecordByStorageRef(ctx, ref)
 		var errResolveRevisit loader.ResolveRevisitError
 		if errors.As(err, &errResolveRevisit) && retry {
-			var date string
-			if date, err = timestamp.To14(errResolveRevisit.Date); err == nil {
-				ref, err = h.resolveRevisit(ctx, errResolveRevisit.TargetURI, date)
-			}
+			ref, err = h.resolveRevisit(ctx, errResolveRevisit.TargetURI, errResolveRevisit.Date)
 			retry = false
 		}
 		if _, ok := errors.AsType[loader.WarcRefersToNotFoundError](err); ok {
@@ -296,7 +298,7 @@ func (h Handler) resource(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		cdx := res.GetCdx()
-		sts = timestamp.TimeTo14(cdx.GetSts().AsTime())
+		sts = timestamp.Format14(cdx.GetSts().AsTime())
 		loc = cdx.GetUri()
 		break
 	}

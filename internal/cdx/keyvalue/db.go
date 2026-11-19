@@ -6,6 +6,8 @@ package keyvalue
 import (
 	"strings"
 	"time"
+
+	"github.com/nationallibraryofnorway/warchaeology/v5/internal/timestamp"
 )
 
 // CdxKey is a canonical SURT, timestamp and source-position identity.
@@ -24,7 +26,7 @@ func (k CdxKey) Time() time.Time {
 	if len(fields) < 2 {
 		return time.Time{}
 	}
-	t, _ := time.Parse("20060102150405", fields[1])
+	t, _ := timestamp.ParseKey(fields[1])
 	return t
 }
 

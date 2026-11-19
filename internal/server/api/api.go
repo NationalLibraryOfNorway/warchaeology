@@ -211,7 +211,7 @@ func (c *SearchRequest) Parse(values url.Values) error {
 	// Closest
 	closest := values.Get(ParamClosest)
 	if closest != "" {
-		_, err := timestamp.Parse(closest)
+		_, err := timestamp.ParsePartial(closest)
 		if err != nil {
 			return fmt.Errorf("failed to parse closest: %w", err)
 		}

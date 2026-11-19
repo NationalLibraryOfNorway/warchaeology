@@ -148,7 +148,7 @@ func ParseQuery(v url.Values) (Query, error) {
 		return q, fmt.Errorf("closest timestamp required")
 	}
 	if q.Closest != "" {
-		if _, err := timestamp.Parse(q.Closest); err != nil {
+		if _, err := timestamp.ParsePartial(q.Closest); err != nil {
 			return q, err
 		}
 	}
@@ -226,7 +226,7 @@ func (q Query) Accept(c *Capture) bool {
 			return false
 		}
 	}
-	ts := c.GetSts().AsTime().UTC().Format("20060102150405")
+	ts := timestamp.Format14(c.GetSts().AsTime())
 	if q.From != "" && ts < q.From+strings.Repeat("0", 14-len(q.From)) {
 		return false
 	}
@@ -262,7 +262,7 @@ func (q Query) Run(ctx context.Context, src QuerySource, emit func(*Capture) err
 	var target time.Time
 	if q.Order == "closest" {
 		var err error
-		target, err = timestamp.Parse(q.Closest)
+		target, err = timestamp.ParsePartial(q.Closest)
 		if err != nil {
 			return 0, err
 		}
@@ -290,7 +290,7 @@ func (q Query) Run(ctx context.Context, src QuerySource, emit func(*Capture) err
 	collapseKey := func(c *Capture) string {
 		field, width, _ := strings.Cut(q.Collapse, ":")
 		m, _ := Properties(c)
-		m["timestamp"] = c.GetSts().AsTime().UTC().Format("20060102150405")
+		m["timestamp"] = timestamp.Format14(c.GetSts().AsTime())
 		m["urlkey"] = c.GetSsu()
 		value := fmt.Sprint(m[fieldAlias(field)])
 		n, _ := strconv.Atoi(width)
@@ -359,7 +359,7 @@ func (q Query) Run(ctx context.Context, src QuerySource, emit func(*Capture) err
 		if e != nil {
 			return e
 		}
-		key := c.GetSsu() + " " + c.GetSts().AsTime().UTC().Format("20060102150405.000000000")
+		key := c.GetSsu() + " " + timestamp.FormatNano(c.GetSts().AsTime())
 		if q.Order == "reverse" {
 			var sb strings.Builder
 			for _, x := range []byte(key) {
@@ -486,7 +486,7 @@ func CDXHandlerWithTransform(src QuerySource, scanLimit, resultLimit int, transf
 					return e
 				}
 			}
-			ts := c.GetSts().AsTime().Format("20060102150405")
+			ts := timestamp.Format14(c.GetSts().AsTime())
 			if q.Output == outputJSON {
 				m["urlkey"] = c.GetSsu()
 				m["timestamp"] = ts

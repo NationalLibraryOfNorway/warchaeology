@@ -8,59 +8,26 @@ import (
 	"time"
 )
 
-const cdxLayout = "20060102150405"
-
-func TimeTo14(t time.Time) string {
-	return t.Format(cdxLayout)
-}
-
-func To14(s string) (string, error) {
-	t, err := time.Parse(time.RFC3339, s)
-	if err != nil {
-		return "", err
+// Parse14 parses a complete ARC or CDX timestamp in UTC.
+func Parse14(s string) (time.Time, error) {
+	if len(s) != len(layout14) {
+		return time.Time{}, fmt.Errorf("invalid archive timestamp: %s", s)
 	}
-
-	return t.Format(cdxLayout), nil
+	return ParseKey(s)
 }
 
-func Parse(s string) (time.Time, error) {
-	l := len(s)
-	if l > 14 {
+// ParseKey reads the whole or fractional seconds in a native capture key.
+func ParseKey(s string) (time.Time, error) {
+	return time.Parse(layout14, s)
+}
+
+// ParsePartial accepts a CDX query timestamp from year through second precision.
+func ParsePartial(s string) (time.Time, error) {
+	n := len(s)
+	if n < 4 || n > len(layout14) || n%2 != 0 {
 		return time.Time{}, fmt.Errorf("invalid CDX timestamp: %s", s)
 	}
-	if l%2 != 0 {
-		return time.Time{}, fmt.Errorf("invalid CDX timestamp: %s", s)
-	}
-	if l < 4 {
-		return time.Time{}, fmt.Errorf("invalid CDX timestamp: %s", s)
-	}
-
-	return time.Parse(cdxLayout[:l], s)
-}
-
-// absInt64 returns the absolute value of an int64
-//
-// Source: https://github.com/cavaliercoder/go-abs
-func absInt64(n int64) int64 {
-	y := n >> 63
-	return (n ^ y) - y
-}
-
-// CompareClosest compares two timestamps and returns true if ts1 is closer to closest than ts2
-func CompareClosest(closest int64) func(int64, int64) bool {
-	return func(ts1 int64, ts2 int64) bool {
-		return absInt64(closest-ts1) < absInt64(closest-ts2)
-	}
-}
-
-// CompareAsc compares two timestamps and returns true if a is less than or equal to b
-func CompareAsc(a int64, b int64) bool {
-	return a <= b
-}
-
-// CompareDesc compares two timestamps and returns true if a is greater than b
-func CompareDesc(a int64, b int64) bool {
-	return a > b
+	return time.Parse(layout14[:n], s)
 }
 
 // Distance returns the absolute difference across the full CDX date range.

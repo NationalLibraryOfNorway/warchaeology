@@ -25,6 +25,7 @@ import (
 	"github.com/nationallibraryofnorway/gowarc/v3"
 	cdx "github.com/nationallibraryofnorway/warchaeology/v5/internal/cdx"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/loader"
+	"github.com/nationallibraryofnorway/warchaeology/v5/internal/timestamp"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/version"
 )
 
@@ -312,7 +313,7 @@ func (o *RedupeOptions) plan(ctx context.Context, e *entry) (_ *planned, resultE
 					Profile:        gowarc.ProfileIdenticalPayloadDigestV1_1,
 					TargetRecordId: c.GetRid(),
 					TargetUri:      c.GetUri(),
-					TargetDate:     c.GetSts().AsTime().UTC().Format("2006-01-02T15:04:05.999999999Z07:00"),
+					TargetDate:     timestamp.FormatRFC3339(c.GetSts().AsTime()),
 				}
 				if err = o.put(key, target); err != nil {
 					return nil, err

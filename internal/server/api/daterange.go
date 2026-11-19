@@ -60,7 +60,7 @@ func from(f string) (int64, error) {
 	if l == 0 {
 		return time.Time{}.Unix(), nil
 	}
-	t, err := timestamp.Parse(f)
+	t, err := timestamp.ParsePartial(f)
 	if err != nil {
 		return 0, fmt.Errorf("failed to parse 'from' date %s, %w", f, err)
 	}
@@ -74,7 +74,7 @@ func to(t string) (int64, error) {
 		return math.MaxInt64, nil
 	}
 
-	to, err := timestamp.Parse(t)
+	to, err := timestamp.ParsePartial(t)
 	if err != nil {
 		return 0, fmt.Errorf("failed to parse 'to' date %s, %w", t, err)
 	}

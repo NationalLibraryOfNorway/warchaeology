@@ -22,6 +22,7 @@ import (
 	cdx "github.com/nationallibraryofnorway/warchaeology/v5/internal/cdx"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/filewalker"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/stat"
+	"github.com/nationallibraryofnorway/warchaeology/v5/internal/timestamp"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/workerpool"
 	"github.com/spf13/afero"
 )
@@ -113,7 +114,7 @@ func (o *RedupeOptions) inventory(ctx context.Context) (_ string, resultErr erro
 					func(fs afero.Fs, path string) (stat.Result, error) {
 						return o.inventoryFile(ctx, fs, path, func(e *entry) error {
 							c := e.Capture
-							line := c.GetSts().AsTime().UTC().Format("20060102150405.000000000") + " " + hex.EncodeToString([]byte(c.GetSource())) + " " + fmt.Sprintf("%020d", c.GetOffset()) + " " + hex.EncodeToString([]byte(c.GetRef()))
+							line := timestamp.FormatNano(c.GetSts().AsTime()) + " " + hex.EncodeToString([]byte(c.GetSource())) + " " + fmt.Sprintf("%020d", c.GetOffset()) + " " + hex.EncodeToString([]byte(c.GetRef()))
 							mu.Lock()
 							defer mu.Unlock()
 							return sorter.Add(ctx, line)

@@ -14,9 +14,9 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
-	"time"
 
 	index "github.com/nationallibraryofnorway/warchaeology/v5/internal/cdx"
+	"github.com/nationallibraryofnorway/warchaeology/v5/internal/timestamp"
 )
 
 // Reader keeps the published summary open for its lifetime. Only summary line
@@ -84,7 +84,7 @@ func OpenContext(ctx context.Context, root string) (r *Reader, err error) {
 		if len(parts) != 2 {
 			return nil, fmt.Errorf("invalid summary key")
 		}
-		if _, e := time.Parse("20060102150405", parts[1]); e != nil {
+		if _, e := timestamp.Parse14(parts[1]); e != nil {
 			return nil, fmt.Errorf("invalid summary timestamp: %w", e)
 		}
 		if n != seq {

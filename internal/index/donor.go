@@ -12,6 +12,7 @@ import (
 	"github.com/nationallibraryofnorway/gowarc/v3"
 	cdx "github.com/nationallibraryofnorway/warchaeology/v5/internal/cdx"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/storagecodec"
+	"github.com/nationallibraryofnorway/warchaeology/v5/internal/timestamp"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
@@ -34,7 +35,7 @@ func unmarshalDonor(b []byte) (*gowarc.RevisitRef, error) {
 		TargetRecordId: c.GetRid(),
 		TargetUri:      c.GetUri(),
 		Profile:        c.GetMct(),
-		TargetDate:     c.GetSts().AsTime().UTC().Format(time.RFC3339Nano),
+		TargetDate:     timestamp.FormatRFC3339(c.GetSts().AsTime()),
 	}, nil
 }
 func digestKey(key string) []byte { return append([]byte("d/"), storagecodec.Digest(key)...) }

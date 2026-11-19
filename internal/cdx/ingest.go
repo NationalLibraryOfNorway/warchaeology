@@ -12,9 +12,9 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
-	"time"
 	"unicode"
 
+	"github.com/nationallibraryofnorway/warchaeology/v5/internal/timestamp"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
@@ -71,7 +71,7 @@ func parseCaptureLine(line []byte, retainKey bool) (*Capture, error) {
 	if len(parts) != 3 || len(parts[0]) == 0 || len(parts[1]) != 14 {
 		return nil, fmt.Errorf("expected CDXJ key timestamp JSON object")
 	}
-	t, err := time.Parse("20060102150405", string(parts[1]))
+	t, err := timestamp.Parse14(string(parts[1]))
 	if err != nil {
 		return nil, fmt.Errorf("invalid timestamp: %w", err)
 	}

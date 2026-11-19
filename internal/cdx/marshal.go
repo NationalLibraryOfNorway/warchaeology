@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/cdx/schema"
+	"github.com/nationallibraryofnorway/warchaeology/v5/internal/timestamp"
 )
 
 type Pywb struct{ *schema.Cdx }
@@ -19,6 +20,6 @@ func (p Pywb) MarshalJSON() ([]byte, error) {
 		return nil, e
 	}
 	m["urlkey"] = p.Ssu
-	m["timestamp"] = p.Sts.AsTime().UTC().Format("20060102150405")
+	m["timestamp"] = timestamp.Format14(p.Sts.AsTime())
 	return json.Marshal(m)
 }

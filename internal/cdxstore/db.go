@@ -19,6 +19,7 @@ import (
 	index "github.com/nationallibraryofnorway/warchaeology/v5/internal/cdx"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/cdx/schema"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/storagecodec"
+	"github.com/nationallibraryofnorway/warchaeology/v5/internal/timestamp"
 )
 
 const rebuildInstructions = "rebuild native indexes from archives or reimport uploaded collections from CDXJ into a new database"
@@ -151,7 +152,7 @@ func identity(source string) string {
 }
 
 func captureIdentityPrefix(c *index.Capture) string {
-	return "c/" + c.GetSsu() + " " + c.GetSts().AsTime().UTC().Format("20060102150405.000000000") + " " + identity(c.GetFilename()) + " " + fmt.Sprintf("%020d", c.GetOffset()) + " "
+	return "c/" + c.GetSsu() + " " + timestamp.FormatNano(c.GetSts().AsTime()) + " " + identity(c.GetFilename()) + " " + fmt.Sprintf("%020d", c.GetOffset()) + " "
 }
 func captureBase(c *index.Capture) string {
 	return captureIdentityPrefix(c) + identity(c.GetSource()) + " "

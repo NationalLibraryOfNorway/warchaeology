@@ -93,11 +93,11 @@ func (d *DB) ScanOrdered(ctx context.Context, q cdx.Query, emit func(*cdx.Captur
 				}
 			}
 		}
-		target, e := timestamp.Parse(q.Closest)
+		target, e := timestamp.ParsePartial(q.Closest)
 		if e != nil {
 			return e
 		}
-		pivot := "c/" + q.Key + " " + target.UTC().Format("20060102150405")
+		pivot := "c/" + q.Key + " " + timestamp.Format14(target)
 		left, right := makeIterator(true, pivot), makeIterator(false, pivot)
 		defer left.Close()
 		defer right.Close()

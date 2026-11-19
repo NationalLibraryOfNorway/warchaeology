@@ -16,7 +16,7 @@ import (
 
 	"github.com/klauspost/compress/gzip"
 	"github.com/nationallibraryofnorway/gowarc/v3"
-	mytime "github.com/nationallibraryofnorway/warchaeology/v5/internal/time"
+	"github.com/nationallibraryofnorway/warchaeology/v5/internal/timestamp"
 )
 
 type unmarshaler struct {
@@ -259,7 +259,7 @@ func (u *unmarshaler) parseUrlRecordV1(l string) (gowarc.RecordType, string, str
 	url := subs[1]
 	ip := subs[2]
 	d := subs[3]
-	date, err := mytime.From14ToTime(d)
+	date, err := timestamp.Parse14(d)
 	if err != nil {
 		return 0, "", "", time.Time{}, "", 0, err
 	}

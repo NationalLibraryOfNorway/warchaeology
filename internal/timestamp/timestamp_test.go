@@ -5,54 +5,57 @@ package timestamp_test
 
 import (
 	"testing"
+	"time"
 
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/timestamp"
 )
 
-type TestData struct {
-	iso8601Date  string
-	gowarc14Date string
-	invalidDate  string
-}
-
-func createTestData() TestData {
-	return TestData{
-		iso8601Date:  "2020-01-05T10:44:25Z",
-		gowarc14Date: "20200105104425",
-		invalidDate:  "ThisIsNotADate20200303",
+func TestUTCFormats(t *testing.T) {
+	for _, raw := range []string{"2019-12-31T23:30:00.123456789Z", "2020-01-01T00:30:00.123456789+01:00", "2019-12-31T18:30:00.123456789-05:00"} {
+		instant, err := time.Parse(time.RFC3339Nano, raw)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := timestamp.Format14(instant); got != "20191231233000" {
+			t.Errorf("%s formatted as %s", raw, got)
+		}
+		if got := timestamp.FormatRFC3339(instant); got != "2019-12-31T23:30:00.123456789Z" {
+			t.Errorf("%s formatted as %s", raw, got)
+		}
+		key := timestamp.FormatNano(instant)
+		if key != "20191231233000.123456789" || key >= timestamp.FormatNano(instant.Add(time.Nanosecond)) {
+			t.Errorf("incorrect ordering key %s", key)
+		}
+		if got, err := timestamp.ParseKey(key); err != nil || !got.Equal(instant) {
+			t.Errorf("key round trip = %v, %v", got, err)
+		}
 	}
 }
 
-func TestTo14SucceedsOnValidString(t *testing.T) {
-	data := createTestData()
-
-	output, err := timestamp.To14(data.iso8601Date)
-	if err != nil {
-		t.Errorf("Error on valid input, err: %s", err)
+func TestParsePrecision(t *testing.T) {
+	const full = "20240229135507"
+	want := time.Date(2024, 2, 29, 13, 55, 7, 0, time.UTC)
+	if got, err := timestamp.Parse14(full); err != nil || got != want {
+		t.Fatalf("Parse14 = %v, %v", got, err)
 	}
-
-	if output != data.gowarc14Date {
-		t.Errorf("Unexpected output date %s", data.gowarc14Date)
+	for n := 4; n <= 14; n += 2 {
+		s := full[:n]
+		got, err := timestamp.ParsePartial(s)
+		if err != nil || got.Location() != time.UTC || timestamp.Format14(got)[:n] != s {
+			t.Errorf("ParsePartial(%q) = %v, %v", s, got, err)
+		}
+		if n < 14 {
+			if _, err := timestamp.Parse14(s); err == nil {
+				t.Errorf("Parse14 accepted %q", s)
+			}
+		}
 	}
-}
-
-func TestTo14ErrorOnInValidString(t *testing.T) {
-	data := createTestData()
-
-	_, err := timestamp.To14(data.invalidDate)
-	if err != nil {
-		return // Test ok
+	for _, s := range []string{"", "202", "20240", "202313", "20230229", "20241231240000", full + ".123"} {
+		if _, err := timestamp.ParsePartial(s); err == nil {
+			t.Errorf("ParsePartial accepted %q", s)
+		}
+		if _, err := timestamp.Parse14(s); err == nil {
+			t.Errorf("Parse14 accepted %q", s)
+		}
 	}
-
-	t.Errorf("Did not fail on invalid when sending %s", data.invalidDate)
-}
-
-func TestFrom14ToTimeSucceedsOnValidString(t *testing.T) {
-	data := createTestData()
-
-	_, err := timestamp.Parse(data.gowarc14Date)
-	if err != nil {
-		t.Errorf("Error on valid date string, err: %s", err)
-	}
-	// TODO: Maybe test time returned here
 }
