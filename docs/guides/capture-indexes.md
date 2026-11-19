@@ -51,8 +51,8 @@ Badger **v4** is the supported database backend and is used throughout
 warchaeology, including processing and deduplication indexes. Index databases have a format/canonicalization marker;
 unversioned or incompatible stores are rejected with reindexing guidance.
 Rebuild existing index databases in a new directory. Existing
-Badger v3 processing/deduplication stores may also need rebuilding; retain the
-old directories until the new indexes have been verified.
+For retained deduplication indexes from v5, see the
+[migration notes](upgrading.md#retained-deduplication-indexes).
 
 Index databases store capture entries, source identity, metadata and reports.
 Identity includes source and offset, so equal URL/timestamp
@@ -73,6 +73,17 @@ the server remains running afterward. Ingestion and handlers share one database
 handle. Read-only mode rejects inputs and omits report mutation routes.
 `--path-prefix /archive` prefixes every route. HTTP requests have bounded timeouts;
 SIGINT/SIGTERM cancel ingestion, drain handlers and close resources.
+
+Indexing and serving share the default index database location:
+
+| OS | Directory |
+| --- | --- |
+| Linux | `$XDG_DATA_HOME/warchaeology/warcdb`, or `~/.local/share/warchaeology/warcdb` |
+| macOS | `~/Library/Application Support/warchaeology/warcdb` |
+| Windows | `%LOCALAPPDATA%\warchaeology\warcdb` |
+
+Use `--badger-dir` or `WARC_BADGER_DIR` to select another directory. To continue
+using an existing working-directory database, pass `--badger-dir ./warcdb`.
 
 Database routes include `/cdx`, `/file`, `/file/:filename`, `/id`, `/id/:urn`,
 `/record/:urn`, `/report`, `/report/:id`, `/debug` and the imported `/warcserver`
@@ -100,7 +111,7 @@ UUIDv7 part names, manifest ordering, duplicate retention and staged publication
 are preserved from the zipnum engine. Source verification is opt-in with
 `--verify-sources`; source clusters are never modified.
 
-Zipnum serving is read-only and exposes only `/cdx` and `/warcserver/cdx`.
+Zipnum serving is read-only and exposes only `/cdx`.
 Ingestion inputs and database options are rejected. Startup validates metadata,
 summary syntax, sequence continuity, safe part names, ranges and global key
 ordering without decompressing the cluster. Searches binary-search the open
@@ -120,18 +131,14 @@ With pywb 2.11.1, a standard remote CDX collection can load WARC bytes independe
 ```yaml
 collections:
   archive:
-    index:
-      type: cdx
-      api_url: http://127.0.0.1:9999/cdx?url={url}&closest={closest}&sort=closest
-      replay_url: ''
+    index: cdx+http://127.0.0.1:9999/cdx
     archive_paths:
       - /srv/warcs/
       - https://archives.example.org/warcs/
 ```
 
-The empty `replay_url` directs pywb to read WARC records using the returned
-`filename`, `offset` and `length`. Configure `archive_paths` with the local or
-HTTP locations of those WARC files.
+Pywb reads WARC records using the returned `filename`, `offset` and `length`.
+Configure `archive_paths` with the local or HTTP locations of those WARC files.
 
 For POST-derived captures, supply the augmented URL key explicitly. Pywb's
 remote CDX provider uses `{url}`, which omits the method/body augmentation for
@@ -164,10 +171,6 @@ Compatibility tests track differences from Python internetarchive/surt 0.3.1:
 The fixtures also cover escaping, Unicode, query ordering and POST augmentation.
 AMF request bodies are represented as base64 binary data.
 
-The database records its canonicalization profile. Follow the
-[upgrade instructions](upgrading.md#canonicalization-profile-v091) when moving
-an existing index to a new profile.
-
 ```sh
 go test ./...
 go test -race ./...
@@ -185,9 +188,7 @@ narrow queries that avoid unrelated corrupt parts.
 ## Yearly preservation collections
 
 Use [`warc redupe`](redupe.md) to resolve source revisits and rebuild independently
-replayable UTC years before generating their CDXJ indexes. Index databases now
-use format v3 to retain every record-ID occurrence, including repeated IDs at
-different offsets within one source file. Reindex v1/v2 databases into a new directory.
+replayable yearly collections before generating their CDXJ indexes.
 
 ## WACZ packages
 
@@ -205,7 +206,7 @@ The default `--wacz-index auto` imports embedded CDXJ (`.cdx`, `.cdxj`, and
 exists it indexes the contained WARCs. A malformed embedded index produces an
 error. Use `--wacz-index warc` to index the WARCs directly;
 explicit record filters and WARC parsing options also select native indexing.
-The output default remains CDXJ; `serve` defaults to Badger in `./warcdb`.
+The output default is CDXJ; `serve` defaults to Badger in the user data directory.
 
 Badger retains container membership and structured source locations. Identical
 member filenames in different packages remain distinct. Completed unchanged
@@ -252,5 +253,5 @@ their existing validation.
 ## Full-text search and pywb
 
 See [full-text search and replay](search-and-replay.md) for `--fulltext`, the
-search console and API, and pywb configuration using `/pywb/cdx` and HTTP
+search console and API, and pywb configuration using `/archives/cdx` and HTTP
 WARC ranges.
