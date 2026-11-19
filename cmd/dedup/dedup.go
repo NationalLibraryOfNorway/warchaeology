@@ -15,11 +15,12 @@ import (
 
 	"github.com/nationallibraryofnorway/gowarc/v3"
 	"github.com/nationallibraryofnorway/warchaeology/v5/cmd/internal/flag"
+	"github.com/nationallibraryofnorway/warchaeology/v5/internal/bytesize"
+	"github.com/nationallibraryofnorway/warchaeology/v5/internal/diskspace"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/filewalker"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/hooks"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/index"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/stat"
-	"github.com/nationallibraryofnorway/warchaeology/v5/internal/util"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/warc"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/warcwriterconfig"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/workerpool"
@@ -27,6 +28,8 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 )
+
+const badgerRecommendedMaxFileDescr = 65535
 
 const (
 	BufferMaxMem     = "max-buffer-mem"
@@ -136,15 +139,15 @@ func (f DedupFlags) AddFlags(cmd *cobra.Command) {
 }
 
 func (f DedupFlags) BufferMaxMem() int64 {
-	return util.ParseSizeInBytes(viper.GetString(BufferMaxMem))
+	return bytesize.Parse(viper.GetString(BufferMaxMem))
 }
 
 func (f DedupFlags) DedupSizeGain() int64 {
-	return util.ParseSizeInBytes(viper.GetString(DedupSizeGain))
+	return bytesize.Parse(viper.GetString(DedupSizeGain))
 }
 
 func (f DedupFlags) MinIndexDiskFree() int64 {
-	return util.ParseSizeInBytes(viper.GetString(MinIndexDiskFree))
+	return bytesize.Parse(viper.GetString(MinIndexDiskFree))
 }
 
 func (f DedupFlags) RecordTypes() []string {
@@ -350,7 +353,7 @@ func (o *DedupOptions) Run() error {
 	workerPool := workerpool.New(ctx, o.Concurrency)
 
 	// Warn when file descriptor limit is below recommended value
-	err := util.CheckFileDescriptorLimit(util.BadgerRecommendedMaxFileDescr)
+	err := checkFileDescriptorLimit(badgerRecommendedMaxFileDescr)
 	if err != nil {
 		slog.Warn(err.Error())
 	}
@@ -428,7 +431,7 @@ func checkDiskSpace(path string, minimum int64) error {
 	if minimum <= 0 {
 		return nil
 	}
-	free, err := util.DiskFree(path)
+	free, err := diskspace.Free(path)
 	if err != nil {
 		return fmt.Errorf("get free space at %q: %w", path, err)
 	}

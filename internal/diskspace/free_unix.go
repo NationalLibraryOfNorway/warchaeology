@@ -3,11 +3,11 @@
 
 //go:build darwin || freebsd || linux
 
-package util
+package diskspace
 
 import "golang.org/x/sys/unix"
 
-func DiskFree(path string) (int64, error) {
+func Free(path string) (int64, error) {
 	var stat unix.Statfs_t
 	if err := unix.Statfs(path, &stat); err != nil {
 		return 0, err

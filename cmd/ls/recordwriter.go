@@ -13,7 +13,6 @@ import (
 
 	"github.com/nationallibraryofnorway/gowarc/v3"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/timestamp"
-	"github.com/nationallibraryofnorway/warchaeology/v5/internal/util"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/warc"
 )
 
@@ -221,7 +220,7 @@ func formatInt(value int64, align, length int) string {
 
 func formatText(value string, align, length int) string {
 	if length > 0 {
-		value = util.CropString(value, length)
+		value = cropString(value, length)
 	}
 	return padString(value, align, length)
 }
@@ -345,4 +344,11 @@ func (recordWriter *RecordWriter) createFieldFunc(t *field) {
 			return record.Offset
 		})
 	}
+}
+
+func cropString(s string, size int) string {
+	if len(s) > size {
+		s = s[:size-1] + "\u2026"
+	}
+	return s
 }

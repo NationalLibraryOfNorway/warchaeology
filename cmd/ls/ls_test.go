@@ -58,3 +58,14 @@ func BenchmarkListFile(b *testing.B) {
 		_ = opts.handleFile(context.Background(), afero.NewOsFs(), warcWithErrors)
 	}
 }
+
+func TestCropStringCrops(t *testing.T) {
+	input := "123456789"
+	expected := "1234\u2026"
+
+	actual := cropString(input, 5)
+
+	if actual != expected {
+		t.Errorf("Expected %s got %s", expected, actual)
+	}
+}

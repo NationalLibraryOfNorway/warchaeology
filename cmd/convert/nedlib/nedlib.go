@@ -14,12 +14,12 @@ import (
 
 	"github.com/nationallibraryofnorway/gowarc/v3"
 	"github.com/nationallibraryofnorway/warchaeology/v5/cmd/internal/flag"
+	"github.com/nationallibraryofnorway/warchaeology/v5/internal/diskspace"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/filewalker"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/hooks"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/index"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/stat"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/timestamp"
-	"github.com/nationallibraryofnorway/warchaeology/v5/internal/util"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/version"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/warc"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/warcwriterconfig"
@@ -253,7 +253,7 @@ func (o *ConvertNedlibOptions) Run() (runErr error) {
 			return workerPool.Submit(func() {
 				// Assert WARC disk has enough free space
 				if o.MinWARCDiskFree > 0 {
-					diskFree, err := util.DiskFree(o.WarcWriterConfig.OutDir)
+					diskFree, err := diskspace.Free(o.WarcWriterConfig.OutDir)
 					if err != nil {
 						cancel()
 						slog.Error("Failed to get free space on device", "path", o.WarcWriterConfig.OutDir, "error", err)

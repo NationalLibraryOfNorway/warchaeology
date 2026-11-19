@@ -3,10 +3,10 @@
 
 //go:build !darwin && !freebsd && !linux && !openbsd && !solaris && !windows
 
-package util
+package diskspace
 
 import "errors"
 
-func DiskFree(string) (int64, error) {
+func Free(string) (int64, error) {
 	return 0, errors.ErrUnsupported
 }

@@ -20,9 +20,9 @@ import (
 
 	"github.com/dgraph-io/badger/v4"
 	"github.com/nationallibraryofnorway/warchaeology/v5/cmd/internal/flag"
+	"github.com/nationallibraryofnorway/warchaeology/v5/internal/bytesize"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/filewalker"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/hooks"
-	"github.com/nationallibraryofnorway/warchaeology/v5/internal/util"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/warcwriterconfig"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -83,7 +83,7 @@ func (f *RedupeFlags) ToRedupeOptions() (_ *RedupeOptions, err error) {
 		IndexDir:        viper.GetString("index-dir"),
 		OutputDir:       f.WriterFlags.OutputDir(),
 		Concurrency:     f.ConcurrencyFlags.Concurrency(),
-		MinimumSizeGain: util.ParseSizeInBytes(viper.GetString("min-size-gain")),
+		MinimumSizeGain: bytesize.Parse(viper.GetString("min-size-gain")),
 	}
 	defer func() {
 		if err != nil {
