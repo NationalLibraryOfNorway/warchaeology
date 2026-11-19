@@ -41,8 +41,7 @@ func NewDigestIndex(indexDir string, keepIndex bool, newIndex bool) (*DigestInde
 
 	if newIndex {
 		if err = idx.db.DropAll(); err != nil {
-			idx.Close()
-			return nil, err
+			return nil, errors.Join(err, idx.Close())
 		}
 	}
 

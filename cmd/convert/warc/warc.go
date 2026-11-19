@@ -353,8 +353,8 @@ func (o *ConvertWarcOptions) handleFile(fs afero.Fs, path string) (stat.Result, 
 	return result, nil
 }
 
-func (o *ConvertWarcOptions) handleRecord(warcFileWriter *gowarc.WarcFileWriter, record gowarc.Record, result stat.Result) error {
-	defer record.Close()
+func (o *ConvertWarcOptions) handleRecord(warcFileWriter *gowarc.WarcFileWriter, record gowarc.Record, result stat.Result) (resultErr error) {
+	defer func() { resultErr = errors.Join(resultErr, record.Close()) }()
 
 	result.IncrRecords()
 

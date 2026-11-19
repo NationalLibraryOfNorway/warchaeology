@@ -317,7 +317,9 @@ func (o *ValidateOptions) handleFile(fs afero.Fs, path string) (stat.Result, err
 		for _, err := range record.Validation {
 			result.AddError(warc.ErrorFrom(record, err))
 		}
-		record.Close()
+		if err := record.Close(); err != nil {
+			return result, err
+		}
 	}
 	return result, nil
 }
