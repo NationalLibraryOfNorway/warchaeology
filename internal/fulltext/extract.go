@@ -20,6 +20,8 @@ import (
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/loader"
 )
 
+var errNoTextResource = errors.New("capture does not contain a text resource")
+
 func plainText(value string) bool {
 	mediaType, _, err := mime.ParseMediaType(value)
 	return err == nil && mediaType == "text/plain"
@@ -29,10 +31,10 @@ func plainText(value string) bool {
 // independently of compressed WARC size; oversized text is never silently cut.
 func Extract(ctx context.Context, records loader.RecordLoader, c *cdx.Capture, maxBytes int64) (_ *Document, resultErr error) {
 	if c == nil || !plainText(c.GetMct()) {
-		return nil, nil
+		return nil, errNoTextResource
 	}
 	if c.GetRef() == "" || (c.GetSrt() != "" && c.GetSrt() != "resource") {
-		return nil, nil
+		return nil, errNoTextResource
 	}
 	original, browsertrix := strings.CutPrefix(c.GetUri(), "urn:text:")
 	parsed, err := url.Parse(original)
@@ -40,7 +42,7 @@ func Extract(ctx context.Context, records loader.RecordLoader, c *cdx.Capture, m
 		if browsertrix {
 			return nil, errors.New("text resource has no absolute HTTP original URL")
 		}
-		return nil, nil
+		return nil, errNoTextResource
 	}
 	if maxBytes <= 0 {
 		maxBytes = 16 << 20
@@ -51,7 +53,7 @@ func Extract(ctx context.Context, records loader.RecordLoader, c *cdx.Capture, m
 	}
 	defer func() { resultErr = errors.Join(resultErr, rec.Close()) }()
 	if rec.Type() != gowarc.Resource {
-		return nil, nil
+		return nil, errNoTextResource
 	}
 	body, err := rec.Block().RawBytes()
 	if err != nil {
@@ -79,9 +81,10 @@ func Extract(ctx context.Context, records loader.RecordLoader, c *cdx.Capture, m
 		Timestamp:  c.GetSts().AsTime(),
 		Source:     c.GetSource(),
 		Generation: c.GetGeneration(),
-		CaptureKey: c.GetSsu(), CaptureURI: c.GetUri(),
-		Ref:     c.GetRef(),
-		Snippet: snippet(string(text)),
+		CaptureURI: c.GetUri(),
+		CaptureKey: c.GetSsu(),
+		Ref:        c.GetRef(),
+		Snippet:    snippet(string(text)),
 	}, nil
 }
 

@@ -475,13 +475,14 @@ func CDXHandlerWithTransform(src QuerySource, scanLimit, resultLimit int, transf
 			w.Header().Set("Content-Type", "application/x-ndjson")
 		}
 		wrote := false
-		pages, e := q.Run(r.Context(), src, func(c *Capture) error {
+		ctx := r.Context()
+		pages, e := q.Run(ctx, src, func(c *Capture) error {
 			m, e := Properties(c)
 			if e != nil {
 				return e
 			}
 			if transform != nil {
-				if e := transform(r.Context(), c, m); e != nil {
+				if e := transform(ctx, c, m); e != nil {
 					return e
 				}
 			}

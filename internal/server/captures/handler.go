@@ -43,6 +43,9 @@ type Handler struct {
 
 var validName = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$`)
 
+const cdxRoute = "/cdx"
+const deleteRoute = "/delete"
+
 func New(ctx context.Context, o Options, single *cdxstore.DB) (*Handler, error) {
 	if o.MaxBytes == 0 {
 		o.MaxBytes = 128 << 20
@@ -180,10 +183,10 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	switch {
-	case route == "/cdx" && r.Method == http.MethodGet:
+	case route == cdxRoute && r.Method == http.MethodGet:
 		cdx.CDXHandlerWithLimits(db, h.ScanLimit, h.ResultLimit)(w, r)
-	case (route == "/cdx" || route == "/delete") && r.Method == http.MethodPost:
-		h.upload(w, r, db, route == "/delete")
+	case (route == cdxRoute || route == deleteRoute) && r.Method == http.MethodPost:
+		h.upload(w, r, db, route == deleteRoute)
 	case route == "/export" && r.Method == http.MethodGet:
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 		w.Header().Set("Trailer", "X-Export-Error")
@@ -228,7 +231,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.ServeFile(w, r, name)
 	default:
 		switch route {
-		case "/cdx", "/delete", "/export", "/backup", "/packages", "/stats":
+		case cdxRoute, deleteRoute, "/export", "/backup", "/packages", "/stats":
 			http.Error(w, "method not supported", http.StatusMethodNotAllowed)
 		default:
 			http.NotFound(w, r)
@@ -342,7 +345,7 @@ func (h *Handler) upload(w http.ResponseWriter, r *http.Request, db *cdxstore.DB
 		if err == nil {
 			err = syncErr
 		}
-		base := strings.TrimSuffix(strings.TrimSuffix(r.URL.Path, "/cdx"), "/delete")
+		base := strings.TrimSuffix(strings.TrimSuffix(r.URL.Path, cdxRoute), deleteRoute)
 		result.Report = base + "/rejections/" + id
 	}
 	if err != nil {

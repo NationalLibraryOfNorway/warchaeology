@@ -34,11 +34,13 @@ type Document struct {
 	Source        string     `json:"source"`
 	Generation    string     `json:"generation"`
 	CaptureKey    string     `json:"captureKey,omitempty"`
-	CaptureURI    string     `json:"captureURI"`
+	CaptureURI    string     `json:"captureURI"` //nolint:tagliatelle // Preserve the stored search field name.
 	Ref           string     `json:"ref"`
 	SyncRun       string     `json:"syncRun"`
 	Snippet       string     `json:"snippet"`
 }
+
+const packageField = "package"
 
 type Index struct{ index bleve.Index }
 
@@ -47,12 +49,12 @@ func Open(path string) (*Index, error) {
 	idx, err := bleve.Open(path)
 	if errors.Is(err, bleve.ErrorIndexPathDoesNotExist) {
 		m := bleve.NewIndexMapping()
-		if err := m.AddCustomAnalyzer("archive_text", map[string]interface{}{"type": "custom", "tokenizer": "unicode", "token_filters": []string{"to_lower"}}); err != nil {
+		if err := m.AddCustomAnalyzer("archive_text", map[string]any{"type": "custom", "tokenizer": "unicode", "token_filters": []string{"to_lower"}}); err != nil {
 			return nil, err
 		}
 		m.DefaultAnalyzer = "archive_text"
 		d := bleve.NewDocumentMapping()
-		for _, name := range []string{"id", "url", "host", "package", "source", "generation", "captureKey", "captureURI", "ref", "syncRun", "snippet"} {
+		for _, name := range []string{"id", "url", "host", packageField, "source", "generation", "captureKey", "captureURI", "ref", "syncRun", "snippet"} {
 			field := bleve.NewKeywordFieldMapping()
 			d.AddFieldMappingsAt(name, field)
 		}
@@ -149,7 +151,7 @@ func (i *Index) Search(ctx context.Context, r Request) (*bleve.SearchResult, err
 			parts = append(parts, bleve.NewDisjunctionQuery(text, title))
 		}
 	}
-	for field, value := range map[string]string{"host": r.Host, "package": r.Package} {
+	for field, value := range map[string]string{"host": r.Host, packageField: r.Package} {
 		if value != "" {
 			q := bleve.NewTermQuery(value)
 			q.SetField(field)
@@ -162,7 +164,7 @@ func (i *Index) Search(ctx context.Context, r Request) (*bleve.SearchResult, err
 		parts = append(parts, q)
 	}
 	req := bleve.NewSearchRequestOptions(bleve.NewConjunctionQuery(parts...), r.Limit, r.Offset, false)
-	req.Fields = []string{"id", "url", "title", "timestamp", "package", "source", "generation", "captureKey", "captureURI", "ref", "snippet", "pageTimestamp", "inferred"}
+	req.Fields = []string{"id", "url", "title", "timestamp", packageField, "source", "generation", "captureKey", "captureURI", "ref", "snippet", "pageTimestamp", "inferred"}
 	req.SortBy([]string{"-_score", "_id"})
 	req.Highlight = bleve.NewHighlightWithStyle("html")
 	req.Highlight.AddField("text")
@@ -189,7 +191,7 @@ func Exists(path string) (bool, error) {
 }
 
 func OpenReadOnly(path string) (*Index, error) {
-	idx, err := bleve.OpenUsing(path, map[string]interface{}{"read_only": true})
+	idx, err := bleve.OpenUsing(path, map[string]any{"read_only": true})
 	if err != nil {
 		return nil, err
 	}
@@ -279,11 +281,8 @@ func (i *Index) Timeline(ctx context.Context, r Request) (Timeline, error) {
 		return timeline, nil
 	}
 	req := bleve.NewSearchRequestOptions(q, 0, 0, false)
-	width := last.Sub(first) / 48
-	if width < time.Nanosecond {
-		width = time.Nanosecond
-	}
-	for n := 0; n < 48; n++ {
+	width := max(last.Sub(first)/48, time.Nanosecond)
+	for n := range 48 {
 		start := first.Add(time.Duration(n) * width)
 		end := first.Add(time.Duration(n+1) * width)
 		if n == 47 {
@@ -297,7 +296,7 @@ func (i *Index) Timeline(ctx context.Context, r Request) (Timeline, error) {
 	if err != nil {
 		return Timeline{}, err
 	}
-	for n := 0; n < 48; n++ {
+	for n := range 48 {
 		f := out.Facets[fmt.Sprint(n)]
 		if f != nil && len(f.DateRanges) > 0 {
 			timeline.Counts[n] = uint64(f.DateRanges[0].Count)

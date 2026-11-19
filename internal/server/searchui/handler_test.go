@@ -5,6 +5,7 @@ package searchui
 
 import (
 	"context"
+	"net/http"
 	"net/http/httptest"
 	"path/filepath"
 	"strings"
@@ -44,7 +45,7 @@ func TestSearchAndConsole(t *testing.T) {
 	} {
 		t.Run(tc.path, func(t *testing.T) {
 			w := httptest.NewRecorder()
-			handler.ServeHTTP(w, httptest.NewRequest("GET", tc.path, nil))
+			handler.ServeHTTP(w, httptest.NewRequestWithContext(t.Context(), http.MethodGet, tc.path, nil))
 			if w.Code != tc.code || !strings.Contains(w.Body.String(), tc.contains) {
 				t.Fatalf("%d: %s", w.Code, w.Body.String())
 			}

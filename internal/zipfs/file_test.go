@@ -143,6 +143,7 @@ func TestEmptyArchiveHasRoot(t *testing.T) {
 
 type countedReader struct {
 	*bytes.Reader
+
 	bytesRead int
 }
 
@@ -160,8 +161,12 @@ func TestStoredMemberLateReadIsBounded(t *testing.T) {
 	}
 	payload := make([]byte, 8<<20)
 	copy(payload[len(payload)-4:], "tail")
-	entry.Write(payload)
-	w.Close()
+	if _, e := entry.Write(payload); e != nil {
+		t.Fatal(e)
+	}
+	if e := w.Close(); e != nil {
+		t.Fatal(e)
+	}
 	backing := &countedReader{Reader: bytes.NewReader(b.Bytes())}
 	zr, e := zip.NewReader(backing, int64(b.Len()))
 	if e != nil {

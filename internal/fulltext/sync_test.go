@@ -132,7 +132,7 @@ func TestPhraseAndTimelineCoverAllMatches(t *testing.T) {
 	defer idx.Close()
 	start := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	var docs []Document
-	for n := 0; n < 60; n++ {
+	for n := range 60 {
 		docs = append(docs, Document{
 			ID:        fmt.Sprint(n),
 			URL:       "https://example.org/",

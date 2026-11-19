@@ -58,7 +58,10 @@ func TestNestedInlineTextBackfillOnCachedPackage(t *testing.T) {
 	}
 	syncer := fulltext.Synchronizer{DB: db, Index: idx}
 	if !syncer.Visible(t.Context(), hit.Fields) {
-		raw, _ := json.Marshal(hit.Fields)
+		raw, err := json.Marshal(hit.Fields)
+		if err != nil {
+			t.Fatal(err)
+		}
 		t.Fatalf("inline hit not visible: %s", raw)
 	}
 	changed := packageBytes(t, map[string][]byte{"leaf.wacz": leaf, "pages/pages.jsonl": pages})

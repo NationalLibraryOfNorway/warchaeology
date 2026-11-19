@@ -31,11 +31,11 @@ func New(index *fulltext.Index, synchronizers ...*fulltext.Synchronizer) http.Ha
 			_ = json.NewEncoder(w).Encode(map[string]bool{"enabled": index != nil})
 			return
 		}
-		_ = json.NewEncoder(w).Encode(map[string]interface{}{"enabled": index != nil, "indexing": syncer.Status()})
+		_ = json.NewEncoder(w).Encode(map[string]any{"enabled": index != nil, "indexing": syncer.Status()})
 	})
 	mux.HandleFunc("GET /search", func(w http.ResponseWriter, r *http.Request) {
 		if index == nil {
-			http.Error(w, "full-text search is not enabled", 404)
+			http.Error(w, "full-text search is not enabled", http.StatusNotFound)
 			return
 		}
 		values := r.URL.Query()
@@ -44,7 +44,7 @@ func New(index *fulltext.Index, synchronizers ...*fulltext.Synchronizer) http.Ha
 			if raw := values.Get(name); raw != "" {
 				value, err := strconv.Atoi(raw)
 				if err != nil {
-					http.Error(w, "invalid "+name, 400)
+					http.Error(w, "invalid "+name, http.StatusBadRequest)
 					return
 				}
 				*target = value
@@ -54,14 +54,14 @@ func New(index *fulltext.Index, synchronizers ...*fulltext.Synchronizer) http.Ha
 			if raw := values.Get(name); raw != "" {
 				value, err := time.Parse(time.RFC3339, raw)
 				if err != nil {
-					http.Error(w, "invalid "+name+": use RFC3339", 400)
+					http.Error(w, "invalid "+name+": use RFC3339", http.StatusBadRequest)
 					return
 				}
 				*target = value
 			}
 		}
 		if !req.From.IsZero() && !req.To.IsZero() && req.From.After(req.To) {
-			http.Error(w, "from must precede to", 400)
+			http.Error(w, "from must precede to", http.StatusBadRequest)
 			return
 		}
 		limit := req.Limit
@@ -69,16 +69,16 @@ func New(index *fulltext.Index, synchronizers ...*fulltext.Synchronizer) http.Ha
 			limit = 20
 		}
 		if req.Offset+limit > 10000 || req.Query == "" || req.Offset < 0 || req.Offset >= 10000 || req.Limit < 0 || req.Limit > 100 {
-			http.Error(w, "invalid query or pagination", 400)
+			http.Error(w, "invalid query or pagination", http.StatusBadRequest)
 			return
 		}
 		if err := fulltext.ValidateQuery(req.Query); err != nil {
-			http.Error(w, err.Error(), 400)
+			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
 		result, err := index.Search(r.Context(), req)
 		if err != nil {
-			http.Error(w, "search unavailable", 503)
+			http.Error(w, "search unavailable", http.StatusServiceUnavailable)
 			return
 		}
 		if syncer != nil {
@@ -94,10 +94,10 @@ func New(index *fulltext.Index, synchronizers ...*fulltext.Synchronizer) http.Ha
 		w.Header().Set("Cache-Control", "no-store")
 		timeline, err := index.Timeline(r.Context(), req)
 		if err != nil {
-			http.Error(w, "timeline unavailable", 503)
+			http.Error(w, "timeline unavailable", http.StatusServiceUnavailable)
 			return
 		}
-		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+		_ = json.NewEncoder(w).Encode(map[string]any{
 			"hits":          result.Hits,
 			"totalEstimate": result.Total,
 			"timeline":      timeline,

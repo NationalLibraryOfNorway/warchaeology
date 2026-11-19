@@ -24,7 +24,7 @@ type Status struct {
 	Running bool      `json:"running"`
 	Indexed int       `json:"indexed"`
 	Error   string    `json:"error,omitempty"`
-	Updated time.Time `json:"updated,omitempty"`
+	Updated time.Time `json:"updated"`
 }
 
 // Synchronizer snapshots only candidate metadata to disk, releases the capture
@@ -153,7 +153,7 @@ func (s *Synchronizer) Sync(ctx context.Context, force bool) (err error) {
 	records := loader.FileStorageLoader{}
 	extract := func(c *cdx.Capture, meta *packagePages) error {
 		doc, e := Extract(ctx, records, c, 16<<20)
-		if e == nil && doc == nil {
+		if errors.Is(e, errNoTextResource) {
 			return nil
 		}
 		if e != nil {
@@ -194,6 +194,13 @@ func (s *Synchronizer) Sync(ctx context.Context, force bool) (err error) {
 	if err = flush(); err != nil {
 		return err
 	}
+	if err = s.removeOldDocuments(ctx, run); err != nil {
+		return err
+	}
+	return s.Index.index.SetInternal([]byte("revision"), []byte(revision))
+}
+
+func (s *Synchronizer) removeOldDocuments(ctx context.Context, run string) error {
 	// Use repeated first pages: deleting a page shifts later matches forward.
 	old := bleve.NewBooleanQuery()
 	all := bleve.NewMatchAllQuery()
@@ -202,7 +209,7 @@ func (s *Synchronizer) Sync(ctx context.Context, force bool) (err error) {
 	old.AddMust(all)
 	old.AddMustNot(current)
 	for {
-		if err = ctx.Err(); err != nil {
+		if err := ctx.Err(); err != nil {
 			return err
 		}
 		result, e := s.Index.index.SearchInContext(ctx, bleve.NewSearchRequestOptions(old, 128, 0, false))
@@ -210,26 +217,25 @@ func (s *Synchronizer) Sync(ctx context.Context, force bool) (err error) {
 			return e
 		}
 		if len(result.Hits) == 0 {
-			break
+			return nil
 		}
 		ids := make([]string, 0, len(result.Hits))
 		for _, h := range result.Hits {
 			ids = append(ids, h.ID)
 		}
-		if err = s.Index.Publish(ctx, nil, ids); err != nil {
+		if err := s.Index.Publish(ctx, nil, ids); err != nil {
 			return err
 		}
 	}
-	return s.Index.index.SetInternal([]byte("revision"), []byte(revision))
 }
 
 // Visible suppresses obsolete hits while a replacement or deletion is pending.
-func (s *Synchronizer) Visible(ctx context.Context, fields map[string]interface{}) bool {
+func (s *Synchronizer) Visible(ctx context.Context, fields map[string]any) bool {
 	uri, _ := fields["captureURI"].(string)
 	ref, _ := fields["ref"].(string)
 	generation, _ := fields["generation"].(string)
 	if uri == "" && strings.HasPrefix(ref, "page:") {
-		id, _ := fields["package"].(string)
+		id, _ := fields[packageField].(string)
 		found := false
 		err := s.DB.ListPackages(ctx, func(p cdxstore.PackageInfo) error {
 			if p.SourceFingerprint != "" && idFor(p.Locator) == id && p.Fingerprint == generation {
