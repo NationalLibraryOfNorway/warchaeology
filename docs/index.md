@@ -3,8 +3,8 @@ title: Overview
 ---
 
 Warchaeology provides command-line tools for inspecting, validating, converting,
-deduplicating, indexing, and serving web archive collections. The executable is
-named `warc`.
+deduplicating, indexing, searching, and serving web archive collections.
+The executable is named `warc`.
 
 ## Choose a workflow
 
@@ -16,6 +16,8 @@ named `warc`.
 | Deduplicate payloads | `warc dedup` | [Deduplication options](./reference/cli/warc_dedup.md) |
 | Rebuild independently replayable yearly collections | `warc redupe` | [Yearly preservation guide](./guides/redupe.md) |
 | Export CDXJ or populate an index database | `warc index` | [Capture indexing guide](./guides/capture-indexes.md) |
+| Index WACZ packages | `warc index`, `warc serve` | [WACZ packages](./guides/capture-indexes.md#wacz-packages) |
+| Search archived text | `warc index --fulltext`, `warc serve --fulltext` | [Search console and API](./guides/search-and-replay.md) |
 | Build immutable indexes and serve capture queries | `warc zipnum`, `warc serve` | [Zipnum and serving](./guides/capture-indexes.md#immutable-zipnum-clusters) |
 
 ## Rebuild yearly collections
@@ -23,7 +25,7 @@ named `warc`.
 `redupe` inventories all supplied WARC records, resolves revisit dependencies,
 and groups captures by their own UTC year. It retains request and metadata
 records, accounts for identical aliases, and reports conflicting IDs or missing
-payload donors. There are no record or date filters in this command.
+payload donors.
 
 Start with an audit, then write the yearly collection and index a completed year:
 
@@ -41,7 +43,7 @@ sources and configuration.
 
 See the [yearly preservation guide](./guides/redupe.md) for audit findings,
 checksums, provenance manifests, restart behavior, and replay setup. Capture
-indexes are generated separately with `warc index`; they do not replace WARCs.
+indexes generated with `warc index` provide URL/time lookup for the yearly WARCs.
 
 ## Getting started
 

@@ -5,7 +5,7 @@ const docsVersion = process.env.DOCS_VERSION || '';
 
 const config = {
   title: 'Warchaeology',
-  tagline: 'WARC tools',
+  tagline: 'Inspect, index, search, and serve web archives',
   url: 'https://nationallibraryofnorway.github.io',
   baseUrl: process.env.DOCS_BASEURL || (isProd ? '/warchaeology/' : '/'),
   organizationName: 'nationallibraryofnorway',
@@ -14,10 +14,9 @@ const config = {
   onBrokenLinks: 'throw',
   favicon: 'logo_small.png',
   markdown: {
-    hooks:
-      {
-        onBrokenMarkdownLinks: 'warn'
-      }
+    hooks: {
+      onBrokenMarkdownLinks: 'warn'
+    }
   },
   presets: [
     [
@@ -51,11 +50,15 @@ const config = {
           position: 'left',
           label: 'Docs'
         },
-        ...(docsVersion ? [{
-          label: docsVersion,
-          position: 'right',
-          href: `https://github.com/nationallibraryofnorway/warchaeology/releases/tag/${docsVersion}`,
-        }] : []),
+        ...(docsVersion
+          ? [
+              {
+                label: docsVersion,
+                position: 'right',
+                href: `https://github.com/nationallibraryofnorway/warchaeology/releases/tag/${docsVersion}`
+              }
+            ]
+          : []),
         {
           href: 'https://github.com/nationallibraryofnorway/warchaeology',
           label: 'GitHub',

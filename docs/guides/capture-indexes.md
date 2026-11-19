@@ -2,11 +2,10 @@
 title: Capture indexing, serving and zipnum
 ---
 
-`warc index` creates replay capture indexes separately from the processing and
-deduplication indexes. It accepts WARC and WARC.gz files and directories, plus
-warchaeology's archive mounts. ARC indexing, Kafka,
-standalone CDXJ file serving and AMF decoding are not implemented. For writable
-CDXJ collections, see [writable capture collections](writable-captures.md).
+`warc index` creates CDX indexes for URL/time lookup in web archive collections.
+It reads WARC, WARC.gz and WACZ files, directories, and supported archive mounts.
+Export CDXJ files or populate a Badger index database for serving. To manage
+collections through CDXJ uploads, see [writable index collections](writable-captures.md).
 
 ## Export captures
 
@@ -32,9 +31,8 @@ output, flush and close errors cause command failure.
 
 Exported filenames default to basenames. `--dir-root` exports relative paths.
 Database retrieval uses separate structured source locators containing literal
-archive mount paths and member names. Basename
-collisions produce an ambiguity error instead of choosing a file. Configure
-pywb's archive paths separately when using exported indexes.
+archive mount paths and member names. Basename collisions produce an ambiguity
+error. Configure pywb's archive paths separately when using exported indexes.
 
 `cdxpb` is a stream of unsigned-varint message lengths followed by serialized
 `schema.Cdx` protobuf messages. There are no textual prefixes or newline
