@@ -24,7 +24,7 @@ A tool for handling warc files
 * [warc index](warc_index.md)     - Index WARC captures
 * [warc ls](warc_ls.md)     - List WARC record fields
 * [warc redupe](warc_redupe.md)     - Reorganize WARC records by year, month or day
-* [warc serve](warc_serve.md)     - Serve an index database or immutable zipnum cluster
+* [warc serve](warc_serve.md)     - Serve a Badger index, zipnum cluster, or WACZ
 * [warc validate](warc_validate.md)     - Validate WARC files
 * [warc version](warc_version.md)     - Show extended version information
 * [warc zipnum](warc_zipnum.md)     - Build and transform immutable zipnum clusters

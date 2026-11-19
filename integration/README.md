@@ -11,6 +11,7 @@ WARC_BINARY=/path/to/warc python integration/pywb_wacz.py
 
 Tests vanilla pywb with CDX shorthand and Warchaeology's `/archives/cdx` and
 `/archives/` endpoints. Covers mixed WARC/WACZ inputs, leaf and nested WACZs,
+direct WACZ serving with streaming and seekable indexes,
 deflated members, exact HTTP byte ranges, normal captures, revisits and
 explicitly addressed POST-derived captures.
 

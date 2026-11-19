@@ -3,7 +3,7 @@ title: "warc serve"
 ---
 ## warc serve
 
-Serve an index database or immutable zipnum cluster
+Serve a Badger index, zipnum cluster, or WACZ
 
 ```
 warc serve [FILE/DIR...] [flags]
@@ -75,7 +75,7 @@ warc serve [FILE/DIR...] [flags]
       --upload-max-bytes int                    maximum decoded CDXJ request bytes (default 134217728)
       --upload-max-line int                     maximum CDXJ line bytes (default 1048576)
       --upload-timeout duration                 maximum upload duration (default 5m0s)
-      --wacz-index string                       WACZ indexing: auto imports embedded indexes; warc indexes contained WARCs (default "auto")
+      --wacz-index string                       WACZ indexing: auto imports embedded indexes; warc scans contained WARCs; direct serves one embedded index read-only (default "auto")
       --warcserver-prefix-max-records int       warcserver prefix result limit (default 1000)
       --zipnum-dir string                       immutable published zipnum cluster
 ```

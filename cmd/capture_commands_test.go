@@ -9,8 +9,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"github.com/nationallibraryofnorway/warchaeology/v5/internal/cdxstore"
-	"github.com/nationallibraryofnorway/warchaeology/v5/internal/server/archiveapi"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -21,7 +19,9 @@ import (
 	"testing"
 
 	cdx "github.com/nationallibraryofnorway/warchaeology/v5/internal/cdx"
+	"github.com/nationallibraryofnorway/warchaeology/v5/internal/cdxstore"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/index"
+	"github.com/nationallibraryofnorway/warchaeology/v5/internal/server/archiveapi"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/zipnum"
 	"github.com/spf13/viper"
 )
@@ -95,6 +95,12 @@ func TestCaptureCommandValidation(t *testing.T) {
 		{"zipnum merge inputs", []string{"zipnum", "merge", "missing"}, nil, "accepts 2 arg(s)"},
 		{"zipnum add inputs", []string{"zipnum", "add", "missing"}, nil, "accepts 2 arg(s)"},
 		{"zipnum repartition inputs", []string{"zipnum", "repartition", "one", "two"}, nil, "accepts 1 arg(s)"},
+		{"direct needs path", []string{"serve", "--wacz-index", "direct"}, nil, "exactly one local"},
+		{"direct needs one package", []string{"serve", "--wacz-index", "direct", "a.wacz", "b.wacz"}, nil, "exactly one local"},
+		{"direct rejects index format", []string{"serve", "--wacz-index", "direct", "--index-format", "badger", "a.wacz"}, nil, "index-format is not valid"},
+		{"direct rejects database directory", []string{"serve", "--wacz-index", "direct", "a.wacz"}, map[string]string{"WARC_INDEX_DIR": "db"}, "index-dir is not valid"},
+		{"direct rejects ingestion", []string{"serve", "--wacz-index", "direct", "--post-append", "a.wacz"}, nil, "post-append is not valid"},
+		{"direct is a serving mode", []string{"index", "--wacz-index", "direct", "a.wacz"}, nil, "auto or warc"},
 		{"invalid prefix", []string{"serve", "--path-prefix", "invalid"}, nil, "path-prefix must start"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
@@ -254,46 +260,6 @@ func TestIndexDestinationConfiguration(t *testing.T) {
 	}
 }
 
-func TestWACZRevalidatesAfterParserConfigChange(t *testing.T) {
-	dir := t.TempDir()
-	source := filepath.Join(dir, "collection.wacz")
-	var buf bytes.Buffer
-	z := zip.NewWriter(&buf)
-	member, err := z.Create("archive/data.warc")
-	if err != nil {
-		t.Fatal(err)
-	}
-	const record = "WARC/1.1\r\nWARC-Type: resource\r\nWARC-Date: 2026-11-17T00:00:00Z\r\nWARC-Record-ID: <urn:example:original>\r\nWARC-Target-URI: foo://bad^host/\r\nContent-Type: text/plain\r\nContent-Length: 0\r\n\r\n\r\n\r\n"
-	if _, err := io.WriteString(member, record); err != nil {
-		t.Fatal(err)
-	}
-	if err := z.Close(); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(source, buf.Bytes(), 0600); err != nil {
-		t.Fatal(err)
-	}
-	args := []string{"index", "--index-format", "badger", "--index-dir", filepath.Join(dir, "db"), source}
-	t.Setenv("WARC_STRICT", "false")
-	if err := executeCaptureCommand(t, args...); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("WARC_STRICT", "true")
-	if err := executeCaptureCommand(t, args...); err == nil {
-		t.Fatal("strict mode reused the permissive checkpoint")
-	}
-	config := filepath.Join(dir, "config.yaml")
-	if err := os.WriteFile(config, []byte("lax-host-parsing: true\n"), 0600); err != nil {
-		t.Fatal(err)
-	}
-	if err := executeCaptureCommand(t, append(args, "--config", config)...); err != nil {
-		t.Fatal(err)
-	}
-	if err := executeCaptureCommand(t, args...); err == nil {
-		t.Fatal("strict mode reused the lax host checkpoint")
-	}
-}
-
 func TestIndexDirRoot(t *testing.T) {
 	warc, err := os.ReadFile("../testdata/warc/convert.warc")
 	if err != nil {
@@ -381,6 +347,46 @@ func TestIndexDirRoot(t *testing.T) {
 		if !bytes.Equal(get(archives, "/archives/"+hit.Filename), want) {
 			t.Fatalf("wrong WARC bytes for year %s", year)
 		}
+	}
+}
+
+func TestWACZRevalidatesAfterParserConfigChange(t *testing.T) {
+	dir := t.TempDir()
+	source := filepath.Join(dir, "collection.wacz")
+	var buf bytes.Buffer
+	z := zip.NewWriter(&buf)
+	member, err := z.Create("archive/data.warc")
+	if err != nil {
+		t.Fatal(err)
+	}
+	const record = "WARC/1.1\r\nWARC-Type: resource\r\nWARC-Date: 2026-11-17T00:00:00Z\r\nWARC-Record-ID: <urn:example:original>\r\nWARC-Target-URI: foo://bad^host/\r\nContent-Type: text/plain\r\nContent-Length: 0\r\n\r\n\r\n\r\n"
+	if _, err := io.WriteString(member, record); err != nil {
+		t.Fatal(err)
+	}
+	if err := z.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(source, buf.Bytes(), 0600); err != nil {
+		t.Fatal(err)
+	}
+	args := []string{"index", "--index-format", "badger", "--index-dir", filepath.Join(dir, "db"), source}
+	t.Setenv("WARC_STRICT", "false")
+	if err := executeCaptureCommand(t, args...); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("WARC_STRICT", "true")
+	if err := executeCaptureCommand(t, args...); err == nil {
+		t.Fatal("strict mode reused the permissive checkpoint")
+	}
+	config := filepath.Join(dir, "config.yaml")
+	if err := os.WriteFile(config, []byte("lax-host-parsing: true\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := executeCaptureCommand(t, append(args, "--config", config)...); err != nil {
+		t.Fatal(err)
+	}
+	if err := executeCaptureCommand(t, args...); err == nil {
+		t.Fatal("strict mode reused the lax host checkpoint")
 	}
 }
 

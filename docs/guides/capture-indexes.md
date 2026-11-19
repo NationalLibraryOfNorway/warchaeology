@@ -210,6 +210,7 @@ warc index capture.wacz
 warc index --index-format badger --index-dir ./captures capture.wacz
 warc serve --index-dir ./captures capture.wacz
 warc serve --wacz-index warc capture.wacz
+warc serve --wacz-index direct capture.wacz
 ```
 
 The default `--wacz-index auto` imports embedded CDXJ (`.cdx`, `.cdxj`, and
@@ -232,9 +233,23 @@ when a complete record-ID catalogue is needed for ID lookups or revisit
 resolution. Start with a fresh database directory when adding native WACZ
 content to a collection previously managed through CDXJ uploads.
 
+### Serve one embedded index directly
+
+`warc serve --wacz-index direct capture.wacz` serves one local WACZ in read-only
+mode without creating a Badger database or a sidecar. The package must contain
+CDXJ and WARC members. A valid block summary lets the server seek within a
+stored gzip CDXJ member. Plain CDXJ and gzip indexes without a usable summary
+are streamed, so some lookups may read a large portion of the index.
+
+Use `/cdx` for capture lookup or point pywb at `/archives/cdx` and `/archives/`
+for lookup and WARC ranges. Direct mode preserves embedded keys. URL lookups
+use Warchaeology's canonicalization, and `urlkey=` accepts the exact stored key
+if the index producer uses a different canonicalization. Keep the package
+immutable while serving and restart the server after replacing it.
+
 ### Multi-WACZ bundles and manifests
 
-The same commands accept Browsertrix multi-WACZ bundles. The importer follows
+The `auto` and `warc` modes accept Browsertrix multi-WACZ bundles. The importer follows
 `datapackage.json` child resources when present and discovers nested `.wacz`
 members when there is no child manifest. It retains outer-package → child-package
 → WARC locations, supports up to 16 WACZ levels, and never extracts the packages.

@@ -21,6 +21,7 @@ func NewServeFlags() ServeFlags { return ServeFlags{IndexFlags: indexcmd.NewInde
 func (f ServeFlags) AddFlags(cmd *cobra.Command) {
 	f.IndexFlags.AddFlags(cmd)
 	cmd.Flags().Lookup(flag.IndexFile).Hidden = true
+	cmd.Flags().Lookup("wacz-index").Usage = "WACZ indexing: auto imports embedded indexes; warc scans contained WARCs; direct serves one embedded index read-only"
 	_ = cmd.Flags().Set("index-format", badgerFormat)
 	cmd.Flags().Lookup("index-format").DefValue = badgerFormat
 	cmd.Flags().Lookup("index-format").Usage = "badger or zipnum"
@@ -61,8 +62,9 @@ func (f ServeFlags) ToOptions() (*ServeOptions, error) {
 		allowSameOriginReplay: viper.GetBool("allow-same-origin-replay"),
 		hasInputs:             viper.GetString("source-file-list") != "",
 		prefixLimit:           viper.GetInt("warcserver-prefix-max-records"),
+		waczMode:              viper.GetString("wacz-index"),
 	}
-	if o.collectionsDir != "" || o.format == zipnumFormat {
+	if o.waczMode == directWacz || o.collectionsDir != "" || o.format == zipnumFormat {
 		return o, nil
 	}
 	var err error

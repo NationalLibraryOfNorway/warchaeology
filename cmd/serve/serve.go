@@ -41,7 +41,7 @@ func NewCmdServe() *cobra.Command {
 	flags := NewServeFlags()
 	cmd := &cobra.Command{
 		Use:               "serve [FILE/DIR...]",
-		Short:             "Serve an index database or immutable zipnum cluster",
+		Short:             "Serve a Badger index, zipnum cluster, or WACZ",
 		ValidArgsFunction: flag.SuffixCompletionFn,
 		RunE: func(cmd *cobra.Command, args []string) (err error) {
 			o, err := flags.ToOptions()
@@ -78,9 +78,13 @@ type ServeOptions struct {
 	database                           cdxstore.Options
 	ingestion                          *indexcmd.IndexOptions
 	closer                             io.Closer
+	waczMode, waczPath                 string
 }
 
 func (o *ServeOptions) Complete(cmd *cobra.Command, args []string) error {
+	if o.waczMode == directWacz {
+		return o.completeDirect(cmd, args)
+	}
 	o.hasInputs = o.hasInputs || len(args) > 0
 	if flag.Explicit(cmd, flag.IndexFile) {
 		return errors.New("index-file is not valid for serving")
@@ -126,6 +130,9 @@ func (o *ServeOptions) Validate() error {
 	if o.prefix != "" && !strings.HasPrefix(o.prefix, "/") {
 		return fmt.Errorf("path-prefix must start with /")
 	}
+	if o.waczMode == directWacz {
+		return nil
+	}
 	if o.format == zipnumFormat {
 		if o.hasInputs {
 			return fmt.Errorf("zipnum serving does not accept ingestion inputs")
@@ -168,6 +175,8 @@ func (o *ServeOptions) Close() error {
 
 func (o *ServeOptions) Run(ctx context.Context) error {
 	switch {
+	case o.waczMode == directWacz:
+		return o.runDirect(ctx)
 	case o.collectionsDir != "":
 		opts := o.httpOptions
 		opts.Directory = o.collectionsDir
