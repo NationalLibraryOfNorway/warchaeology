@@ -3,7 +3,7 @@ title: "warc index reset"
 ---
 ## warc index reset
 
-Reset the selected capture database
+Reset the selected index database
 
 ```
 warc index reset [flags]

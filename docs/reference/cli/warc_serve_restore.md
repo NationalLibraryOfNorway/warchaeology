@@ -3,7 +3,7 @@ title: "warc serve restore"
 ---
 ## warc serve restore
 
-Restore a capture backup offline into a new directory
+Restore an index database backup offline into a new directory
 
 ```
 warc serve restore BACKUP NEW-DIRECTORY [flags]
@@ -26,4 +26,4 @@ warc serve restore BACKUP NEW-DIRECTORY [flags]
 
 ### SEE ALSO
 
-* [warc serve](warc_serve.md)     - Serve a capture database or immutable zipnum cluster
+* [warc serve](warc_serve.md)     - Serve an index database or immutable zipnum cluster

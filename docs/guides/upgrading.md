@@ -67,18 +67,18 @@ See [Archive and FTP inputs](archive-inputs.md) for runnable usage examples.
 
 All Badger databases now use v4, including processing and deduplication indexes.
 Keep existing v3 directories until replacement indexes have been rebuilt and
-verified. New capture databases use versioned canonicalization and source-position
-identities; older capture stores require reindexing. See
+verified. New index databases use versioned canonicalization and source-position
+identities; older index databases require reindexing. See
 [Capture indexing, serving and zipnum](capture-indexes.md) for migration and replay
 configuration, including the stock pywb remote provider's POST limitation.
 
-## Capture database format v2
+## Index database format v2
 
 The record-ID index now includes the source offset. Multiple records sharing an
 ID within the same WARC file remain visible, allowing conflicting occurrences to
 be detected instead of silently overwriting one another.
 
-Existing v1 capture databases must be reindexed into a new directory or namespace.
+Existing v1 index databases must be reindexed into a new directory or namespace.
 Keep the old database until the replacement has been verified. This change does
 not rewrite source WARCs or require regenerating existing CDXJ exports.
 
@@ -93,9 +93,9 @@ Audit before rewriting, and use a separate output directory. Reuse the same
 working index only with unchanged sources and configuration. Completed years are
 checksum-checked on restart, and interrupted years are rebuilt from the beginning.
 
-## Lean capture and workload stores
+## Index and workload databases
 
-Capture v3, donor v2 and redupe ledger v2 require fresh directories. Follow the
+Index layout v3, donor v2 and redupe ledger v2 require fresh directories. Follow the
 [rebuild and export/import procedures](writable-captures.md#layout-upgrades-and-workload-boundaries),
 then verify the rebuilt indexes before retiring the old directories.
 
@@ -105,8 +105,8 @@ Version 0.9.1 changes the canonical keys for `dns:`, `mailto:` and `warcinfo:`
 URIs. For example, `dns:Example.COM` becomes `dns:example.com`. Filedesc URIs
 retain their original spelling.
 
-Rebuild capture databases created with the v0.9.0 profile before using this
-version. The capture layout remains v3; the stored profile marker identifies
+Rebuild index databases created with the v0.9.0 profile before using this
+version. The index layout remains v3; the stored profile marker identifies
 the key-generation rules. The server rejects databases and backups carrying
 the older marker.
 
@@ -114,7 +114,7 @@ the older marker.
   database using the new executable.
 - For native archive retrieval, reindex the original WARCs or WACZs into a fresh
   database to retain source mappings and record-ID lookup.
-- Rebuild full-text indexes against the new capture database.
+- Rebuild full-text indexes against the new index database.
 
 For zipnum, regenerate affected CDXJ keys from the original `url` and stored
 `method`/`requestBody`, sort the result, and build a new cluster. The builder

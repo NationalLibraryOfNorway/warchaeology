@@ -121,7 +121,7 @@ WARC_BINARY=/path/to/warc python integration/redupe_replay.py
 The script requires pywb 2.11.1 and warcio. It verifies original payloads and
 capture-specific HTTP headers after deleting the source WARC.
 
-The record-ID occurrence key now includes the source offset. The capture database
-format version was bumped accordingly: existing v1 capture databases must be
+The record-ID occurrence key now includes the source offset. The index database
+format version was bumped accordingly: existing v1 index databases must be
 reindexed into a new database. This prevents old indexes from silently concealing
 multiple occurrences of an ID within one file.

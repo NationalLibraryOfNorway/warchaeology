@@ -3,7 +3,7 @@ title: "warc serve compact"
 ---
 ## warc serve compact
 
-Reclaim capture database storage offline
+Reclaim index database storage offline
 
 ```
 warc serve compact DIRECTORY [flags]
@@ -26,4 +26,4 @@ warc serve compact DIRECTORY [flags]
 
 ### SEE ALSO
 
-* [warc serve](warc_serve.md)     - Serve a capture database or immutable zipnum cluster
+* [warc serve](warc_serve.md)     - Serve an index database or immutable zipnum cluster

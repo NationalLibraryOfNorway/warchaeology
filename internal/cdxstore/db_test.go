@@ -35,7 +35,7 @@ func TestRejectPreviousCanonicalizationProfile(t *testing.T) {
 		if db != nil {
 			_ = db.Close()
 		}
-		if err == nil || !strings.Contains(err.Error(), "incompatible capture database") {
+		if err == nil || !strings.Contains(err.Error(), "incompatible index database") {
 			t.Fatalf("read-only=%v: expected profile rejection, got %v", readOnly, err)
 		}
 	}

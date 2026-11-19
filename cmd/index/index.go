@@ -140,7 +140,7 @@ func (o *IndexOptions) Run(ctx context.Context) error {
 	if o.Fulltext {
 		db, ok := o.Sink.(*cdxstore.DB)
 		if !ok || db.IndexOnly() {
-			return errors.New("fulltext requires a native capture database")
+			return errors.New("fulltext requires a native index database")
 		}
 	}
 	ctx, cancel := context.WithCancel(ctx)

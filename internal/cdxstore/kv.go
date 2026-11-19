@@ -33,7 +33,7 @@ func openKV(ctx context.Context, o Options) (kv, error) {
 	if o.Format == badgerFormat {
 		for _, legacy := range []string{"cdx-index", "id-index"} {
 			if _, e := os.Stat(filepath.Join(o.Dir, legacy)); e == nil {
-				return nil, fmt.Errorf("legacy capture database; reindex into a new directory")
+				return nil, fmt.Errorf("legacy index database; reindex into a new directory")
 			}
 		}
 	}

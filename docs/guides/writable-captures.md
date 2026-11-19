@@ -128,7 +128,7 @@ the benchmark records maintenance peaks separately from final allocation.
 
 ## Layout upgrades and workload boundaries
 
-To upgrade a v1/v2 capture database, export CDXJ with the old executable and
+To upgrade a v1/v2 index database, export CDXJ with the old executable and
 import into a fresh v3 collection. Verify capture counts and queries before
 retiring the old executable and database directory. To preserve native retrieval
 and record-ID occurrences, reindex the original WARCs into a fresh full database.
@@ -137,7 +137,7 @@ The shared codec uses versioned protobuf envelopes, binary algorithm-tagged
 digests, compact UUIDs with a lossless URI fallback, nanosecond protobuf timestamps
 and 64-bit lengths/offsets. Ordered SURTs remain in capture keys. Record-ID
 indexes reference captures instead of duplicating them. Native source cleanup
-uses source-specific references. Capture storage uses Badger v4.3.1. Storage
+uses source-specific references. Index storage uses Badger v4.3.1. Storage
 benchmarks and their configurations are available in `benchmarks/cdxstorage`.
 
 Dedup donor indexes have a separate v2 marker. Rebuild legacy donor indexes in

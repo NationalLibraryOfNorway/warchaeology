@@ -15,7 +15,7 @@ named `warc`.
 | Convert ARC, NEDLIB, or WARC inputs | `warc convert` | [Conversion options](./reference/cli/warc_convert.md) |
 | Deduplicate payloads | `warc dedup` | [Deduplication options](./reference/cli/warc_dedup.md) |
 | Rebuild independently replayable yearly collections | `warc redupe` | [Yearly preservation guide](./guides/redupe.md) |
-| Export CDXJ or populate a capture database | `warc index` | [Capture indexing guide](./guides/capture-indexes.md) |
+| Export CDXJ or populate an index database | `warc index` | [Capture indexing guide](./guides/capture-indexes.md) |
 | Build immutable indexes and serve capture queries | `warc zipnum`, `warc serve` | [Zipnum and serving](./guides/capture-indexes.md#immutable-zipnum-clusters) |
 
 ## Rebuild yearly collections
@@ -49,7 +49,7 @@ indexes are generated separately with `warc index`; they do not replace WARCs.
 - [Read directory, archive, and FTP inputs](./guides/archive-inputs.md).
 - [Configure flags, environment variables, and YAML](./guides/configuration.md).
 - [Run hooks around file handling](./guides/hooks.md).
-- [Check migration requirements](./guides/upgrading.md), including capture database reindexing.
+- [Check migration requirements](./guides/upgrading.md), including index database reindexing.
 - [Contribute to the project](./contributing.md).
 
 Run `warc help` or `warc COMMAND --help` for command-specific options.

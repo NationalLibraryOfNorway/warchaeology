@@ -54,13 +54,13 @@ func Open(ctx context.Context, o Options) (*DB, error) {
 			return fail(e)
 		}
 		if nonempty || o.ReadOnly {
-			return fail(fmt.Errorf("unversioned capture database; reindex into a new database"))
+			return fail(fmt.Errorf("unversioned index database; reindex into a new database"))
 		}
 		if e = k.Put(ctx, "!format", []byte(formatVersion)); e != nil {
 			return fail(e)
 		}
 	} else if string(v) != formatVersion {
-		return fail(fmt.Errorf("incompatible capture database; reindex with this version"))
+		return fail(fmt.Errorf("incompatible index database; reindex with this version"))
 	}
 	mode, e := k.Get(ctx, "!capabilities")
 	if e != nil {

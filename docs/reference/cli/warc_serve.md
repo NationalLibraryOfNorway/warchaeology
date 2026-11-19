@@ -3,7 +3,7 @@ title: "warc serve"
 ---
 ## warc serve
 
-Serve a capture database or immutable zipnum cluster
+Serve an index database or immutable zipnum cluster
 
 ```
 warc serve [FILE/DIR...] [flags]
@@ -92,6 +92,6 @@ warc serve [FILE/DIR...] [flags]
 ### SEE ALSO
 
 * [warc](warc.md)     - A tool for handling warc files
-* [warc serve compact](warc_serve_compact.md)     - Reclaim capture database storage offline
-* [warc serve restore](warc_serve_restore.md)     - Restore a capture backup offline into a new directory
+* [warc serve compact](warc_serve_compact.md)     - Reclaim index database storage offline
+* [warc serve restore](warc_serve_restore.md)     - Restore an index database backup offline into a new directory
 

@@ -50,13 +50,13 @@ warc index reset --index-format badger --badger-dir ./captures
 ```
 
 Badger **v4** is the supported database backend and is used throughout
-warchaeology, including processing and deduplication indexes. Capture databases have a format/canonicalization marker;
+warchaeology, including processing and deduplication indexes. Index databases have a format/canonicalization marker;
 unversioned or incompatible stores are rejected with reindexing guidance.
-Rebuild existing capture stores in a new directory. Existing
+Rebuild existing index databases in a new directory. Existing
 Badger v3 processing/deduplication stores may also need rebuilding; retain the
 old directories until the new indexes have been verified.
 
-Capture databases store captures, source identity, metadata and reports.
+Index databases store capture entries, source identity, metadata and reports.
 Identity includes source and offset, so equal URL/timestamp
 captures from different files remain distinct. Each successful ingestion publishes
 a durable file-generation checkpoint. Interrupted generations stay hidden; a
@@ -187,7 +187,7 @@ narrow queries that avoid unrelated corrupt parts.
 ## Yearly preservation collections
 
 Use [`warc redupe`](redupe.md) to resolve source revisits and rebuild independently
-replayable UTC years before generating their CDXJ indexes. Capture databases now
+replayable UTC years before generating their CDXJ indexes. Index databases now
 use format v3 to retain every record-ID occurrence, including repeated IDs at
 different offsets within one source file. Reindex v1/v2 databases into a new directory.
 

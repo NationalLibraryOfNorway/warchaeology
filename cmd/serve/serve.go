@@ -39,7 +39,7 @@ func NewCmdServe() *cobra.Command {
 	flags := NewServeFlags()
 	cmd := &cobra.Command{
 		Use:               "serve [FILE/DIR...]",
-		Short:             "Serve a capture database or immutable zipnum cluster",
+		Short:             "Serve an index database or immutable zipnum cluster",
 		ValidArgsFunction: flag.SuffixCompletionFn,
 		RunE: func(cmd *cobra.Command, args []string) (err error) {
 			o, err := flags.ToOptions()
@@ -60,7 +60,7 @@ func NewCmdServe() *cobra.Command {
 		},
 	}
 	flags.AddFlags(cmd)
-	cmd.AddCommand(&cobra.Command{Use: "restore BACKUP NEW-DIRECTORY", Short: "Restore a capture backup offline into a new directory", Args: cobra.ExactArgs(2), RunE: func(cmd *cobra.Command, args []string) error {
+	cmd.AddCommand(&cobra.Command{Use: "restore BACKUP NEW-DIRECTORY", Short: "Restore an index database backup offline into a new directory", Args: cobra.ExactArgs(2), RunE: func(cmd *cobra.Command, args []string) error {
 		f, e := os.Open(args[0])
 		if e != nil {
 			return e
@@ -68,7 +68,7 @@ func NewCmdServe() *cobra.Command {
 		defer f.Close()
 		return cdxstore.Restore(cmd.Context(), args[1], f)
 	}})
-	cmd.AddCommand(&cobra.Command{Use: "compact DIRECTORY", Short: "Reclaim capture database storage offline", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) (err error) {
+	cmd.AddCommand(&cobra.Command{Use: "compact DIRECTORY", Short: "Reclaim index database storage offline", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) (err error) {
 		if _, e := os.Stat(args[0]); e != nil {
 			return e
 		}

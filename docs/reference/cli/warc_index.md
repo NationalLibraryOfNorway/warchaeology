@@ -81,5 +81,5 @@ warc index FILE/DIR... [flags]
 ### SEE ALSO
 
 * [warc](warc.md)     - A tool for handling warc files
-* [warc index reset](warc_index_reset.md)     - Reset the selected capture database
+* [warc index reset](warc_index_reset.md)     - Reset the selected index database
 
