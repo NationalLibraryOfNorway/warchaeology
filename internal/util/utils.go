@@ -9,7 +9,6 @@ import (
 	"strings"
 	"unicode"
 
-	"github.com/shirou/gopsutil/disk"
 	"github.com/spf13/cast"
 )
 
@@ -28,14 +27,6 @@ func CropString(s string, size int) string {
 func AbsInt64(n int64) int64 {
 	y := n >> 63
 	return (n ^ y) - y
-}
-
-func DiskFree(path string) (free int64, err error) {
-	s, err := disk.Usage(path)
-	if err != nil {
-		return 0, err
-	}
-	return int64(s.Free), nil
 }
 
 // ParseSizeInBytes converts strings like 1GB or 12 mb into an unsigned integer number of bytes
