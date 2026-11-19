@@ -11,6 +11,7 @@ import (
 
 	"github.com/nationallibraryofnorway/gowarc/v3"
 	"github.com/nationallibraryofnorway/warchaeology/v5/cmd/internal/flag"
+	"github.com/nationallibraryofnorway/warchaeology/v5/internal/testcheck"
 	"github.com/spf13/afero"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -34,7 +35,7 @@ func TestARCWarcinfoVersion(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer opts.Close()
+	defer testcheck.Close(t, opts)
 	input := filepath.Join(testDataDir, "arc", "ARC-SAMPLE-20060928223931-00000-gojoblack.arc.gz")
 	if _, err := opts.handleFile(afero.NewOsFs(), input); err != nil {
 		t.Fatal(err)
@@ -47,12 +48,12 @@ func TestARCWarcinfoVersion(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer r.Close()
+	defer testcheck.Close(t, r)
 	rec, err := r.Next()
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer rec.Close()
+	defer testcheck.Close(t, rec)
 	if rec.WarcRecord.Type() != gowarc.Warcinfo {
 		t.Fatalf("first record = %v", rec.WarcRecord.Type())
 	}

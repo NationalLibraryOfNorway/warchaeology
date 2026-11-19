@@ -22,6 +22,7 @@ import (
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/cdxstore"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/index"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/server/archiveapi"
+	"github.com/nationallibraryofnorway/warchaeology/v5/internal/testcheck"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/zipnum"
 	"github.com/spf13/viper"
 )
@@ -227,7 +228,7 @@ func TestDedupPublicationFailureLeavesIndexesUncommitted(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			defer files.Close()
+			defer testcheck.Close(t, files)
 			for _, key := range []string{source, filepath.Clean(source)} {
 				if cached, err := files.GetFileStats(key); err != nil || cached != nil {
 					t.Fatalf("file cached after failed publication: %v, %v", cached, err)
@@ -315,7 +316,7 @@ func TestIndexDirRoot(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer db.Close()
+	defer testcheck.Close(t, db)
 	archives := archiveapi.New(db, 100, 100)
 	get := func(handler http.Handler, path string) []byte {
 		t.Helper()
@@ -424,9 +425,7 @@ func zipWithMembers(t *testing.T, members map[string][]byte) []byte {
 			t.Fatal(err)
 		}
 	}
-	if err := w.Close(); err != nil {
-		t.Fatal(err)
-	}
+	testcheck.Close(t, w)
 	return data.Bytes()
 }
 func TestWACZStagingDuplicates(t *testing.T) {
@@ -475,11 +474,7 @@ func TestWACZStagingDuplicates(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer func() {
-		if err := db.Close(); err != nil {
-			t.Error(err)
-		}
-	}()
+	defer testcheck.Close(t, db)
 	var exported bytes.Buffer
 	if err = db.Export(t.Context(), &exported); err != nil || strings.Count(exported.String(), "first") != 1 || strings.Contains(exported.String(), "second") {
 		t.Fatal(err, exported.String())
@@ -499,9 +494,7 @@ func TestFulltextRejectsBeforeIngestion(t *testing.T) {
 	if err = db.Export(t.Context(), &before); err != nil {
 		t.Fatal(err)
 	}
-	if err := db.Close(); err != nil {
-		t.Fatal(err)
-	}
+	testcheck.Close(t, db)
 	if err = executeCaptureCommand(t, "index", "--fulltext", "--index-format=badger", "--index-dir", opts.Dir, "../testdata/warc/convert.warc"); err == nil {
 		t.Fatal("accepted index-only database")
 	}
@@ -509,11 +502,7 @@ func TestFulltextRejectsBeforeIngestion(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer func() {
-		if err := db.Close(); err != nil {
-			t.Error(err)
-		}
-	}()
+	defer testcheck.Close(t, db)
 	if err = db.Export(t.Context(), &after); err != nil || after.String() != before.String() {
 		t.Fatal(err, after.String())
 	}

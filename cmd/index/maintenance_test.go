@@ -15,6 +15,7 @@ import (
 
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/cdxstore"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/fulltext"
+	"github.com/nationallibraryofnorway/warchaeology/v5/internal/testcheck"
 )
 
 func TestOfflineMaintenance(t *testing.T) {
@@ -75,7 +76,7 @@ func TestOfflineMaintenance(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer restoredDB.Close()
+	defer testcheck.Close(t, restoredDB)
 	var after bytes.Buffer
 	if err := restoredDB.Export(t.Context(), &after); err != nil {
 		t.Fatal(err)
@@ -134,7 +135,7 @@ func TestFulltextBackup(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer text.Close()
+	defer testcheck.Close(t, text)
 	result, err := text.Search(t.Context(), fulltext.Request{Query: "northern"})
 	if err != nil || result.Total != 1 {
 		t.Fatalf("restored search: %v %v", result, err)

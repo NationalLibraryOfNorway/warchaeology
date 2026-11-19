@@ -10,7 +10,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"github.com/nationallibraryofnorway/warchaeology/v5/internal/hooks"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -20,7 +19,9 @@ import (
 
 	cdx "github.com/nationallibraryofnorway/warchaeology/v5/internal/cdx"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/cdxstore"
+	"github.com/nationallibraryofnorway/warchaeology/v5/internal/hooks"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/loader"
+	"github.com/nationallibraryofnorway/warchaeology/v5/internal/testcheck"
 )
 
 func TestWACZImportAndRetrieve(t *testing.T) {
@@ -57,9 +58,9 @@ func TestWACZImportAndRetrieve(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	defer db.Close()
+	defer testcheck.Close(t, db)
 	o := options(db, name)
-	defer o.Close()
+	defer testcheck.Close(t, o)
 	if e = o.Run(context.Background()); e != nil {
 		t.Fatal(e)
 	}
@@ -80,7 +81,7 @@ func TestWACZImportAndRetrieve(t *testing.T) {
 		t.Fatalf("captures=%d error=%v", n, e)
 	}
 	o2 := options(db, name)
-	defer o2.Close()
+	defer testcheck.Close(t, o2)
 	if e = o2.Run(t.Context()); e != nil {
 		t.Fatal(e)
 	}
@@ -143,9 +144,9 @@ func TestWACZIndexModes(t *testing.T) {
 			if e != nil {
 				t.Fatal(e)
 			}
-			defer db.Close()
+			defer testcheck.Close(t, db)
 			o := options(db, name)
-			defer o.Close()
+			defer testcheck.Close(t, o)
 			if mode == "native" {
 				o.WaczIndex = "warc"
 			}
@@ -171,7 +172,7 @@ func TestWACZMemberPublicationAndEmptyReplacement(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			defer db.Close()
+			defer testcheck.Close(t, db)
 			for _, both := range []bool{true, false} {
 				const other = "second.warc"
 				entries := map[string][]byte{
@@ -208,6 +209,39 @@ func TestWACZMemberPublicationAndEmptyReplacement(t *testing.T) {
 	}
 }
 
+func TestWACZPreservesStoredPOSTKey(t *testing.T) {
+	f := fixtures(t)[0]
+	indexLine, _, _ := strings.Cut(f.Cdxj, "\n")
+	_, fields, _ := strings.Cut(indexLine, " ")
+	const key = "org,example)/form?__wb_method=post&field=value"
+	wacz := filepath.Join(t.TempDir(), "post.wacz")
+	if err := os.WriteFile(wacz, packageBytes(t, map[string][]byte{
+		"archive/" + f.Name:  f.Warc,
+		"indexes/index.cdxj": []byte(key + " " + fields + "\n"),
+	}), 0600); err != nil {
+		t.Fatal(err)
+	}
+	db, err := cdxstore.Open(t.Context(), cdxstore.Options{Format: "badger", Dir: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer testcheck.Close(t, db)
+	if err := runPackage(t, db, wacz); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Scan(t.Context(), "", "", func(c *cdx.Capture) error {
+		if c.GetSsu() != key {
+			t.Errorf("got key %q, want %q", c.GetSsu(), key)
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if count := captureCount(t, db); count != 1 {
+		t.Fatalf("got %d captures, want one", count)
+	}
+}
+
 func TestContinuePastInvalidWACZ(t *testing.T) {
 	dir := t.TempDir()
 	bad := filepath.Join(dir, "a.wacz")
@@ -223,9 +257,9 @@ func TestContinuePastInvalidWACZ(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer sink.Close()
+	defer testcheck.Close(t, sink)
 	o := options(sink, dir)
-	defer o.Close()
+	defer testcheck.Close(t, o)
 	o.ContinueOnError = true
 	if err := o.Run(t.Context()); !errors.Is(err, zip.ErrFormat) {
 		t.Fatalf("expected package error, got %v", err)
@@ -261,9 +295,9 @@ func TestWACZInputHooks(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			defer sink.Close()
+			defer testcheck.Close(t, sink)
 			o := options(sink, name)
-			defer o.Close()
+			defer testcheck.Close(t, o)
 			if tc.name == "excluded" {
 				o.FileWalker.Suffixes = []string{".warc.gz"}
 			}
@@ -288,38 +322,5 @@ func TestWACZInputHooks(t *testing.T) {
 				t.Fatalf("unexpected close hook: %q, %v", closed, err)
 			}
 		})
-	}
-}
-
-func TestWACZPreservesStoredPOSTKey(t *testing.T) {
-	f := fixtures(t)[0]
-	indexLine, _, _ := strings.Cut(f.Cdxj, "\n")
-	_, fields, _ := strings.Cut(indexLine, " ")
-	const key = "org,example)/form?__wb_method=post&field=value"
-	wacz := filepath.Join(t.TempDir(), "post.wacz")
-	if err := os.WriteFile(wacz, packageBytes(t, map[string][]byte{
-		"archive/" + f.Name:  f.Warc,
-		"indexes/index.cdxj": []byte(key + " " + fields + "\n"),
-	}), 0600); err != nil {
-		t.Fatal(err)
-	}
-	db, err := cdxstore.Open(t.Context(), cdxstore.Options{Format: "badger", Dir: t.TempDir()})
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer db.Close()
-	if err := runPackage(t, db, wacz); err != nil {
-		t.Fatal(err)
-	}
-	if err := db.Scan(t.Context(), "", "", func(c *cdx.Capture) error {
-		if c.GetSsu() != key {
-			t.Errorf("got key %q, want %q", c.GetSsu(), key)
-		}
-		return nil
-	}); err != nil {
-		t.Fatal(err)
-	}
-	if count := captureCount(t, db); count != 1 {
-		t.Fatalf("got %d captures, want one", count)
 	}
 }

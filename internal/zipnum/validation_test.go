@@ -551,8 +551,8 @@ func readTestBlock(path string, block blockIndex) (recordBounds, error) {
 	if err != nil {
 		return recordBounds{}, err
 	}
-	defer f.Close()
-	return readBlockBounds(f, block, verifiedBlockBounds)
+	bounds, err := readBlockBounds(f, block, verifiedBlockBounds)
+	return bounds, errors.Join(err, f.Close())
 }
 
 func TestMissingLiteralPreventsPublication(t *testing.T) {

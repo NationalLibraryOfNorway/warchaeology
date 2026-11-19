@@ -13,6 +13,7 @@ import (
 	"testing"
 
 	archivefs "github.com/nationallibraryofnorway/warchaeology/v5/internal/fs"
+	"github.com/nationallibraryofnorway/warchaeology/v5/internal/testcheck"
 	"github.com/spf13/afero"
 )
 
@@ -61,7 +62,7 @@ func TestNestedMountSurvivesTraversal(t *testing.T) {
 		t.Fatal(err)
 	}
 	w := New(WithFs(fs), WithRecursive(true), WithSuffixes([]string{".warc"}))
-	defer w.Close()
+	defer testcheck.Close(t, w)
 	var consume func()
 	if err := w.Walk(context.Background(), "outer.zip", func(mounted afero.Fs, name string, err error) error {
 		if err != nil {
@@ -81,9 +82,6 @@ func TestNestedMountSurvivesTraversal(t *testing.T) {
 		t.Fatal("no record found")
 	}
 	consume()
-	if err := w.Close(); err != nil {
-		t.Fatal(err)
-	}
 }
 func TestMountErrorsReachCallback(t *testing.T) {
 	fs := afero.NewMemMapFs()
@@ -91,7 +89,7 @@ func TestMountErrorsReachCallback(t *testing.T) {
 		t.Fatal(err)
 	}
 	w := New(WithFs(fs), WithSuffixes([]string{".warc"}))
-	defer w.Close()
+	defer testcheck.Close(t, w)
 	sentinel := errors.New("callback error")
 	called := false
 	err := w.Walk(context.Background(), "bad.zip", func(_ afero.Fs, _ string, err error) error {
@@ -118,7 +116,7 @@ func TestExplicitArchiveMember(t *testing.T) {
 		t.Fatal(err)
 	}
 	walker := New(WithFs(mounted), WithSuffixes([]string{".warc"}))
-	defer walker.Close()
+	defer testcheck.Close(t, walker)
 	count := 0
 	err = walker.Walk(t.Context(), "/archive/record.warc", func(_ afero.Fs, path string, err error) error {
 		if err != nil {

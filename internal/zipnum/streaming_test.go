@@ -17,6 +17,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/nationallibraryofnorway/warchaeology/v5/internal/testcheck"
 )
 
 func TestPartitionBackpressure(t *testing.T) {
@@ -187,7 +189,7 @@ func TestFileCursorAdvancesAndCloses(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer c.Close()
+	defer testcheck.Close(t, c)
 	first := c.input.(*os.File)
 	if got := string(c.Pop()); got != "com,a)/ 1 {}\n" {
 		t.Fatalf("first record: %q", got)
@@ -297,7 +299,7 @@ func TestAddWritesBeforeInputEOF(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			defer cursor.Close()
+			defer testcheck.Close(t, cursor)
 			input := cursor.input.(*os.File)
 			info, err := input.Stat()
 			if err != nil {

@@ -11,6 +11,7 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/nationallibraryofnorway/warchaeology/v5/internal/testcheck"
 	"github.com/spf13/afero"
 )
 
@@ -50,7 +51,7 @@ func TestReadAtBoundsAndChecksum(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		defer f.Close()
+		defer testcheck.Close(t, f)
 		b := make([]byte, 6)
 		n, err := f.ReadAt(b, 0)
 		if corrupt {
@@ -134,7 +135,7 @@ func TestEmptyArchiveHasRoot(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer root.Close()
+	defer testcheck.Close(t, root)
 	entries, err := root.Readdir(-1)
 	if err != nil || len(entries) != 0 {
 		t.Fatalf("empty root = %v, %v", entries, err)
@@ -177,7 +178,7 @@ func TestStoredMemberLateReadIsBounded(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	defer f.Close()
+	defer testcheck.Close(t, f)
 	out := make([]byte, 4)
 	if _, e = f.ReadAt(out, int64(len(payload)-4)); e != nil {
 		t.Fatal(e)
@@ -216,7 +217,9 @@ func TestBrowsertrixChildCRCPlaceholder(t *testing.T) {
 			}
 			out := make([]byte, 6)
 			_, e = f.ReadAt(out, 0)
-			f.Close()
+			if err := f.Close(); err != nil {
+				t.Fatal(err)
+			}
 			if wacz && name == "child.wacz" {
 				if e != nil {
 					t.Fatal(e)

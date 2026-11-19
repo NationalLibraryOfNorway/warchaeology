@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/fulltext"
+	"github.com/nationallibraryofnorway/warchaeology/v5/internal/testcheck"
 )
 
 func TestSearchAndConsole(t *testing.T) {
@@ -20,7 +21,7 @@ func TestSearchAndConsole(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer idx.Close()
+	defer testcheck.Close(t, idx)
 	if err := idx.Publish(context.Background(), []fulltext.Document{{
 		ID:        "one",
 		URL:       "https://example.org",

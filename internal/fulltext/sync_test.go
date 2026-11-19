@@ -14,6 +14,7 @@ import (
 
 	cdx "github.com/nationallibraryofnorway/warchaeology/v5/internal/cdx"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/cdxstore"
+	"github.com/nationallibraryofnorway/warchaeology/v5/internal/testcheck"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
@@ -24,7 +25,7 @@ func TestSyncVisibilityReplacementDeletionAndReopen(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer db.Close()
+	defer testcheck.Close(t, db)
 	path := filepath.Join(dir, "text.warc")
 	uri := "https://example.org/"
 	publish := func(text string) {
@@ -106,7 +107,7 @@ func TestSyncVisibilityReplacementDeletionAndReopen(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer idx.Close()
+	defer testcheck.Close(t, idx)
 	syncer = &Synchronizer{Index: idx, DB: db}
 	if err = syncer.Sync(ctx, false); err != nil {
 		t.Fatal(err)
@@ -129,7 +130,7 @@ func TestPhraseAndTimelineCoverAllMatches(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer idx.Close()
+	defer testcheck.Close(t, idx)
 	start := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	var docs []Document
 	for n := range 60 {

@@ -14,6 +14,7 @@ import (
 	"testing"
 
 	index "github.com/nationallibraryofnorway/warchaeology/v5/internal/cdx"
+	"github.com/nationallibraryofnorway/warchaeology/v5/internal/testcheck"
 )
 
 func TestQueryReader(t *testing.T) {
@@ -37,7 +38,7 @@ func TestQueryReader(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	defer r.Close()
+	defer testcheck.Close(t, r)
 	queries := []map[string][]string{{"url": {"example.com"}}, {"url": {"example.com"}, "matchType": {"domain"}}, {"url": {"example.com"}, "from": {"20200105"}, "to": {"20200108"}}, {"url": {"example.com"}, "sort": {"reverse"}, "limit": {"3"}}, {"url": {"example.com"}, "sort": {"closest"}, "closest": {"20200107000000"}, "limit": {"4"}}, {"url": {"absent.net"}}}
 	for _, v := range queries {
 		q, e := index.ParseQuery(v)
@@ -181,7 +182,7 @@ func TestQueryLongRowsAndSummaryKeys(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer reader.Close()
+	defer testcheck.Close(t, reader)
 	for _, k := range []string{key, neighbor} {
 		count := 0
 		err = reader.Scan(t.Context(), k+" ", k+"!", func(*index.Capture) error { count++; return nil })

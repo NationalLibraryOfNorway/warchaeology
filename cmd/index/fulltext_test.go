@@ -12,6 +12,7 @@ import (
 
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/cdxstore"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/fulltext"
+	"github.com/nationallibraryofnorway/warchaeology/v5/internal/testcheck"
 )
 
 func TestNestedInlineTextBackfillOnCachedPackage(t *testing.T) {
@@ -31,7 +32,7 @@ func TestNestedInlineTextBackfillOnCachedPackage(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer db.Close()
+	defer testcheck.Close(t, db)
 	if err = runPackage(t, db, path); err != nil {
 		t.Fatal(err)
 	}
@@ -39,7 +40,7 @@ func TestNestedInlineTextBackfillOnCachedPackage(t *testing.T) {
 	options := options(db, path)
 	options.Fulltext = true
 	options.TextDir = textDir
-	defer options.Close()
+	defer testcheck.Close(t, options)
 	if err = options.Run(t.Context()); err != nil {
 		t.Fatal(err)
 	}
@@ -47,7 +48,7 @@ func TestNestedInlineTextBackfillOnCachedPackage(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer idx.Close()
+	defer testcheck.Close(t, idx)
 	found, err := idx.Search(t.Context(), fulltext.Request{Query: "blåbær"})
 	if err != nil || found.Total != 1 {
 		t.Fatalf("inline text=%+v error=%v", found, err)

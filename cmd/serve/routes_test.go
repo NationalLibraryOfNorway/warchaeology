@@ -22,6 +22,7 @@ import (
 
 	cdx "github.com/nationallibraryofnorway/warchaeology/v5/internal/cdx"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/cdxstore"
+	"github.com/nationallibraryofnorway/warchaeology/v5/internal/testcheck"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
@@ -70,7 +71,7 @@ func TestRawReplayRequiresOptIn(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer db.Close()
+	defer testcheck.Close(t, db)
 	generation, err := db.BeginFile(ctx, source)
 	if err != nil {
 		t.Fatal(err)
@@ -124,9 +125,9 @@ func TestReplayRedirectToClosestCapture(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer db.Close()
+	defer testcheck.Close(t, db)
 	ingest := &indexcmd.IndexOptions{Paths: []string{source}, Sink: db, Concurrency: 1, FileWalker: filewalker.New(filewalker.WithFs(afero.NewOsFs()))}
-	defer ingest.Close()
+	defer testcheck.Close(t, ingest)
 	if err := ingest.Run(t.Context()); err != nil {
 		t.Fatal(err)
 	}
@@ -180,10 +181,10 @@ func TestShutdownDuringIngestion(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer db.Close()
+	defer testcheck.Close(t, db)
 	walker := filewalker.New(filewalker.WithFs(cancelOnStat{afero.NewMemMapFs(), cancel}))
 	opts := &indexcmd.IndexOptions{Paths: []string{"input.warc"}, FileWalker: walker, Sink: db, Concurrency: 1}
-	defer walker.Close()
+	defer testcheck.Close(t, walker)
 	if err := run(ctx, "127.0.0.1:0", http.NotFoundHandler(), opts); err != nil {
 		t.Fatal(err)
 	}
@@ -209,7 +210,7 @@ func TestNativeEscapedCaptures(t *testing.T) {
 		t.Fatal(err)
 	}
 	ingest := &indexcmd.IndexOptions{Paths: []string{source}, Sink: db, Concurrency: 1, FileWalker: filewalker.New(filewalker.WithFs(afero.NewOsFs()))}
-	defer ingest.Close()
+	defer testcheck.Close(t, ingest)
 	if err := ingest.Run(t.Context()); err != nil {
 		t.Fatal(err)
 	}
@@ -220,7 +221,7 @@ func TestNativeEscapedCaptures(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer db.Close()
+	defer testcheck.Close(t, db)
 	handler := (&ServeOptions{allowSameOriginReplay: true}).databaseHandler(t.Context(), db)
 	get := func(path string) string {
 		w := httptest.NewRecorder()

@@ -16,6 +16,7 @@ import (
 	"testing"
 
 	"github.com/klauspost/compress/gzip"
+	"github.com/nationallibraryofnorway/warchaeology/v5/internal/testcheck"
 	"github.com/spf13/afero"
 )
 
@@ -245,17 +246,16 @@ func TestFTPArchiveReleasesSourceBeforeConsumption(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer mounted.(io.Closer).Close()
-	if fs.closed != 1 {
-		t.Fatal("FTP pool slot retained by mounted archive")
-	}
-	data, err := afero.ReadFile(mounted, "/implicit/record.warc")
-	if err != nil || string(data) != "content" {
-		t.Fatalf("staged read = %q %v", data, err)
-	}
-	if err := mounted.(io.Closer).Close(); err != nil {
-		t.Fatal(err)
-	}
+	func() {
+		defer testcheck.Close(t, mounted.(io.Closer))
+		if fs.closed != 1 {
+			t.Fatal("FTP pool slot retained by mounted archive")
+		}
+		data, err := afero.ReadFile(mounted, "/implicit/record.warc")
+		if err != nil || string(data) != "content" {
+			t.Fatalf("staged read = %q %v", data, err)
+		}
+	}()
 	files, err := os.ReadDir(dir)
 	if err != nil || len(files) != 0 {
 		t.Fatalf("staging files after close = %v, %v", files, err)

@@ -12,6 +12,8 @@ import (
 	"strings"
 	"sync"
 	"testing"
+
+	"github.com/nationallibraryofnorway/warchaeology/v5/internal/testcheck"
 )
 
 const testLine = `wrong 20200102030405 {"url":"https://example.com/","offset":0,"length":100,"filename":"a.warc.gz","extra":9007199254740993}`
@@ -21,7 +23,7 @@ func TestCollectionHTTP(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	defer h.Close()
+	defer testcheck.Close(t, h)
 	request := func(method, path, body string) *httptest.ResponseRecorder {
 		t.Helper()
 		w := httptest.NewRecorder()
@@ -84,7 +86,7 @@ func TestConcurrentRetryAndDecodedLimit(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	defer h.Close()
+	defer testcheck.Close(t, h)
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, httptest.NewRequestWithContext(t.Context(), "PUT", "/collections/a", nil))
 	var wg sync.WaitGroup

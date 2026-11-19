@@ -11,6 +11,7 @@ import (
 
 	cdx "github.com/nationallibraryofnorway/warchaeology/v5/internal/cdx"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/cdxstore"
+	"github.com/nationallibraryofnorway/warchaeology/v5/internal/testcheck"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"github.com/julienschmidt/httprouter"
@@ -64,7 +65,7 @@ func TestRevisitOffsetSelectsUTCCapture(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer db.Close()
+	defer testcheck.Close(t, db)
 	const uri = "https://example.org/"
 	for _, date := range []string{"2019-12-31T23:30:00Z", "2020-01-01T00:30:00Z"} {
 		instant, err := time.Parse(time.RFC3339, date)

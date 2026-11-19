@@ -24,6 +24,7 @@ import (
 	"github.com/nationallibraryofnorway/gowarc/v3"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/filewalker"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/loader"
+	"github.com/nationallibraryofnorway/warchaeology/v5/internal/testcheck"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/warcwriterconfig"
 	"github.com/spf13/afero"
 )
@@ -115,7 +116,7 @@ func readManifest(t *testing.T, dir, y string) []manifestEntry {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer f.Close()
+	defer testcheck.Close(t, f)
 	var entries []manifestEntry
 	decoder := json.NewDecoder(f)
 	for {
@@ -390,7 +391,7 @@ func TestRetainContextRecordsAndResources(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		defer wr.Close()
+		defer testcheck.Close(t, wr)
 		records = append(records, wr)
 	}
 	records[2].WarcHeader().SetId(gowarc.WarcConcurrentTo, "urn:uuid:outside")
@@ -587,7 +588,7 @@ func TestReconstructionOwnershipAnd304(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer rebuilt.Close()
+	defer testcheck.Close(t, rebuilt)
 	if err := errors.Join(a.Close(), b.Close()); err != nil {
 		t.Fatal(err)
 	}
@@ -615,7 +616,7 @@ func TestReconstructionOwnershipAnd304(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer rec.Close()
+	defer testcheck.Close(t, rec)
 	if _, err := loader.ReconstructIdentical(rec, donor); err == nil {
 		t.Fatal("attached payload to 304 headers")
 	}

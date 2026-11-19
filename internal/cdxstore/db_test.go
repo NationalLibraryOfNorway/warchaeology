@@ -17,6 +17,7 @@ import (
 	index "github.com/nationallibraryofnorway/warchaeology/v5/internal/cdx"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/cdx/schema"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/server/api"
+	"github.com/nationallibraryofnorway/warchaeology/v5/internal/testcheck"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
@@ -181,7 +182,7 @@ func TestBackendContract(t *testing.T) {
 			if e != nil {
 				t.Fatal(e)
 			}
-			defer db.Close()
+			defer testcheck.Close(t, db)
 			if e = db.Delete(ctx); e != nil {
 				t.Fatal(e)
 			}
@@ -196,7 +197,7 @@ func TestSameFileIDOccurrences(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer db.Close()
+	defer testcheck.Close(t, db)
 	fileCtx, err := db.BeginFile(ctx, "source")
 	if err != nil {
 		t.Fatal(err)
@@ -235,7 +236,7 @@ func TestURIRecordIDIsExact(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	defer d.Close()
+	defer testcheck.Close(t, d)
 	for i, id := range []string{"https://records.example/id", "https://records.example/id/nested"} {
 		c := &index.Capture{Ssu: "com,example)/", Rid: id, Offset: int64(i), Sts: timestamppb.New(time.Now())}
 		if e = d.WriteCapture(ctx, c); e != nil {
@@ -277,7 +278,7 @@ func TestReindexSameOffsetPreservesCaptureCount(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer db.Close()
+	defer testcheck.Close(t, db)
 	const source = "source.warc"
 	for range 2 {
 		ctx, err := db.BeginFile(t.Context(), source)
@@ -365,9 +366,7 @@ func TestInterruptedResetRecovery(t *testing.T) {
 	}
 	opts.ReadOnly = true
 	if reader, err := Open(ctx, opts); err == nil {
-		if err := reader.Close(); err != nil {
-			t.Fatal(err)
-		}
+		testcheck.Close(t, reader)
 		t.Fatal("read-only open accepted incomplete reset")
 	}
 	opts.ReadOnly = false
@@ -375,7 +374,7 @@ func TestInterruptedResetRecovery(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer db.Close()
+	defer testcheck.Close(t, db)
 	if err = db.kv.Scan(ctx, "report/", "report0", func(string, []byte) error { return errors.New("report survived reset") }); err != nil {
 		t.Fatal(err)
 	}

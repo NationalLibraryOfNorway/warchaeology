@@ -22,6 +22,7 @@ import (
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/filewalker"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/loader"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/server/captures"
+	"github.com/nationallibraryofnorway/warchaeology/v5/internal/testcheck"
 )
 
 func packageBytes(t *testing.T, entries map[string][]byte) []byte {
@@ -59,7 +60,7 @@ func leafPackage(t *testing.T) []byte {
 func runPackage(t *testing.T, db *cdxstore.DB, name string) error {
 	t.Helper()
 	o := options(db, name)
-	defer o.Close()
+	defer testcheck.Close(t, o)
 	return o.Run(t.Context())
 }
 func captureCount(t *testing.T, db *cdxstore.DB) int {
@@ -107,7 +108,7 @@ func TestMultiWACZReopenManifestAndReplacement(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	defer db.Close()
+	defer testcheck.Close(t, db)
 	e = db.Scan(t.Context(), "", "", func(c *cdx.Capture) error {
 		var source filewalker.Source
 		if e := json.Unmarshal([]byte(c.GetSource()), &source); e != nil {
@@ -189,7 +190,7 @@ func TestMultiWACZManifestErrors(t *testing.T) {
 			if e != nil {
 				t.Fatal(e)
 			}
-			defer db.Close()
+			defer testcheck.Close(t, db)
 			if e = runPackage(t, db, name); e == nil {
 				t.Fatal("invalid manifest accepted")
 			}
@@ -213,7 +214,7 @@ func TestMultiWACZNestingLimit(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	defer db.Close()
+	defer testcheck.Close(t, db)
 	if e = runPackage(t, db, name); e == nil || !strings.Contains(e.Error(), "nesting exceeds") {
 		t.Fatalf("error=%v", e)
 	}
@@ -236,7 +237,7 @@ func TestFailedMultiWACZReplacementKeepsPublishedTree(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer db.Close()
+	defer testcheck.Close(t, db)
 	leaf := leafPackage(t)
 	write(leaf, leaf)
 	if err := runPackage(t, db, wacz); err != nil {

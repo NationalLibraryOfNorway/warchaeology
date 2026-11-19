@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/nationallibraryofnorway/warchaeology/v5/internal/testcheck"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/wacz"
 )
 
@@ -32,7 +33,7 @@ func TestDirectWACZRoutes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer reader.Close()
+	defer testcheck.Close(t, reader)
 	options := ServeOptions{}
 	handler := http.StripPrefix("/archive", options.directHandler(reader))
 	request := func(method, path, etag string) *httptest.ResponseRecorder {

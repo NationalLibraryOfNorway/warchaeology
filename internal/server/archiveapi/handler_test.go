@@ -21,6 +21,7 @@ import (
 	cdx "github.com/nationallibraryofnorway/warchaeology/v5/internal/cdx"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/cdxstore"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/filewalker"
+	"github.com/nationallibraryofnorway/warchaeology/v5/internal/testcheck"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
@@ -53,7 +54,7 @@ func TestVirtualArchiveRangeAndCDX(t *testing.T) {
 			if e != nil {
 				t.Fatal(e)
 			}
-			defer db.Close()
+			defer testcheck.Close(t, db)
 			generation, e := db.BeginFile(ctx, locator)
 			if e != nil {
 				t.Fatal(e)
@@ -168,7 +169,7 @@ func TestRangeVersionAfterCaptureDeletion(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer db.Close()
+	defer testcheck.Close(t, db)
 	generation, err := db.BeginFile(ctx, source)
 	if err != nil {
 		t.Fatal(err)
@@ -255,7 +256,7 @@ func TestSortedCDXRetainsGeneration(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer db.Close()
+	defer testcheck.Close(t, db)
 	source := filepath.Join(t.TempDir(), "sample.warc")
 	index := func(data string, offset int64) string {
 		if err := os.WriteFile(source, []byte(data), 0600); err != nil {
@@ -316,11 +317,7 @@ func TestArchiveScanLimitCountsUploads(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer func() {
-		if err := db.Close(); err != nil {
-			t.Error(err)
-		}
-	}()
+	defer testcheck.Close(t, db)
 	row := func(year int) string {
 		return fmt.Sprintf(`org,example)/ %d0101000000 {"url":"https://example.org/","filename":"file.warc","offset":"0","length":"1"}`, year)
 	}
@@ -348,9 +345,7 @@ func TestArchiveScanLimitCountsUploads(t *testing.T) {
 			w := httptest.NewRecorder()
 			New(db, limit, 10).ServeHTTP(w, httptest.NewRequestWithContext(ctx, "GET", "/archives/cdx?url=https://example.org/"+order, nil))
 			r := w.Result()
-			if err := r.Body.Close(); err != nil {
-				t.Fatal(err)
-			}
+			testcheck.Close(t, r.Body)
 			if r.StatusCode != 200 || r.Trailer.Get("X-Cdx-Scanned") != fmt.Sprint(limit) {
 				t.Fatal(order, r.StatusCode, r.Trailer)
 			}

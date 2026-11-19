@@ -53,28 +53,38 @@ func TestResizeAndFocus(t *testing.T) {
 	if !visible(viewFiles) || visible(viewRecordHeader) {
 		t.Fatal("expected compact file list")
 	}
-	a.cycleFocus(1)
+	if err := a.cycleFocus(1); err != nil {
+		t.Fatal(err)
+	}
 	layout(40, 10)
 	if !visible(viewRecords) || g.CurrentView().Name() != viewRecords {
 		t.Fatal("Tab should reveal Records")
 	}
-	a.OpenSearchModal(viewRecords)
+	if err := a.OpenSearchModal(viewRecords); err != nil {
+		t.Fatal(err)
+	}
 	layout(28, 8)
 	x, y, right, bottom := g.CurrentView().Dimensions()
 	if g.CurrentView().Name() != modalSearch || x < 0 || right >= 28 || y < 0 || bottom >= 8 {
 		t.Fatal("search does not fit")
 	}
-	a.CloseModal(g, nil)
+	if err := a.CloseModal(g, nil); err != nil {
+		t.Fatal(err)
+	}
 	layout(80, 24)
 	if g.CurrentView().Name() != viewRecords || !visible(viewRecordHeader) {
 		t.Fatal("split or focus lost after resize")
 	}
-	a.onToggleFullscreen(g, nil)
+	if err := a.onToggleFullscreen(g, nil); err != nil {
+		t.Fatal(err)
+	}
 	layout(80, 24)
 	if visible(viewRecordHeader) || !visible(viewRecords) {
 		t.Fatal("expected fullscreen records")
 	}
-	a.onToggleFullscreen(g, nil)
+	if err := a.onToggleFullscreen(g, nil); err != nil {
+		t.Fatal(err)
+	}
 	a.applyScan(a.generation, nil, errors.New("file disappeared"))
 	layout(80, 24)
 	a.SetCurView(viewRecordErrors)

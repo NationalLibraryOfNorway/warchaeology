@@ -15,6 +15,7 @@ import (
 
 	cdx "github.com/nationallibraryofnorway/warchaeology/v5/internal/cdx"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/storagecodec"
+	"github.com/nationallibraryofnorway/warchaeology/v5/internal/testcheck"
 )
 
 const uploadLine = `ignored 20200102030405 {"url":"https://example.com/","filename":"a.warc.gz","offset":"0","length":"100","custom":9007199254740993}`
@@ -96,7 +97,7 @@ func TestUploadLifecycle(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	defer restored.Close()
+	defer testcheck.Close(t, restored)
 	if exportTest(t, restored) != exportTest(t, d) {
 		t.Fatal("backup changed captures")
 	}
@@ -171,7 +172,7 @@ func TestInterruptedPublicationRecovery(t *testing.T) {
 			if e != nil {
 				t.Fatal(e)
 			}
-			defer d.Close()
+			defer testcheck.Close(t, d)
 			if (exportTest(t, d) != "") != published {
 				t.Fatal("wrong recovered visibility")
 			}
@@ -479,9 +480,7 @@ func TestRecordIDDuringPendingCleanup(t *testing.T) {
 		}
 	}
 	check()
-	if err := db.Close(); err != nil {
-		t.Fatal(err)
-	}
+	testcheck.Close(t, db)
 	for _, readOnly := range []bool{true, false} {
 		opts.ReadOnly = readOnly
 		db, err = Open(ctx, opts)
@@ -489,8 +488,6 @@ func TestRecordIDDuringPendingCleanup(t *testing.T) {
 			t.Fatal(err)
 		}
 		check()
-		if err := db.Close(); err != nil {
-			t.Fatal(err)
-		}
+		testcheck.Close(t, db)
 	}
 }

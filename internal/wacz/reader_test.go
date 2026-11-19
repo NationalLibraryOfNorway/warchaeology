@@ -15,6 +15,7 @@ import (
 	"testing"
 
 	cdx "github.com/nationallibraryofnorway/warchaeology/v5/internal/cdx"
+	"github.com/nationallibraryofnorway/warchaeology/v5/internal/testcheck"
 )
 
 func makePackage(t *testing.T, entries map[string][]byte) string {
@@ -92,7 +93,7 @@ func TestSeekAndMergeCaptureShards(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			defer reader.Close()
+			defer testcheck.Close(t, reader)
 			var offsets []int64
 			err = reader.Scan(t.Context(), "m ", "m!", func(c *cdx.Capture) error {
 				if c.GetSsu() != "m" || c.GetSource() != "archive/sample.warc" {
@@ -134,7 +135,7 @@ func TestInvalidPackagesAndCaptureRanges(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			defer reader.Close()
+			defer testcheck.Close(t, reader)
 			if err := reader.Scan(t.Context(), "m ", "m!", func(*cdx.Capture) error { t.Fatal("invalid row returned"); return nil }); err == nil {
 				t.Fatal("bad capture was accepted")
 			}

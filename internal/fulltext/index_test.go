@@ -7,6 +7,8 @@ import (
 	"context"
 	"path/filepath"
 	"testing"
+
+	"github.com/nationallibraryofnorway/warchaeology/v5/internal/testcheck"
 )
 
 func TestPublishSearchReopenAndDelete(t *testing.T) {
@@ -30,7 +32,7 @@ func TestPublishSearchReopenAndDelete(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer idx.Close()
+	defer testcheck.Close(t, idx)
 	r, err := idx.Search(ctx, Request{Query: "BLÅBÆR", Package: "two"})
 	if err != nil {
 		t.Fatal(err)
@@ -66,7 +68,7 @@ func TestReadOnlyExistingIndex(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer idx.Close()
+	defer testcheck.Close(t, idx)
 	result, err := idx.Search(t.Context(), Request{Query: "Senja"})
 	if err != nil || result.Total != 1 {
 		t.Fatalf("read-only search %+v %v", result, err)

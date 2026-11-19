@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/stat"
+	"github.com/nationallibraryofnorway/warchaeology/v5/internal/testcheck"
 )
 
 func TestFileIndex_SaveAndGetFileStats(t *testing.T) {
@@ -14,7 +15,7 @@ func TestFileIndex_SaveAndGetFileStats(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer idx.Close()
+	defer testcheck.Close(t, idx)
 
 	result := stat.NewResult("a.warc")
 	result.IncrRecords()
@@ -42,7 +43,7 @@ func TestFileIndex_GetMissingFileStats(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer idx.Close()
+	defer testcheck.Close(t, idx)
 
 	got, err := idx.GetFileStats("missing.warc")
 	if err != nil {

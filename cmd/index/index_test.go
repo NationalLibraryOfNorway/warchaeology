@@ -23,6 +23,7 @@ import (
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/filewalker"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/filter"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/loader"
+	"github.com/nationallibraryofnorway/warchaeology/v5/internal/testcheck"
 	"github.com/spf13/afero"
 )
 
@@ -94,10 +95,10 @@ func TestPinnedCDXJ(t *testing.T) {
 			if e != nil {
 				t.Fatal(e)
 			}
-			defer sink.Close()
+			defer testcheck.Close(t, sink)
 			o := options(sink, path)
 			o.PostAppend = f.Post
-			defer o.Close()
+			defer testcheck.Close(t, o)
 			if e = o.Run(context.Background()); e != nil {
 				t.Fatal(e)
 			}
@@ -167,7 +168,7 @@ func TestIngestionErrors(t *testing.T) {
 				t.Fatal(e)
 			}
 			o := options(failingSink{sentinel, flush}, p)
-			defer o.Close()
+			defer testcheck.Close(t, o)
 			if e := o.Run(context.Background()); !errors.Is(e, sentinel) {
 				t.Fatalf("got %v", e)
 			}
@@ -197,7 +198,7 @@ func TestArchiveSourceRetrieval(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	defer db.Close()
+	defer testcheck.Close(t, db)
 	o := options(db, archive)
 	o.FileWalker.Recursive = true
 	if e = o.Run(t.Context()); e != nil {
@@ -223,7 +224,7 @@ func TestArchiveSourceRetrieval(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	defer rec.Close()
+	defer testcheck.Close(t, rec)
 	r, e := rec.Block().(gowarc.PayloadBlock).PayloadBytes()
 	if e != nil {
 		t.Fatal(e)
@@ -270,7 +271,7 @@ func TestInflatedMemberReusesPrefix(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		defer cache.Close()
+		defer testcheck.Close(t, cache)
 		m := inflatedMember{source: source, ctx: t.Context(), cache: cache}
 		var b [7]byte
 		for i := 0; i < n; i++ {

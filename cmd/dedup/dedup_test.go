@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/index"
+	"github.com/nationallibraryofnorway/warchaeology/v5/internal/testcheck"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/warcwriterconfig"
 	"github.com/spf13/afero"
 )
@@ -53,7 +54,7 @@ func TestConvertArcFile(t *testing.T) {
 				WarcWriterConfig: warcWriterConfig,
 				DigestIndex:      digestIndex,
 			}
-			defer o.Close()
+			defer testcheck.Close(t, o)
 
 			result, err := o.handleFile(afero.NewOsFs(), filename)
 			if err != nil {

@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/nationallibraryofnorway/gowarc/v3"
+	"github.com/nationallibraryofnorway/warchaeology/v5/internal/testcheck"
 )
 
 func TestDonorFailureAndConcurrentRegistration(t *testing.T) {
@@ -17,7 +18,7 @@ func TestDonorFailureAndConcurrentRegistration(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	defer idx.Close()
+	defer testcheck.Close(t, idx)
 	ref := &gowarc.RevisitRef{
 		Profile:        gowarc.ProfileIdenticalPayloadDigestV1_1,
 		TargetRecordId: "https://example.com/record/1",
@@ -88,7 +89,7 @@ func TestFileDonorVisibility(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer idx.Close()
+	defer testcheck.Close(t, idx)
 	first, second := idx.NewFileDonors(), idx.NewFileDonors()
 	write := func(file *FileDonors, id, want string) {
 		t.Helper()

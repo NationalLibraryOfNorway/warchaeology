@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/nationallibraryofnorway/gowarc/v3"
+	"github.com/nationallibraryofnorway/warchaeology/v5/internal/testcheck"
 )
 
 func TestHostnamePreservesURI(t *testing.T) {
@@ -18,7 +19,7 @@ func TestHostnamePreservesURI(t *testing.T) {
 	} {
 		t.Run(tt.uri, func(t *testing.T) {
 			rec := newTestRecord(t, gowarc.Resource, tt.uri, "text/plain")
-			defer rec.Close()
+			defer testcheck.Close(t, rec)
 			if got := Hostname(rec); got != tt.host {
 				t.Errorf("hostname = %q, want %q", got, tt.host)
 			}
@@ -39,7 +40,7 @@ func TestRequestMIMEType(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer rec.Close()
+	defer testcheck.Close(t, rec)
 	if got := MIMEType(rec); got != "application/json" {
 		t.Fatalf("MIME type = %q", got)
 	}

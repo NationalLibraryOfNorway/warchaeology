@@ -12,6 +12,8 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/nationallibraryofnorway/warchaeology/v5/internal/testcheck"
 )
 
 // benchmarkCluster creates fixtures a part at a time to keep setup memory bounded.
@@ -133,7 +135,7 @@ func BenchmarkBlockBoundaries(b *testing.B) {
 	if err != nil {
 		b.Fatal(err)
 	}
-	defer f.Close()
+	defer testcheck.Close(b, f)
 	for _, tc := range []struct {
 		name string
 		mode blockReadMode
