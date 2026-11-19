@@ -11,11 +11,14 @@ import (
 	"encoding/base32"
 	"encoding/base64"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"hash"
 	"io"
 	"strings"
 )
+
+var ErrRead = errors.New("cannot read complete record")
 
 func Parse(label string) (string, []byte, error) {
 	algorithm, encoded, ok := strings.Cut(label, ":")
@@ -23,6 +26,9 @@ func Parse(label string) (string, []byte, error) {
 		return "", nil, fmt.Errorf("invalid digest %q", label)
 	}
 	algorithm = strings.ToLower(algorithm)
+	if strings.HasPrefix(algorithm, "sha-") {
+		algorithm = "sha" + algorithm[4:]
+	}
 	var size int
 	switch algorithm {
 	case "md5":
@@ -45,6 +51,9 @@ func Parse(label string) (string, []byte, error) {
 		return algorithm, b, nil
 	}
 	if b, err := base64.StdEncoding.DecodeString(encoded); err == nil && len(b) == size {
+		return algorithm, b, nil
+	}
+	if b, err := base64.RawStdEncoding.DecodeString(encoded); err == nil && len(b) == size {
 		return algorithm, b, nil
 	}
 	return "", nil, fmt.Errorf("invalid digest encoding %q", label)
@@ -76,7 +85,7 @@ func Verify(label string, r io.Reader) error {
 		h = sha512.New()
 	}
 	if _, err = io.Copy(h, r); err != nil {
-		return err
+		return errors.Join(ErrRead, err)
 	}
 	if string(h.Sum(nil)) != string(expected) {
 		return fmt.Errorf("digest mismatch: %s", label)
