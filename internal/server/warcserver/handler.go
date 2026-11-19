@@ -15,6 +15,7 @@ import (
 	"github.com/julienschmidt/httprouter"
 	"github.com/nationallibraryofnorway/gowarc/v3"
 	index "github.com/nationallibraryofnorway/warchaeology/v5/internal/cdx"
+	"github.com/nationallibraryofnorway/warchaeology/v5/internal/cdxstore"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/loader"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/server/api"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/server/handlers"
@@ -111,39 +112,6 @@ func (h Handler) index(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// resolveRevisit resolves a revisit record by looking up the closest matching target URI and date
-func (h Handler) resolveRevisit(ctx context.Context, targetURI string, date string) (string, error) {
-	target, err := time.Parse(time.RFC3339Nano, date)
-	if err != nil {
-		return "", fmt.Errorf("invalid WARC-Refers-To-Date: %w", err)
-	}
-	closest := timestamp.Format14(target)
-	closestReq, err := parseClosest(targetURI, closest)
-	if err != nil {
-		return "", fmt.Errorf("failed to parse WARC-Refers-To-Target-URI: %s: %w", targetURI, err)
-	}
-
-	response := make(chan index.CdxResponse)
-	err = h.Index.Search(ctx, closestReq, response)
-	if err != nil {
-		return "", fmt.Errorf("failed to get closest match: %s %s: %w", targetURI, closest, err)
-	}
-
-	// we are looking for the record's storage ref
-	var ref string
-
-	for res := range response {
-		if res.GetError() != nil {
-			slog.Warn("Error when iterating response of closest search", "uri", targetURI, "closest", closest, "error", res.GetError())
-			continue
-		}
-		ref = res.GetCdx().GetRef()
-		break
-	}
-
-	return ref, nil
-}
-
 func (h Handler) resource(w http.ResponseWriter, r *http.Request) {
 	uri, closest := parseResourceRequest(r)
 
@@ -197,31 +165,18 @@ func (h Handler) resource(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 	defer cancel()
 
-	ref := res.GetCdx().GetRef()
-
-	// load warc record by storage ref
-	var warcRecord gowarc.WarcRecord
-	retry := true
-	for warcRecord == nil {
-		warcRecord, err = h.Loader.RecordByStorageRef(ctx, ref)
-		var errResolveRevisit loader.ResolveRevisitError
-		if errors.As(err, &errResolveRevisit) && retry {
-			ref, err = h.resolveRevisit(ctx, errResolveRevisit.TargetURI, errResolveRevisit.Date)
-			retry = false
-		}
+	capture := res.GetCdx()
+	warcRecord, err := h.Loader.RecordByStorageRef(loader.WithCapture(ctx, capture), capture.GetRef())
+	if err != nil {
+		status := http.StatusInternalServerError
 		if _, ok := errors.AsType[loader.WarcRefersToNotFoundError](err); ok {
-			http.Error(w, err.Error(), http.StatusNotFound)
-			slog.Error("Failed to load record", "error", err)
-			return
+			status = http.StatusNotFound
+		} else if errors.Is(err, cdxstore.ErrArchiveChanged) {
+			status = http.StatusConflict
 		}
-		if err != nil {
-			if warcRecord != nil {
-				_ = warcRecord.Close()
-			}
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			slog.Error("Failed to load record", "error", err)
-			return
-		}
+		http.Error(w, err.Error(), status)
+		slog.Error("Failed to load record", "error", err)
+		return
 	}
 	defer func() {
 		if err := warcRecord.Close(); err != nil {

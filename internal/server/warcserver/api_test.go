@@ -79,8 +79,16 @@ func TestRevisitOffsetSelectsUTCCapture(t *testing.T) {
 	}
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
-	ref, err := (Handler{Index: db}).resolveRevisit(ctx, uri, "2020-01-01T00:30:00+01:00")
-	if err != nil || ref != "2019-12-31T23:30:00Z" {
-		t.Fatalf("resolved capture %q, %v", ref, err)
+	target, err := time.Parse(time.RFC3339, "2020-01-01T00:30:00+01:00")
+	if err != nil {
+		t.Fatal(err)
+	}
+	capture, err := db.CaptureByTarget(ctx, uri, target)
+	if err != nil || capture.GetRef() != "2019-12-31T23:30:00Z" {
+		t.Fatalf("resolved capture %q, %v", capture.GetRef(), err)
+	}
+	capture, err = db.CaptureByTarget(ctx, uri, target.Add(time.Second))
+	if err != nil || capture.GetRef() != "" {
+		t.Fatalf("missing target resolved to %q, %v", capture.GetRef(), err)
 	}
 }

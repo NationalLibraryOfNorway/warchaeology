@@ -150,9 +150,9 @@ func (s *Synchronizer) Sync(ctx context.Context, force bool) (err error) {
 		}
 		return nil
 	}
-	records := loader.FileStorageLoader{}
+	records := loader.FileStorageLoader{ValidateSource: s.DB.ValidateArchiveSource}
 	extract := func(c *cdx.Capture, meta *packagePages) error {
-		doc, e := Extract(ctx, records, c, 16<<20)
+		doc, e := Extract(loader.WithCapture(ctx, c), records, c, 16<<20)
 		if errors.Is(e, errNoTextResource) {
 			return nil
 		}

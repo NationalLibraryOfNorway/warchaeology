@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -17,6 +18,7 @@ import (
 	"github.com/julienschmidt/httprouter"
 	index "github.com/nationallibraryofnorway/warchaeology/v5/internal/cdx"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/cdx/keyvalue"
+	"github.com/nationallibraryofnorway/warchaeology/v5/internal/cdxstore"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/loader"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/server/api"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/server/handlers"
@@ -284,14 +286,7 @@ func (h Handler) loadRecordByUrn(w http.ResponseWriter, r *http.Request) {
 	params := httprouter.ParamsFromContext(ctx)
 	warcId := params.ByName("urn")
 
-	storageRef, err := h.Index.GetStorageRef(ctx, warcId)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		slog.Error("Failed to get storage ref", "warcId", warcId, "error", err)
-		return
-	}
-
-	record, err := h.Loader.RecordByStorageRef(ctx, storageRef)
+	record, err := h.Loader.RecordByID(ctx, warcId)
 	if record != nil {
 		defer func() {
 			if err := record.Close(); err != nil {
@@ -300,6 +295,10 @@ func (h Handler) loadRecordByUrn(w http.ResponseWriter, r *http.Request) {
 		}()
 	}
 	if err != nil {
+		if errors.Is(err, cdxstore.ErrArchiveChanged) {
+			http.Error(w, err.Error(), http.StatusConflict)
+			return
+		}
 		err := fmt.Errorf("failed to load record '%s': %w", warcId, err)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		slog.Error("Failed to load record", "urn", warcId, "error", err)

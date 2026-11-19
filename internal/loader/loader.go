@@ -7,13 +7,16 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log/slog"
+	"io"
+	"time"
 
 	"github.com/nationallibraryofnorway/gowarc/v3"
+	cdx "github.com/nationallibraryofnorway/warchaeology/v5/internal/cdx"
+	"github.com/nationallibraryofnorway/warchaeology/v5/internal/warcdigest"
 )
 
 type StorageRefResolver interface {
-	StorageRefById(ctx context.Context, warcId string) (storageRef string, err error)
+	CaptureByID(context.Context, string) (*cdx.Capture, error)
 }
 
 type RecordLoader interface {
@@ -21,7 +24,8 @@ type RecordLoader interface {
 }
 
 type API interface {
-	StorageRefResolver
+	StorageRefById(context.Context, string) (string, error)
+	RecordByID(context.Context, string) (gowarc.WarcRecord, error)
 	RecordLoader
 }
 
@@ -29,21 +33,8 @@ type Loader struct {
 	StorageRefResolver
 	RecordLoader
 
-	NoUnpack bool
-}
-
-type ResolveRevisitError struct {
-	Profile   string
-	TargetURI string
-	Date      string
-}
-
-func (e ResolveRevisitError) Error() string {
-	return fmt.Sprintf("Resolving via Warc-Refers-To-Date and Warc-Refers-To-Target-URI failed: %s", e.String())
-}
-
-func (e ResolveRevisitError) String() string {
-	return fmt.Sprintf("Warc-Refers-To-Date: %s, Warc-Refers-To-Target-URI: %s, Warc-Profile: %s", e.Date, e.TargetURI, e.Profile)
+	ResolveTarget func(context.Context, string, time.Time) (*cdx.Capture, error)
+	NoUnpack      bool
 }
 
 type WarcRefersToNotFoundError struct {
@@ -52,6 +43,23 @@ type WarcRefersToNotFoundError struct {
 
 func (e WarcRefersToNotFoundError) Error() string {
 	return fmt.Sprintf("record referred via WARC-Refers-To not found: %s", e.WarcRefersTo)
+}
+
+func (l *Loader) StorageRefById(ctx context.Context, id string) (string, error) {
+	c, err := l.CaptureByID(ctx, id)
+	return c.GetRef(), err
+}
+
+func (l *Loader) RecordByID(ctx context.Context, id string) (gowarc.WarcRecord, error) {
+	c, err := l.CaptureByID(ctx, id)
+	if err != nil || c == nil {
+		return nil, err
+	}
+	record, err := l.RecordByStorageRef(WithCapture(ctx, c), c.GetRef())
+	if err == nil && record.RecordId() != id {
+		return nil, errors.Join(fmt.Errorf("record ID does not match indexed capture"), record.Close())
+	}
+	return record, err
 }
 
 func (l *Loader) RecordByStorageRef(ctx context.Context, storageRef string) (gowarc.WarcRecord, error) {
@@ -70,70 +78,76 @@ func (l *Loader) load(ctx context.Context, storageRef string, seen map[string]bo
 	if err != nil {
 		return nil, err
 	}
-	defer func() {
-		if err != nil {
-			err = errors.Join(err, record.Close())
-		}
-	}()
-	if l.NoUnpack {
+	if l.NoUnpack || record.Type() != gowarc.Revisit {
 		return record, nil
 	}
-
-	var rtrRecord gowarc.WarcRecord
-
-	switch record.Type() {
-	case gowarc.Revisit:
-		slog.Debug("Loader found a revisit record",
-			"storageRef", storageRef,
-			"warcRefersTo", record.WarcHeader().Get(gowarc.WarcRefersTo),
-			"warcRefersToTargetURI", record.WarcHeader().Get(gowarc.WarcRefersToTargetURI),
-			"warcRefersToDate", record.WarcHeader().Get(gowarc.WarcRefersToDate),
-		)
-		warcRefersTo := record.WarcHeader().GetId(gowarc.WarcRefersTo)
-		if warcRefersTo == "" {
-			warcRefersToTargetURI := record.WarcHeader().Get(gowarc.WarcRefersToTargetURI)
-			warcRefersToDate := record.WarcHeader().Get(gowarc.WarcRefersToDate)
-			if warcRefersToTargetURI == "" {
-				return nil, fmt.Errorf("failed to resolve revisit record: neither WARC-Refers-To nor Warc-Refers-To-Target-URI")
-			}
-			if warcRefersToDate == "" {
-				warcRefersToDate = record.WarcHeader().Get(gowarc.WarcDate)
-			}
-			return nil, ResolveRevisitError{
-				Profile:   record.WarcHeader().Get(gowarc.WarcProfile),
-				TargetURI: warcRefersToTargetURI,
-				Date:      warcRefersToDate,
-			}
+	defer func() {
+		err = errors.Join(err, record.Close())
+		if err != nil && result != nil {
+			err = errors.Join(err, result.Close())
+			result = nil
 		}
+	}()
 
-		var revisitOf gowarc.WarcRecord
-		storageRef, err = l.StorageRefById(ctx, warcRefersTo)
+	header := record.WarcHeader()
+	id := header.GetId(gowarc.WarcRefersTo)
+	uri := header.Get(gowarc.WarcRefersToTargetURI)
+	dateText := header.Get(gowarc.WarcRefersToDate)
+	var date time.Time
+	if dateText != "" {
+		date, err = time.Parse(time.RFC3339Nano, dateText)
 		if err != nil {
-			return nil, fmt.Errorf("failed to resolve WARC-Refers-To [%s]: %w", warcRefersTo, err)
+			return nil, fmt.Errorf("invalid revisit target date: %w", err)
 		}
-		if storageRef == "" {
-			return nil, WarcRefersToNotFoundError{WarcRefersTo: warcRefersTo}
+	}
+	var target *cdx.Capture
+	digest := header.Get(gowarc.WarcPayloadDigest)
+	switch {
+	case id != "":
+		target, err = l.CaptureByID(ctx, id)
+	case l.ResolveTarget != nil && uri != "" && !date.IsZero() && digest != "":
+		target, err = l.ResolveTarget(ctx, uri, date)
+	default:
+		return nil, fmt.Errorf("revisit requires a record ID or an exact target URI, date and payload digest")
+	}
+	if err != nil {
+		return nil, err
+	}
+	if target.GetRef() == "" {
+		return nil, WarcRefersToNotFoundError{WarcRefersTo: id + uri}
+	}
+	donor, err := l.load(WithCapture(ctx, target), target.GetRef(), seen)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { err = errors.Join(err, donor.Close()) }()
+	donorHeader := donor.WarcHeader()
+	if (id != "" && donor.RecordId() != id) ||
+		(uri != "" && donorHeader.Get(gowarc.WarcTargetURI) != uri) {
+		return nil, fmt.Errorf("revisit target identity does not match donor")
+	}
+	if !date.IsZero() {
+		actual, dateErr := donorHeader.GetTime(gowarc.WarcDate)
+		if dateErr != nil || !actual.Equal(date) {
+			return nil, fmt.Errorf("revisit target date does not match donor")
 		}
-		revisitOf, err = l.load(ctx, storageRef, seen)
+	}
+	if digest != "" {
+		if err := donor.Block().Cache(); err != nil {
+			return nil, err
+		}
+		var body io.Reader
+		if payload, ok := donor.Block().(gowarc.PayloadBlock); ok {
+			body, err = payload.PayloadBytes()
+		} else {
+			body, err = donor.Block().RawBytes()
+		}
 		if err != nil {
 			return nil, err
 		}
-
-		rtrRecord, err = ReconstructIdentical(record, revisitOf)
-		closeErr := errors.Join(record.Close(), revisitOf.Close())
-		if err != nil || closeErr != nil {
-			if rtrRecord != nil {
-				_ = rtrRecord.Close()
-			}
-			return nil, errors.Join(err, closeErr)
+		if err = warcdigest.Verify(digest, body); err != nil {
+			return nil, err
 		}
-	case gowarc.Continuation:
-		slog.Warn("Not implemented: storage ref resolved to a continuation record")
-		// TODO continuation not implemented
-		fallthrough
-	default:
-		rtrRecord = record
 	}
-
-	return rtrRecord, nil
+	return ReconstructIdentical(record, donor)
 }

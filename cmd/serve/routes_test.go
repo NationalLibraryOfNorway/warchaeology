@@ -4,14 +4,10 @@
 package serve
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
-	indexcmd "github.com/nationallibraryofnorway/warchaeology/v5/cmd/index"
-	"github.com/nationallibraryofnorway/warchaeology/v5/internal/cdx/schema"
-	"github.com/nationallibraryofnorway/warchaeology/v5/internal/filewalker"
-	"github.com/nationallibraryofnorway/warchaeology/v5/internal/server/api"
-	"github.com/spf13/afero"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -20,9 +16,14 @@ import (
 	"testing"
 	"time"
 
+	indexcmd "github.com/nationallibraryofnorway/warchaeology/v5/cmd/index"
 	cdx "github.com/nationallibraryofnorway/warchaeology/v5/internal/cdx"
+	"github.com/nationallibraryofnorway/warchaeology/v5/internal/cdx/schema"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/cdxstore"
+	"github.com/nationallibraryofnorway/warchaeology/v5/internal/filewalker"
+	"github.com/nationallibraryofnorway/warchaeology/v5/internal/server/api"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/testcheck"
+	"github.com/spf13/afero"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
@@ -59,7 +60,12 @@ func TestRemovedCDXRoutes(t *testing.T) {
 func TestRawReplayRequiresOptIn(t *testing.T) {
 	ctx := t.Context()
 	dir := t.TempDir()
-	source, err := filepath.Abs("../../testdata/warc/convert.warc")
+	raw, err := os.ReadFile("../../testdata/warc/convert.warc")
+	if err != nil {
+		t.Fatal(err)
+	}
+	source := filepath.Join(t.TempDir(), "capture.warc")
+	err = os.WriteFile(source, raw, 0600)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -77,10 +83,11 @@ func TestRawReplayRequiresOptIn(t *testing.T) {
 		t.Fatal(err)
 	}
 	const original = "http://example.test"
+	const id = "urn:uuid:20add669-b781-4c66-977c-e50e280a69e9"
 	capture := &cdx.Capture{
 		Uri: original, Ssu: cdx.CanonicalKey(original), Source: source, Filename: filepath.Base(source),
 		Sts: timestamppb.New(time.Date(2025, 3, 12, 16, 26, 52, 0, time.UTC)), Rle: info.Size(),
-		Ref: "warcfile:" + source + "#0", Srt: "response",
+		Ref: "warcfile:" + source + "#0", Srt: "response", Rid: id,
 	}
 	if err = db.WriteCapture(generation, capture); err != nil {
 		t.Fatal(err)
@@ -101,6 +108,89 @@ func TestRawReplayRequiresOptIn(t *testing.T) {
 		if w.Code != want {
 			t.Fatalf("opted in=%v: got status %d, want %d (%s)", enabled, w.Code, want, w.Body.String())
 		}
+	}
+	if err := os.WriteFile(source, append(bytes.Clone(raw), '\n'), 0600); err != nil {
+		t.Fatal(err)
+	}
+	options := ServeOptions{allowSameOriginReplay: true}
+	handler := options.databaseHandler(ctx, db)
+	for _, path := range []string{"/warcserver/web/20250312162652id_/" + original, "/record/" + id} {
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, httptest.NewRequestWithContext(ctx, http.MethodGet, path, nil))
+		if response.Code != http.StatusConflict {
+			t.Fatalf("%s returned %d (%s)", path, response.Code, response.Body.String())
+		}
+	}
+}
+
+func TestRawReplayVerifiesURIDateRevisitDonor(t *testing.T) {
+	const uri = "https://example.org/"
+	const donorURI = "https://example.org/donor"
+	const payload = "body"
+	const digest = "sha1:AIED6RLZ4CFGCJBFYDA2C7XEPLOXQO4U"
+	donorDate := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
+	revisitDate := donorDate.Add(time.Hour)
+	warc := func(kind string, target string, date time.Time, id string, headers string, content string) string {
+		return fmt.Sprintf("WARC/1.1\r\nWARC-Type: %s\r\nWARC-Record-ID: <%s>\r\nWARC-Date: %s\r\nWARC-Target-URI: %s\r\n%sContent-Type: application/http; msgtype=response\r\nContent-Length: %d\r\n\r\n%s\r\n\r\n", kind, id, date.Format(time.RFC3339), target, headers, len(content), content)
+	}
+	const donorID = "urn:uuid:20add669-b781-4c66-977c-e50e280a69e9"
+	const revisitID = "urn:uuid:20add669-b781-4c66-977c-e50e280a69ea"
+	for _, tc := range []struct {
+		name   string
+		date   time.Time
+		digest string
+		want   int
+	}{
+		{"exact donor", donorDate, digest, http.StatusOK},
+		{"missing donor", donorDate.Add(time.Second), digest, http.StatusNotFound},
+		{"different payload", donorDate, "sha1:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", http.StatusInternalServerError},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := t.Context()
+			dir := t.TempDir()
+			source := filepath.Join(dir, "captures.warc")
+			full := warc("response", donorURI, donorDate, donorID, "", "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nX-Record: donor\r\n\r\n"+payload)
+			headers := "WARC-Profile: http://netpreserve.org/warc/1.1/revisit/identical-payload-digest\r\nWARC-Refers-To-Target-URI: " + donorURI + "\r\nWARC-Refers-To-Date: " + tc.date.Format(time.RFC3339) + "\r\nWARC-Payload-Digest: " + tc.digest + "\r\n"
+			revisit := warc("revisit", uri, revisitDate, revisitID, headers, "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nX-Record: revisit\r\n\r\n")
+			if err := os.WriteFile(source, []byte(full+revisit), 0600); err != nil {
+				t.Fatal(err)
+			}
+			info, err := os.Stat(source)
+			if err != nil {
+				t.Fatal(err)
+			}
+			db, err := cdxstore.Open(ctx, cdxstore.Options{Format: badgerFormat, Dir: filepath.Join(dir, "index")})
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer testcheck.Close(t, db)
+			generation, err := db.BeginFile(ctx, source)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, c := range []*cdx.Capture{
+				{Uri: donorURI, Sts: timestamppb.New(donorDate), Rid: donorID, Srt: "response"},
+				{Uri: uri, Sts: timestamppb.New(revisitDate), Rid: revisitID, Srt: "revisit", Offset: int64(len(full))},
+			} {
+				c.Ssu, c.Source, c.Filename = cdx.CanonicalKey(c.GetUri()), source, info.Name()
+				c.Ref = fmt.Sprintf("warcfile:%s#%d", source, c.GetOffset())
+				if err := db.WriteCapture(generation, c); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if err := db.FinishFile(generation, source, info.Size(), info.ModTime()); err != nil {
+				t.Fatal(err)
+			}
+			handler := (&ServeOptions{allowSameOriginReplay: true}).databaseHandler(ctx, db)
+			w := httptest.NewRecorder()
+			handler.ServeHTTP(w, httptest.NewRequestWithContext(ctx, http.MethodGet, "/warcserver/web/20260101130000id_/"+uri, nil))
+			if w.Code != tc.want {
+				t.Fatalf("status = %d, want %d (%s)", w.Code, tc.want, w.Body.String())
+			}
+			if tc.want == http.StatusOK && (strings.TrimSpace(w.Body.String()) != payload || w.Header().Get("X-Record") != "revisit") {
+				t.Fatalf("unexpected reconstructed capture: headers=%v body=%q", w.Header(), w.Body.String())
+			}
+		})
 	}
 }
 
@@ -161,33 +251,6 @@ func TestReplayRedirectToClosestCapture(t *testing.T) {
 		}
 	}
 
-}
-
-// cancelOnStat cancels the parent after the server has started ingestion.
-type cancelOnStat struct {
-	afero.Fs
-	cancel context.CancelFunc
-}
-
-func (f cancelOnStat) Stat(path string) (os.FileInfo, error) {
-	f.cancel()
-	return nil, context.Canceled
-}
-
-func TestShutdownDuringIngestion(t *testing.T) {
-	ctx, cancel := context.WithCancel(t.Context())
-	defer cancel()
-	db, err := cdxstore.Open(ctx, cdxstore.Options{Format: "badger", Dir: t.TempDir()})
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer testcheck.Close(t, db)
-	walker := filewalker.New(filewalker.WithFs(cancelOnStat{afero.NewMemMapFs(), cancel}))
-	opts := &indexcmd.IndexOptions{Paths: []string{"input.warc"}, FileWalker: walker, Sink: db, Concurrency: 1}
-	defer testcheck.Close(t, walker)
-	if err := run(ctx, "127.0.0.1:0", http.NotFoundHandler(), opts); err != nil {
-		t.Fatal(err)
-	}
 }
 
 func TestNativeEscapedCaptures(t *testing.T) {
@@ -275,5 +338,32 @@ func TestNativeEscapedCaptures(t *testing.T) {
 	}
 	if n := report.GetData().GetPayloadLength(); n != 15 {
 		t.Fatalf("payload bytes %d, want 15", n)
+	}
+}
+
+// cancelOnStat cancels the parent after the server has started ingestion.
+type cancelOnStat struct {
+	afero.Fs
+	cancel context.CancelFunc
+}
+
+func (f cancelOnStat) Stat(path string) (os.FileInfo, error) {
+	f.cancel()
+	return nil, context.Canceled
+}
+
+func TestShutdownDuringIngestion(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	db, err := cdxstore.Open(ctx, cdxstore.Options{Format: "badger", Dir: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer testcheck.Close(t, db)
+	walker := filewalker.New(filewalker.WithFs(cancelOnStat{afero.NewMemMapFs(), cancel}))
+	opts := &indexcmd.IndexOptions{Paths: []string{"input.warc"}, FileWalker: walker, Sink: db, Concurrency: 1}
+	defer testcheck.Close(t, walker)
+	if err := run(ctx, "127.0.0.1:0", http.NotFoundHandler(), opts); err != nil {
+		t.Fatal(err)
 	}
 }

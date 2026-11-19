@@ -474,8 +474,8 @@ func TestRecordIDDuringPendingCleanup(t *testing.T) {
 	}
 	check := func() {
 		t.Helper()
-		c, err := db.StorageRefById(ctx, "shared")
-		if err != nil || c != "warcfile:unrelated.warc.gz#0" {
+		c, err := db.CaptureByID(ctx, "shared")
+		if err != nil || c.GetFilename() != "unrelated.warc.gz" {
 			t.Fatal(c, err)
 		}
 	}

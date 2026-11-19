@@ -321,7 +321,11 @@ func guardBrowserWrites(next http.Handler) http.Handler {
 }
 
 func (o *ServeOptions) databaseHandler(ctx context.Context, db *cdxstore.DB) http.Handler {
-	l := &loader.Loader{StorageRefResolver: db, RecordLoader: loader.FileStorageLoader{}}
+	l := &loader.Loader{
+		StorageRefResolver: db,
+		ResolveTarget:      db.CaptureByTarget,
+		RecordLoader:       loader.FileStorageLoader{ValidateSource: db.ValidateArchiveSource},
+	}
 	core := coreserver.Handler{Index: db, Loader: l, DebugAPI: db}
 	ws := warcserver.Handler{Index: db, Loader: l, Config: &warcserver.Config{PrefixSearchLimit: o.prefixLimit}}
 	router := httprouter.New()
