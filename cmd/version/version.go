@@ -9,7 +9,7 @@ import (
 
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/version"
 	"github.com/spf13/cobra"
-	"gopkg.in/yaml.v3"
+	"go.yaml.in/yaml/v3"
 )
 
 type VersionOptions struct {
