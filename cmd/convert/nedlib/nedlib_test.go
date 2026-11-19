@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/nationallibraryofnorway/warchaeology/v5/internal/testcheck"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/warcwriterconfig"
 	"github.com/spf13/afero"
 )
@@ -52,7 +53,7 @@ func Test(t *testing.T) {
 			o := &ConvertNedlibOptions{
 				WarcWriterConfig: warcWriterConfig,
 			}
-			defer o.Close()
+			defer testcheck.Close(t, o)
 
 			_, err = o.handleFile(afero.NewOsFs(), filename)
 			if err != nil && !tt.wantError {

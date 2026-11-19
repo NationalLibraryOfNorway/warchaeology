@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/nationallibraryofnorway/warchaeology/v5/internal/testcheck"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/warcwriterconfig"
 	"github.com/spf13/afero"
 )
@@ -44,7 +45,7 @@ func TestConvertArcFile(t *testing.T) {
 			o := &ConvertArcOptions{
 				WarcWriterConfig: warcWriterConfig,
 			}
-			defer o.Close()
+			defer testcheck.Close(t, o)
 
 			result, err := o.handleFile(afero.NewOsFs(), filename)
 			if err != nil {

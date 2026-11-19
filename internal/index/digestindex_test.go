@@ -8,6 +8,7 @@ import (
 
 	"github.com/dgraph-io/badger/v4"
 	"github.com/nationallibraryofnorway/gowarc/v3"
+	"github.com/nationallibraryofnorway/warchaeology/v5/internal/testcheck"
 )
 
 func TestDigestIndex_IsRevisit_FirstInsertThenLookup(t *testing.T) {
@@ -15,7 +16,7 @@ func TestDigestIndex_IsRevisit_FirstInsertThenLookup(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer idx.Close()
+	defer testcheck.Close(t, idx)
 
 	ref := &gowarc.RevisitRef{
 		Profile:        gowarc.ProfileIdenticalPayloadDigestV1_1,
@@ -49,7 +50,7 @@ func TestDigestIndex_IsRevisit_CorruptValue(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer idx.Close()
+	defer testcheck.Close(t, idx)
 
 	err = idx.db.Update(func(txn *badger.Txn) error {
 		return txn.Set(digestKey("corrupt"), []byte{9, 1, 2})

@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/nationallibraryofnorway/gowarc/v3"
+	"github.com/nationallibraryofnorway/warchaeology/v5/internal/testcheck"
 	"github.com/spf13/viper"
 )
 
@@ -58,7 +59,7 @@ func TestURIValidationPolicy(t *testing.T) {
 					raw.WriteString("\r\n\r\n\r\n")
 					rec, _, warnings, err := gowarc.NewUnmarshaler((WarcRecordOptionFlags{}).ToWarcRecordOptions()...).Unmarshal(bufio.NewReader(strings.NewReader(raw.String())))
 					if rec != nil {
-						defer rec.Close()
+						defer testcheck.Close(t, rec)
 					}
 					invalid := input.invalid && !mode.lax
 					if invalid && mode.strict {

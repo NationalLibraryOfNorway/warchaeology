@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/nationallibraryofnorway/gowarc/v3"
+	"github.com/nationallibraryofnorway/warchaeology/v5/internal/testcheck"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/warcwriterconfig"
 	"github.com/spf13/afero"
 )
@@ -51,17 +52,16 @@ func TestURITextPreserved(t *testing.T) {
 	}
 
 	o := &ConvertWarcOptions{WarcWriterConfig: cfg}
-	defer o.Close()
-	result, err := o.handleFile(afero.NewOsFs(), input)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if result.ErrorCount() != 0 {
-		t.Fatalf("record errors: %v", result.Errors())
-	}
-	if err := o.Close(); err != nil {
-		t.Fatal(err)
-	}
+	func() {
+		defer testcheck.Close(t, o)
+		result, err := o.handleFile(afero.NewOsFs(), input)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if result.ErrorCount() != 0 {
+			t.Fatalf("record errors: %v", result.Errors())
+		}
+	}()
 	var seen []gowarc.RecordType
 	err = filepath.WalkDir(out, func(name string, entry os.DirEntry, err error) error {
 		if err != nil {
@@ -74,13 +74,15 @@ func TestURITextPreserved(t *testing.T) {
 		if err != nil {
 			return err
 		}
-		defer r.Close()
+		defer testcheck.Close(t, r)
 		for rec, err := range r.Records() {
 			if err != nil {
 				return err
 			}
 			if rec.WarcRecord.Type() == gowarc.Warcinfo {
-				rec.Close()
+				if err := rec.Close(); err != nil {
+					return err
+				}
 				continue
 			}
 			seen = append(seen, rec.WarcRecord.Type())
@@ -92,7 +94,9 @@ func TestURITextPreserved(t *testing.T) {
 					t.Errorf("reference URI = %q, want %q", got, uri)
 				}
 			}
-			rec.Close()
+			if err := rec.Close(); err != nil {
+				return err
+			}
 		}
 		return nil
 	})

@@ -12,6 +12,7 @@ import (
 	"github.com/nationallibraryofnorway/warchaeology/v5/cmd/internal/flag"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/filewalker"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/index"
+	"github.com/nationallibraryofnorway/warchaeology/v5/internal/testcheck"
 	"github.com/spf13/afero"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -93,10 +94,10 @@ func TestConstructorFailureClosesIndexes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer digest.Close()
+	defer testcheck.Close(t, digest)
 	files, err := index.NewFileIndex(dir, true, false)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer files.Close()
+	defer testcheck.Close(t, files)
 }
