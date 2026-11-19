@@ -24,10 +24,12 @@ import (
 
 	cdx "github.com/nationallibraryofnorway/warchaeology/v5/internal/cdx"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/cdxstore"
+	"github.com/nationallibraryofnorway/warchaeology/v5/internal/filewalker"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/index"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/server/archiveapi"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/testcheck"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/zipnum"
+	"github.com/spf13/afero"
 	"github.com/spf13/viper"
 )
 
@@ -237,10 +239,12 @@ func TestDedupPublicationFailureLeavesIndexesUncommitted(t *testing.T) {
 				t.Fatal(err)
 			}
 			defer testcheck.Close(t, files)
-			for _, key := range []string{source, filepath.Clean(source)} {
-				if cached, err := files.GetFileStats(key); err != nil || cached != nil {
-					t.Fatalf("file cached after failed publication: %v, %v", cached, err)
-				}
+			key, err := filewalker.SourceLocator(afero.NewOsFs(), source)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if cached, err := files.GetFileStats(key); err != nil || cached != nil {
+				t.Fatalf("file cached after failed publication: %v, %v", cached, err)
 			}
 		})
 	}
@@ -456,6 +460,57 @@ func TestDedupOneToOneCollision(t *testing.T) {
 				t.Fatal(err)
 			}
 		})
+	}
+}
+
+func TestRetainedDedupSources(t *testing.T) {
+	out, work := t.TempDir(), t.TempDir()
+	args := []string{"dedup", "--output-dir", out, "--index-dir", work, "--keep-index", "--compress=false", "--min-disk-free=0", "--min-index-disk-free=0"}
+	for i := range 2 {
+		p := filepath.Join(t.TempDir(), "inputs.zip")
+		f, err := os.Create(p)
+		if err != nil {
+			t.Fatal(err)
+		}
+		z := zip.NewWriter(f)
+		m, err := z.Create("archive/capture.warc")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err = m.Write(resourceBytes(i)); err != nil {
+			t.Fatal(err)
+		}
+		if err = z.Close(); err != nil {
+			t.Fatal(err)
+		}
+		if err = f.Close(); err != nil {
+			t.Fatal(err)
+		}
+		if i == 0 && runtime.GOOS != "windows" {
+			hook := filepath.Join(t.TempDir(), "skip")
+			if err = os.WriteFile(hook, []byte("#!/bin/sh\nexit 10\n"), 0700); err != nil {
+				t.Fatal(err)
+			}
+			if err := executeCaptureCommand(t, append(args, "--open-input-file-hook", hook, p)...); err != nil {
+				t.Fatal(err)
+			}
+		}
+		for range 2 {
+			if err := executeCaptureCommand(t, append(args, p)...); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	output := filepath.Join(t.TempDir(), "output.cdxj")
+	if err := executeCaptureCommand(t, "index", "--index-file", output, out); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(output)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Count(data, []byte("\n")) != 2 || !bytes.Contains(data, []byte("example.org/0")) || !bytes.Contains(data, []byte("example.org/1")) {
+		t.Fatalf("captures %s", data)
 	}
 }
 

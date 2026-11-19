@@ -15,7 +15,7 @@ import (
 )
 
 // ErrSkipFile is returned by hooks to signal that the file should be skipped.
-var ErrSkipFile = errors.New("skip file")
+var ErrSkipFile = hooks.ErrSkipFile
 
 type FileHandler func(fs afero.Fs, path string) (stat.Result, error)
 
