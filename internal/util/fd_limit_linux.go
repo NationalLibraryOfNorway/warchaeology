@@ -1,3 +1,6 @@
+// Copyright 2023 National Library of Norway.
+// SPDX-License-Identifier: Apache-2.0
+
 //go:build linux
 
 package util
