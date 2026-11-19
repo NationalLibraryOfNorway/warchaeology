@@ -52,6 +52,7 @@ const (
 
 type DedupOptions struct {
 	runStarted, runSucceeded bool
+	repair                   bool
 	Paths                    []string
 	Concurrency              int
 	DigestIndex              *index.DigestIndex
@@ -185,6 +186,12 @@ func (f DedupFlags) ToDedupOptions() (_ *DedupOptions, err error) {
 	warcRecordOptions = append(warcRecordOptions, f.RepairFlags.ToWarcRecordOptions()...)
 	warcRecordOptions = append(warcRecordOptions, f.WarcRecordOptionFlags.ToWarcRecordOptions()...)
 
+	if f.RepairFlags.Repair() {
+		// gowarc uses the block digest to fill both resource headers and can
+		// overwrite an existing payload label. Preserve it for verification.
+		warcRecordOptions = append(warcRecordOptions, gowarc.WithAddMissingDigest(false), gowarc.WithFixDigest(false))
+	}
+
 	fileList, err := flag.ReadSrcFileList(f.FileWalkerFlags.SrcFileListFlags.SrcFileList())
 	if err != nil {
 		return nil, fmt.Errorf("failed to read from source file: %w", err)
@@ -202,6 +209,7 @@ func (f DedupFlags) ToDedupOptions() (_ *DedupOptions, err error) {
 
 	o := &DedupOptions{
 		Paths:              fileList,
+		repair:             f.RepairFlags.Repair(),
 		Concurrency:        concurrency,
 		MinimumSizeGain:    f.DedupSizeGain(),
 		MinWARCDiskFree:    f.UtilFlags.MinFreeDisk(),
@@ -499,6 +507,11 @@ func (o *DedupOptions) handleRecord(writer *gowarc.WarcFileWriter, record gowarc
 	result.IncrRecords()
 
 	warcRecord := record.WarcRecord
+	if o.repair {
+		if err := addMissingDigests(warcRecord); err != nil {
+			return err
+		}
+	}
 
 	// if the record type is not in the list of record types to deduplicate, write the record as is
 	if !slices.Contains(o.RecordTypes, warcRecord.Type()) {
@@ -512,6 +525,9 @@ func (o *DedupOptions) handleRecord(writer *gowarc.WarcFileWriter, record gowarc
 		return writeRecord(writer, warcRecord)
 	}
 	digest, err := getDigest(warcRecord)
+	if errors.Is(err, warcdigest.ErrRead) {
+		return err
+	}
 	if err != nil {
 		result.AddError(warc.ErrorFrom(record, err))
 	}
@@ -571,6 +587,28 @@ func getRevisitProfile(warcRecord gowarc.WarcRecord) string {
 	}
 }
 
+func addMissingDigests(r gowarc.WarcRecord) error {
+	h := r.WarcHeader()
+	if h.Has(gowarc.WarcBlockDigest) && h.Has(gowarc.WarcPayloadDigest) {
+		return nil
+	}
+	if err := r.Block().Cache(); err != nil {
+		return err
+	}
+	if !h.Has(gowarc.WarcBlockDigest) {
+		h.Set(gowarc.WarcBlockDigest, r.Block().BlockDigest())
+	}
+	if h.Has(gowarc.WarcPayloadDigest) || h.Has(gowarc.WarcSegmentNumber) || r.Type() == gowarc.Revisit {
+		return nil
+	}
+	if block, ok := r.Block().(gowarc.PayloadBlock); ok {
+		h.Set(gowarc.WarcPayloadDigest, block.PayloadDigest())
+	} else if r.Type() == gowarc.Resource {
+		h.Set(gowarc.WarcPayloadDigest, r.Block().BlockDigest())
+	}
+	return nil
+}
+
 // getDigest produces a donor key only for a complete, verified payload.
 func getDigest(r gowarc.WarcRecord) (string, error) {
 	h := r.WarcHeader()
@@ -599,7 +637,7 @@ func getDigest(r gowarc.WarcRecord) (string, error) {
 		return "", nil
 	}
 	if err := r.Block().Cache(); err != nil {
-		return "", err
+		return "", errors.Join(warcdigest.ErrRead, err)
 	}
 	if n, err := r.ContentLength(); err != nil || n != r.Block().Size() {
 		return "", errors.New("invalid content length")
@@ -613,19 +651,22 @@ func getDigest(r gowarc.WarcRecord) (string, error) {
 			return "", errors.New("payload digest mismatch")
 		}
 	default:
+		if warcdigest.Equal(label, block.BlockDigest()) {
+			break
+		}
 		raw, err := block.RawBytes()
 		if err != nil {
-			return "", err
+			return "", errors.Join(warcdigest.ErrRead, err)
 		}
 		if err := warcdigest.Verify(label, raw); err != nil {
 			return "", err
 		}
 	}
-	alg, digest, err := warcdigest.Parse(label)
-	if err != nil {
-		return "", err
+	// pywb's local CDX resolver compares the literal labels on the two records.
+	if r.Type() == gowarc.Resource && !h.Has(gowarc.WarcPayloadDigest) {
+		h.Set(gowarc.WarcPayloadDigest, label)
 	}
-	return fmt.Sprintf("%s/%s:%x", r.Type(), alg, digest), nil
+	return r.Type().String() + "/" + label, nil
 }
 
 func payloadLength(r gowarc.WarcRecord) int64 {
