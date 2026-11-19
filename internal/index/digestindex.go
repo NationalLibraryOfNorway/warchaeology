@@ -49,8 +49,8 @@ func NewDigestIndex(indexDir string, keepIndex bool, newIndex bool) (*DigestInde
 		item, e := tx.Get([]byte("!format"))
 		if e == nil {
 			return item.Value(func(b []byte) error {
-				if string(b) != "dedup-v2" {
-					return fmt.Errorf("incompatible donor index; rebuild in a fresh directory")
+				if string(b) != "dedup-v3" {
+					return fmt.Errorf("incompatible donor index; reprocess with fresh donor and processed-file indexes and a fresh output directory")
 				}
 				return nil
 			})
@@ -62,9 +62,9 @@ func NewDigestIndex(indexDir string, keepIndex bool, newIndex bool) (*DigestInde
 		defer it.Close()
 		it.Rewind()
 		if it.Valid() {
-			return fmt.Errorf("legacy donor index; rebuild in a fresh directory")
+			return fmt.Errorf("legacy donor index; reprocess with fresh donor and processed-file indexes and a fresh output directory")
 		}
-		return tx.Set([]byte("!format"), []byte("dedup-v2"))
+		return tx.Set([]byte("!format"), []byte("dedup-v3"))
 	}); err != nil {
 		_ = db.Close()
 		return nil, err
