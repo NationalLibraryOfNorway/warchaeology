@@ -351,6 +351,28 @@ func TestIndexDirRoot(t *testing.T) {
 	}
 }
 
+func TestCommandsWithoutUserDirectories(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("tests Linux user directory resolution")
+	}
+	for _, name := range []string{"HOME", "XDG_DATA_HOME", "XDG_CACHE_HOME"} {
+		t.Setenv(name, "")
+	}
+	if err := executeCaptureCommand(t, "version"); err != nil {
+		t.Fatal(err)
+	}
+	source := "../testdata/warc/single-record.warc"
+	if err := executeCaptureCommand(t, "index", source); err != nil {
+		t.Fatal(err)
+	}
+	if err := executeCaptureCommand(t, "index", "--index-format", "badger", "--index-dir", t.TempDir(), source); err != nil {
+		t.Fatal(err)
+	}
+	if err := executeCaptureCommand(t, "index", "--index-format", "badger", source); err == nil || !strings.Contains(err.Error(), "--index-dir") {
+		t.Fatalf("missing database directory: got %v", err)
+	}
+}
+
 func TestWACZRevalidatesAfterParserConfigChange(t *testing.T) {
 	dir := t.TempDir()
 	source := filepath.Join(dir, "collection.wacz")

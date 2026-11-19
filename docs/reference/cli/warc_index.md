@@ -28,7 +28,7 @@ warc index FILE/DIR... [flags]
       --fulltext-rebuild[=true|false]    rebuild text search from registered captures
   -h, --help[=true|false]                help for index
       --id strings                       only process records with these record IDs; repeat the flag or use a comma-separated list
-      --index-dir string                 Badger index database directory (default "/home/vscode/.local/share/warchaeology/warcdb")
+      --index-dir string                 Badger index database directory (default: warchaeology/warcdb in the user data directory)
       --index-file string                index export filename or - for stdout (default "-")
       --index-format string              cdxj, cdxpb or badger (default "cdxj")
       --index-tmp-dir string             temporary sort directory

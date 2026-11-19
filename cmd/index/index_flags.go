@@ -49,8 +49,9 @@ func (f IndexFlags) AddFlags(cmd *cobra.Command) {
 func (f IndexFlags) ToOptions() (*IndexOptions, error) {
 	parser := f.WarcRecordOptionFlags
 	o := &IndexOptions{
-		WaczConfig:        fmt.Sprintf("strict=%t;lenient=%t;lax-host-parsing=%t", parser.StrictValidation(), parser.LenientValidation(), parser.LaxHostParsing()),
-		WaczIndex:         viper.GetString("wacz-index"),
+		WaczIndex: viper.GetString("wacz-index"),
+		WaczConfig: fmt.Sprintf("strict=%t;lenient=%t;lax-host-parsing=%t",
+			parser.StrictValidation(), parser.LenientValidation(), parser.LaxHostParsing()),
 		Fulltext:          viper.GetBool("fulltext"),
 		TextRebuild:       viper.GetBool("fulltext-rebuild"),
 		TextDir:           viper.GetString("fulltext-dir"),
@@ -64,17 +65,17 @@ func (f IndexFlags) ToOptions() (*IndexOptions, error) {
 		Nth:               f.WarcIteratorFlags.RecordNum(),
 		Limit:             f.WarcIteratorFlags.Limit(),
 	}
-	o.format = viper.GetString("index-format")
-	o.output = viper.GetString(flag.IndexFile)
-	o.tmpDir = viper.GetString("index-tmp-dir")
-	o.sort = viper.GetBool("sort")
 	var e error
-	if o.format == "badger" {
+	o.format = viper.GetString("index-format")
+	if o.format == badgerFormat {
 		o.database, e = f.CaptureDatabaseFlags.ToOptions()
 		if e != nil {
 			return nil, e
 		}
 	}
+	o.output = viper.GetString(flag.IndexFile)
+	o.tmpDir = viper.GetString("index-tmp-dir")
+	o.sort = viper.GetBool("sort")
 	o.Paths, e = flag.ReadSrcFileList(f.FileWalkerFlags.SrcFileListFlags.SrcFileList())
 	if e != nil {
 		return nil, e
