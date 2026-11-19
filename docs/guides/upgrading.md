@@ -96,6 +96,27 @@ checksum-checked on restart, and interrupted years are rebuilt from the beginnin
 ## Lean capture and workload stores
 
 Capture v3, donor v2 and redupe ledger v2 require fresh directories. Follow the
-[rebuild and export/import procedures](writable-captures.md#layout-upgrades-and-workload-boundaries);
-old layouts are rejected and never silently reinterpreted. Production continues
-to use Badger. Pebble is confined to `benchmarks/cdxstorage`.
+[rebuild and export/import procedures](writable-captures.md#layout-upgrades-and-workload-boundaries),
+then verify the rebuilt indexes before retiring the old directories.
+
+## Canonicalization profile v0.9.1
+
+Version 0.9.1 changes the canonical keys for `dns:`, `mailto:` and `warcinfo:`
+URIs. For example, `dns:Example.COM` becomes `dns:example.com`. Filedesc URIs
+retain their original spelling.
+
+Rebuild capture databases created with the v0.9.0 profile before using this
+version. The capture layout remains v3; the stored profile marker identifies
+the key-generation rules. The server rejects databases and backups carrying
+the older marker.
+
+- For CDXJ collections, export with the old executable and import into a fresh
+  database using the new executable.
+- For native archive retrieval, reindex the original WARCs or WACZs into a fresh
+  database to retain source mappings and record-ID lookup.
+- Rebuild full-text indexes against the new capture database.
+
+For zipnum, regenerate affected CDXJ keys from the original `url` and stored
+`method`/`requestBody`, sort the result, and build a new cluster. The builder
+preserves supplied keys, so their canonicalization profile must match the URL
+query service. Keep the original CDXJ exports as migration inputs.

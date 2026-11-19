@@ -131,15 +131,14 @@ collections:
       - https://archives.example.org/warcs/
 ```
 
-The empty `replay_url` tells pywb to use returned `filename`, `offset`, `length`
-and other CDX metadata with its archive resource paths. No plugin or database
-conversion is required. The zipnum server has no record-retrieval endpoint.
+The empty `replay_url` directs pywb to read WARC records using the returned
+`filename`, `offset` and `length`. Configure `archive_paths` with the local or
+HTTP locations of those WARC files.
 
-The integration test exercises normal captures, revisits and explicitly addressed
-POST-derived keys. **pywb's stock remote CDX provider interpolates `{url}`, not
-its internal POST-augmented `alt_url`. Raw browser POST replay therefore has an
-upstream limitation with this configuration.** Explicit augmented URLs work;
-this test does not claim transparent browser POST forwarding.
+For POST-derived captures, supply the augmented URL key explicitly. Pywb's
+remote CDX provider uses `{url}`, which omits the method/body augmentation for
+browser POSTs. Integration tests cover explicitly augmented URLs, normal
+captures and revisits.
 
 ## Compatibility and verification
 
@@ -150,15 +149,26 @@ missing digests, request pairing, multipart binary uploads, JSON and JSON-lines,
 text/binary bodies, content lengths and the 4,096-character query limit.
 `cmd/index/testdata/generate.py` regenerates them with the pinned reference.
 
-Indexing and queries use whatwg-url/surt v0.9.0. The SURT fixture explicitly records
-differences from the pinned internetarchive/surt 0.3.1 reference: HTTP backslashes become path separators
-(`http://example.com\path` becomes `com,example)/path`), and opaque DNS URLs retain
-case (`dns:Example.COM` and `mailto:Person@Example.COM`). Leading `/../a`
-and `/%2e%2e/a` normalize to `/a`, whereas the Python reference retains `/../a`.
-Other tested dot segments, escaping, Unicode, query ordering and POST augmentation
-match the pinned reference. HTTP ingestion rejects malformed absolute URLs rather
-than accepting the reference library’s permissive repairs. Original URI evidence is retained. AMF bodies use opaque
-base64 binary extraction rather than AMF decoding.
+Indexing and URL queries use the Internet Archive canonicalization profile in
+whatwg-url/surt v0.9.1. Original URLs are preserved in capture metadata. DNS,
+mailto and warcinfo URIs undergo canonicalization; filedesc URIs retain their
+original spelling. If canonicalization fails, the original string is used as
+the key. CDXJ ingestion requires valid absolute URLs.
+
+Compatibility tests track differences from Python internetarchive/surt 0.3.1:
+
+| Input | Warchaeology key | Python SURT key |
+| --- | --- | --- |
+| `http://example.com\path` | `com,example)/path` | `com\path,example)/` |
+| `http://example.com/../a` | `com,example)/a` | `com,example)/../a` |
+| `http://example.com/%2e%2e/a` | `com,example)/a` | `com,example)/../a` |
+
+The fixtures also cover escaping, Unicode, query ordering and POST augmentation.
+AMF request bodies are represented as base64 binary data.
+
+The database records its canonicalization profile. Follow the
+[upgrade instructions](upgrading.md#canonicalization-profile-v091) when moving
+an existing index to a new profile.
 
 ```sh
 go test ./...
@@ -183,7 +193,7 @@ different offsets within one source file. Reindex v1/v2 databases into a new dir
 
 ## WACZ packages
 
-Positional `.wacz` files are indexed as packages without requiring `--recursive`:
+Pass `.wacz` files directly to index or serve them:
 
 ```sh
 warc index capture.wacz
@@ -194,23 +204,23 @@ warc serve --wacz-index warc capture.wacz
 
 The default `--wacz-index auto` imports embedded CDXJ (`.cdx`, `.cdxj`, and
  gzip-compressed variants, including concatenated gzip blocks). When no index
-exists it indexes the contained WARCs. A malformed embedded index fails instead
-of silently falling back. `--wacz-index warc` explicitly indexes the WARCs;
+exists it indexes the contained WARCs. A malformed embedded index produces an
+error. Use `--wacz-index warc` to index the WARCs directly;
 explicit record filters and WARC parsing options also select native indexing.
 The output default remains CDXJ; `serve` defaults to Badger in `./warcdb`.
 
 Badger retains container membership and structured source locations. Identical
 member filenames in different packages remain distinct. Completed unchanged
-packages reuse their index; package metadata fingerprints are cache checks, not
-cryptographic verification of all WARC payloads. WARCs stay inside the WACZ.
+packages reuse their index based on package metadata fingerprints. WARCs stay
+inside the WACZ.
 Stored ZIP members support direct offset reads; deflated members use bounded
 streaming decompression and may need to reread preceding bytes when seeking.
 Keep packages immutable while serving them.
 
-Embedded CDX does not supply a complete record-ID catalogue. URL/time retrieval
-uses the package/member location; ID lookups and ID-dependent revisits may need
-native indexing. An existing index-only database cannot host native WACZ content;
-choose a fresh database directory.
+URL/time retrieval uses the package/member location. Use `--wacz-index warc`
+when a complete record-ID catalogue is needed for ID lookups or revisit
+resolution. Start with a fresh database directory when adding native WACZ
+content to a collection previously managed through CDXJ uploads.
 
 ### Multi-WACZ bundles and manifests
 
@@ -241,11 +251,8 @@ not automatically verified against every WARC byte. Browsertrix's zero CRC
 placeholders for stored child WACZs are accepted; other member checksums retain
 their existing validation.
 
-Standalone JSON manifests referencing separate files or remote URLs, HTTP WACZ
-downloads, and a replay UI are not included.
-
 ## Full-text search and pywb
 
 See [full-text search and replay](search-and-replay.md) for `--fulltext`, the
-search console and API, vanilla pywb configuration using `/pywb/cdx` plus HTTP
-WARC ranges. Experimental browser replay and live-leak monitoring are deferred.
+search console and API, and pywb configuration using `/pywb/cdx` and HTTP
+WARC ranges.

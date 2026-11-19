@@ -3,8 +3,8 @@ title: Writable capture collections
 ---
 
 `warc serve` accepts streamed CDXJ on writable Badger databases. New HTTP
-collections are index-only: they contain replay locations, not a local WARC file
-catalogue. Configure pywb's `archive_paths` and access rules separately.
+collections store capture metadata and replay locations. Configure pywb's
+`archive_paths` with the corresponding WARC locations and set its access rules.
 
 ```sh
 warc serve --collections-dir ./collections --address :9999 --path-prefix /archive
@@ -14,7 +14,7 @@ curl 'http://localhost:9999/archive/collections/news/cdx?url=https://example.com
 ```
 
 Names contain 1–64 ASCII letters, digits, underscores or hyphens and start with a
-letter or digit. Creation is explicit; ingestion never creates a missing collection.
+letter or digit. Create a collection with `PUT` before uploading its captures.
 `--collections-dir` cannot be combined with WARC inputs, zipnum, or single-database
 location flags. Collections are isolated Badger directories. The server opens
 existing collections at startup and refuses incompatible databases.
@@ -43,8 +43,8 @@ Zipnum remains immutable and index-only.
 ## Upload contract
 
 Send CDXJ, one `key timestamp {JSON}` per line, using a regular or chunked request.
-`Content-Encoding: gzip` is supported. CDX11/CDX14 are rejected. The submitted
-key is ignored. The server computes the stored key from `url`, `method` and
+`Content-Encoding: gzip` is supported. Convert legacy CDX11/CDX14 inputs to CDXJ
+before uploading. The server computes the stored key from `url`, `method` and
 `requestBody`, using the same construction for deletion and POST-aware queries.
 The canonicalization profile and its known reference differences are documented
 in [capture indexes](capture-indexes.md#compatibility-and-verification).
@@ -55,15 +55,15 @@ accept decimal strings or JSON integers. `status`, when present, is 0–999.
 Canonical URL keys are limited to 60,000 bytes to fit the storage key limit.
 Extension objects, arrays, and numbers retain JSON numeric precision. Typed
 fields are stored separately from extension properties. POST/PUT request bodies
-are the indexer's already extracted query string, not an unparsed HTTP body.
+must be supplied as the indexer's extracted query string.
 
 Identity is the computed key, timestamp, filename and offset within a collection.
 Different locations at the same timestamp remain distinct. Repeated uploads
 upsert the same identity. Conflicting values for one identity in a request reject
-the request. An upsert supersedes matching native replay locations; uploaded
-records do not invent record IDs or local source mappings. Deletion of a missing
-identity succeeds. Uploads do not replace every record associated with a filename.
-Native WARC reindexing still replaces an explicit source generation.
+the request. An upsert supersedes matching native replay locations. Record-ID lookup and
+local source mappings come from native WARC indexing. Deletion of a missing
+identity succeeds. Uploads update individual capture identities; native WARC
+reindexing replaces the complete source generation.
 
 Strict mode is the default: an invalid line rejects the entire request. Add
 `?badLines=skip` to publish valid lines and receive accepted/rejected line counts.
@@ -86,7 +86,7 @@ cleanup can finish afterward without changing visibility.
 
 ## Queries and caps
 
-Existing CDXJ and NDJSON (`output=json`) output and filter semantics remain.
+Queries return CDXJ by default or NDJSON with `output=json`.
 Use `urlkey=` for an already canonical key, or `url=...&method=POST&requestBody=...`
 for POST-aware lookup. `fields=` and `fl=` select fields; `original`, `mimetype`
 and `statuscode` alias `url`, `mime` and `status`.
@@ -128,28 +128,26 @@ the benchmark records maintenance peaks separately from final allocation.
 
 ## Layout upgrades and workload boundaries
 
-Capture layout v3 is incompatible with v1/v2. Existing stores are rejected;
-there is no in-place reinterpretation. Keep the old executable and directory,
-export through that executable, import CDXJ into a fresh v3 index-only collection,
-and verify counts/queries before retiring it. To preserve native retrieval and
-record-ID occurrences, reindex the original WARCs into a fresh full database.
-CDXJ export/import alone cannot preserve metadata absent from CDXJ.
+To upgrade a v1/v2 capture database, export CDXJ with the old executable and
+import into a fresh v3 collection. Verify capture counts and queries before
+retiring the old executable and database directory. To preserve native retrieval
+and record-ID occurrences, reindex the original WARCs into a fresh full database.
 
 The shared codec uses versioned protobuf envelopes, binary algorithm-tagged
 digests, compact UUIDs with a lossless URI fallback, nanosecond protobuf timestamps
 and 64-bit lengths/offsets. Ordered SURTs remain in capture keys. Record-ID
 indexes reference captures instead of duplicating them. Native source cleanup
-uses source-specific references. Production remains on Badger v4.3.1.
-The isolated benchmark module contains experimental dictionary encodings; those
-are not a production dictionary layout or a claim about production capacity.
+uses source-specific references. Capture storage uses Badger v4.3.1. Storage
+benchmarks and their configurations are available in `benchmarks/cdxstorage`.
 
 Dedup donor indexes have a separate v2 marker. Rebuild legacy donor indexes in
-fresh directories. A failed donor write cannot register a donor. Deduplication syncs output records
-before making them available as provisional donors. A run remains
-provisional until its WARC writers close successfully and publish outputs.
+fresh directories. Deduplication syncs output records before registering them
+as provisional donors. A run remains provisional until its WARC writers close
+successfully and publish outputs.
 Unfinished output runs refuse donor-index reuse after restart; recover by
 reprocessing with fresh index/output directories, retaining previous evidence
-for inspection. The database cannot independently commit external hook side effects.
+for inspection. When using external hooks, verify their outputs before retrying
+an interrupted run.
 
 Redupe stores rebuildable inventory/planning state separately from its small,
 synced publication ledger. Occurrence indexes reference one stored capture.
