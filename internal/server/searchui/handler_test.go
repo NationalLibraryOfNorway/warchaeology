@@ -17,7 +17,12 @@ func TestSearchAndConsole(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer idx.Close()
-	if err := idx.Publish(context.Background(), []fulltext.Document{{ID: "one", URL: "https://example.org", Text: "northern lights", Timestamp: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)}}, nil); err != nil {
+	if err := idx.Publish(context.Background(), []fulltext.Document{{
+		ID:        "one",
+		URL:       "https://example.org",
+		Text:      "northern lights",
+		Timestamp: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC),
+	}}, nil); err != nil {
 		t.Fatal(err)
 	}
 	handler := New(idx)

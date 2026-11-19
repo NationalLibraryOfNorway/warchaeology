@@ -71,7 +71,15 @@ func TestMergeSeparatedAndMixedLayouts(t *testing.T) {
 		t.Fatalf("mixed layout did not select defaults: %+v", m)
 	}
 	before := filepath.Join(dir, "before")
-	if err := (options{input: early + "," + late, output: before, merge: true, concurrency: 1, linesPerBlock: 4, blocksPerPart: 3, newPartID: deterministicIDs(120)}).run(context.Background()); err != nil {
+	if err := (options{
+		input:         early + "," + late,
+		output:        before,
+		merge:         true,
+		concurrency:   1,
+		linesPerBlock: 4,
+		blocksPerPart: 3,
+		newPartID:     deterministicIDs(120),
+	}).run(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 	m, _ = readMeta(filepath.Join(before, metaFile))
@@ -218,7 +226,14 @@ func TestConnectedOverlapMergeAndMultiInputCreation(t *testing.T) {
 	writeRecords(t, aRaw, []string{"com,a)/ 1 {}", "com,c)/ 1 {}", "com,e)/ 1 {}", "com,g)/ 1 {}"}, true)
 	writeRecords(t, bRaw, []string{"com,b)/ 1 {}", "com,f)/ 1 {}"}, true)
 	combined := filepath.Join(dir, "combined")
-	if err := (options{input: aRaw + "," + bRaw, output: combined, concurrency: 2, linesPerBlock: 1, blocksPerPart: 2, newPartID: deterministicIDs(0)}).run(context.Background()); err != nil {
+	if err := (options{
+		input:         aRaw + "," + bRaw,
+		output:        combined,
+		concurrency:   2,
+		linesPerBlock: 1,
+		blocksPerPart: 2,
+		newPartID:     deterministicIDs(0),
+	}).run(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 	if got := clusterRecords(t, combined); len(got) != 6 {
@@ -226,7 +241,14 @@ func TestConnectedOverlapMergeAndMultiInputCreation(t *testing.T) {
 	}
 	a, b := filepath.Join(dir, "a"), filepath.Join(dir, "b")
 	for raw, cluster := range map[string]string{aRaw: a, bRaw: b} {
-		if err := (options{input: raw, output: cluster, concurrency: 1, linesPerBlock: 1, blocksPerPart: 2, newPartID: deterministicIDs(len(cluster) * 10)}).run(context.Background()); err != nil {
+		if err := (options{
+			input:         raw,
+			output:        cluster,
+			concurrency:   1,
+			linesPerBlock: 1,
+			blocksPerPart: 2,
+			newPartID:     deterministicIDs(len(cluster) * 10),
+		}).run(context.Background()); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -248,7 +270,14 @@ func TestAdditionalClusterManifestFailures(t *testing.T) {
 		t.Helper()
 		raw, root := filepath.Join(t.TempDir(), "raw"), filepath.Join(t.TempDir(), "cluster")
 		writeRecords(t, raw, []string{"com,a)/ 1 {}", "com,b)/ 1 {}"}, true)
-		if err := (options{input: raw, output: root, concurrency: 1, linesPerBlock: 1, blocksPerPart: 2, newPartID: deterministicIDs(0)}).run(context.Background()); err != nil {
+		if err := (options{
+			input:         raw,
+			output:        root,
+			concurrency:   1,
+			linesPerBlock: 1,
+			blocksPerPart: 2,
+			newPartID:     deterministicIDs(0),
+		}).run(context.Background()); err != nil {
 			t.Fatal(err)
 		}
 		m, err := readCluster(root)

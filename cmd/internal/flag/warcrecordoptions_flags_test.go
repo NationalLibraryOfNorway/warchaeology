@@ -39,7 +39,13 @@ func TestURIValidationPolicy(t *testing.T) {
 					if field != gowarc.WarcTargetURI {
 						value = "<" + value + ">"
 					}
-					headers := map[string]string{gowarc.WarcType: "resource", gowarc.WarcDate: "2026-11-17T00:00:00Z", gowarc.ContentLength: "0", gowarc.WarcRecordID: "<urn:example:original>", gowarc.WarcTargetURI: "https://example.org/"}
+					headers := map[string]string{
+						gowarc.WarcType:      "resource",
+						gowarc.WarcDate:      "2026-11-17T00:00:00Z",
+						gowarc.ContentLength: "0",
+						gowarc.WarcRecordID:  "<urn:example:original>",
+						gowarc.WarcTargetURI: "https://example.org/",
+					}
 					headers[field] = value
 					var raw strings.Builder
 					raw.WriteString("WARC/1.1\r\n")

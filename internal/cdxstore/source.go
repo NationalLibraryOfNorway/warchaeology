@@ -143,7 +143,16 @@ func (d *DB) FinishFile(ctx context.Context, source string, size int64, modified
 			return e
 		}
 	}
-	cp := checkpoint{Generation: g.id, Count: g.count, File: &schema.FileInfo{Name: sourceBasename(source), Path: source, Size: size, LastModified: timestamppb.New(modified)}}
+	cp := checkpoint{
+		Generation: g.id,
+		Count:      g.count,
+		File: &schema.FileInfo{
+			Name:         sourceBasename(source),
+			Path:         source,
+			Size:         size,
+			LastModified: timestamppb.New(modified),
+		},
+	}
 	if d.indexOnly {
 		cp.File = &schema.FileInfo{Path: source, Size: size, LastModified: timestamppb.New(modified)}
 	}

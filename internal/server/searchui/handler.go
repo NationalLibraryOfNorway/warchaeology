@@ -94,7 +94,13 @@ func New(index *fulltext.Index, synchronizers ...*fulltext.Synchronizer) http.Ha
 			http.Error(w, "timeline unavailable", 503)
 			return
 		}
-		_ = json.NewEncoder(w).Encode(map[string]interface{}{"hits": result.Hits, "totalEstimate": result.Total, "timeline": timeline, "offset": req.Offset, "limit": limit})
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"hits":          result.Hits,
+			"totalEstimate": result.Total,
+			"timeline":      timeline,
+			"offset":        req.Offset,
+			"limit":         limit,
+		})
 	})
 	files, _ := fs.Sub(assets, "assets")
 	mux.Handle("GET /", http.FileServer(http.FS(files)))

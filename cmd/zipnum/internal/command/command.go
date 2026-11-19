@@ -52,7 +52,9 @@ func (o *ZipnumOptions) Complete(cmd *cobra.Command, args []string) error {
 func NewOperationCommand(use, short string, args cobra.PositionalArgs) *cobra.Command {
 	flags := ZipnumFlags{}
 	cmd := &cobra.Command{
-		Use: use, Short: short, Args: args,
+		Use:   use,
+		Short: short,
+		Args:  args,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			o := flags.ToOptions()
 			if err := o.Complete(cmd, args); err != nil {

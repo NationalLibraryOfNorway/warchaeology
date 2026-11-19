@@ -49,7 +49,13 @@ func TestOutputPublicationAndProtobuf(t *testing.T) {
 	if e := os.WriteFile(target, []byte("old"), 0600); e != nil {
 		t.Fatal(e)
 	}
-	c := &Capture{Ssu: "com,example)/", Uri: "https://example.com/", Sts: timestamppb.New(time.Now()), Filename: "a.warc", Rle: 7}
+	c := &Capture{
+		Ssu:      "com,example)/",
+		Uri:      "https://example.com/",
+		Sts:      timestamppb.New(time.Now()),
+		Filename: "a.warc",
+		Rle:      7,
+	}
 	s, e := NewOutput(io.Discard, target, "cdxj", dir, false)
 	if e != nil {
 		t.Fatal(e)

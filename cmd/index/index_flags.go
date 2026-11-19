@@ -46,9 +46,11 @@ func (f IndexFlags) AddFlags(cmd *cobra.Command) {
 func (f IndexFlags) ToOptions() (*IndexOptions, error) {
 	parser := f.WarcRecordOptionFlags
 	o := &IndexOptions{
-		WaczConfig: fmt.Sprintf("strict=%t;lenient=%t;lax-host-parsing=%t", parser.StrictValidation(), parser.LenientValidation(), parser.LaxHostParsing()),
-		WaczIndex:  viper.GetString("wacz-index"),
-		Fulltext:   viper.GetBool("fulltext"), TextRebuild: viper.GetBool("fulltext-rebuild"), TextDir: viper.GetString("fulltext-dir"),
+		WaczConfig:        fmt.Sprintf("strict=%t;lenient=%t;lax-host-parsing=%t", parser.StrictValidation(), parser.LenientValidation(), parser.LaxHostParsing()),
+		WaczIndex:         viper.GetString("wacz-index"),
+		Fulltext:          viper.GetBool("fulltext"),
+		TextRebuild:       viper.GetBool("fulltext-rebuild"),
+		TextDir:           viper.GetString("fulltext-dir"),
 		Concurrency:       f.ConcurrencyFlags.Concurrency(),
 		Force:             f.WarcIteratorFlags.Force(),
 		ContinueOnError:   f.ErrorFlags.ContinueOnError(),

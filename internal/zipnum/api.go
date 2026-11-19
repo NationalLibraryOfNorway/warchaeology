@@ -21,5 +21,17 @@ func (o Options) Run(ctx context.Context) error {
 func (o Options) Validate() error { return o.options().validate() }
 
 func (o Options) options() options {
-	return options{inputs: o.Inputs, output: o.Output, add: o.Add, merge: o.Merge, repartition: o.Repartition, verifySources: o.VerifySources, concurrency: o.Concurrency, linesPerBlock: o.LinesPerBlock, blocksPerPart: o.BlocksPerPart, linesSet: o.LinesSet, blocksSet: o.BlocksSet}
+	return options{
+		inputs:        o.Inputs,
+		output:        o.Output,
+		add:           o.Add,
+		merge:         o.Merge,
+		repartition:   o.Repartition,
+		verifySources: o.VerifySources,
+		concurrency:   o.Concurrency,
+		linesPerBlock: o.LinesPerBlock,
+		blocksPerPart: o.BlocksPerPart,
+		linesSet:      o.LinesSet,
+		blocksSet:     o.BlocksSet,
+	}
 }

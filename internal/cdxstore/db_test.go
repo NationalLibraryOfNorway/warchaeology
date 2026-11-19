@@ -52,7 +52,15 @@ func TestBackendContract(t *testing.T) {
 				t.Fatal(e)
 			}
 			c := func(source, key, id string) *index.Capture {
-				return &index.Capture{Source: source, Uri: "https://example.com/", Ssu: key, Sts: timestamppb.New(time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC)), Rid: id, Ref: "warcfile:" + source + "#0", Filename: "same.warc"}
+				return &index.Capture{
+					Source:   source,
+					Uri:      "https://example.com/",
+					Ssu:      key,
+					Sts:      timestamppb.New(time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC)),
+					Rid:      id,
+					Ref:      "warcfile:" + source + "#0",
+					Filename: "same.warc",
+				}
 			}
 			write := func(source, key, id string, finish bool) {
 				t.Helper()
@@ -188,7 +196,14 @@ func TestSameFileIDOccurrences(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, offset := range []int64{0, 100} {
-		c := &index.Capture{Source: "source", Ssu: "example)/", Sts: timestamppb.New(time.Now()), Rid: "duplicate", Offset: offset, Ref: fmt.Sprintf("warcfile:source#%d", offset)}
+		c := &index.Capture{
+			Source: "source",
+			Ssu:    "example)/",
+			Sts:    timestamppb.New(time.Now()),
+			Rid:    "duplicate",
+			Offset: offset,
+			Ref:    fmt.Sprintf("warcfile:source#%d", offset),
+		}
 		if err := db.WriteCapture(fileCtx, c); err != nil {
 			t.Fatal(err)
 		}

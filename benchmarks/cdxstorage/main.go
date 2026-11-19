@@ -379,5 +379,23 @@ func main() {
 	}
 	q := time.Since(start).Seconds() / 100
 	e.close()
-	check(json.NewEncoder(os.Stdout).Encode(map[string]any{"order": *order, "generation_seconds": generationSeconds, "engine": *name, "encoding": *enc, "workload": *work, "seed": *seed, "captures": *n, "unique_urls": *n / 5, "unique_payloads": *n / 3, "wal_off": *off && *name == "pebble", "disposable": *off, "sync_writes": !*off, "phase": *phase, "seconds": elapsed, "entries": count, "checksum": sum, "query_seconds": q}))
+	check(json.NewEncoder(os.Stdout).Encode(map[string]any{
+		"order":              *order,
+		"generation_seconds": generationSeconds,
+		"engine":             *name,
+		"encoding":           *enc,
+		"workload":           *work,
+		"seed":               *seed,
+		"captures":           *n,
+		"unique_urls":        *n / 5,
+		"unique_payloads":    *n / 3,
+		"wal_off":            *off && *name == "pebble",
+		"disposable":         *off,
+		"sync_writes":        !*off,
+		"phase":              *phase,
+		"seconds":            elapsed,
+		"entries":            count,
+		"checksum":           sum,
+		"query_seconds":      q,
+	}))
 }

@@ -20,7 +20,14 @@ func makeVerificationCluster(t *testing.T, dir string) (string, []string) {
 	records := []string{"com,a)/ 1 {\"n\":1}", "com,a)/ 1 {\"n\":2}", "com,b)/ 1 {}", "com,c)/ 1 {}"}
 	raw, root := filepath.Join(dir, "raw"), filepath.Join(dir, "base")
 	writeRecords(t, raw, records, false)
-	if err := (options{input: raw, output: root, concurrency: 2, linesPerBlock: 2, blocksPerPart: 2, newPartID: deterministicIDs(0)}).run(context.Background()); err != nil {
+	if err := (options{
+		input:         raw,
+		output:        root,
+		concurrency:   2,
+		linesPerBlock: 2,
+		blocksPerPart: 2,
+		newPartID:     deterministicIDs(0),
+	}).run(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 	return root, records

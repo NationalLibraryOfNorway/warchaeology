@@ -27,7 +27,12 @@ func unmarshalDonor(b []byte) (*gowarc.RevisitRef, error) {
 	if e != nil {
 		return nil, e
 	}
-	return &gowarc.RevisitRef{TargetRecordId: c.GetRid(), TargetUri: c.GetUri(), Profile: c.GetMct(), TargetDate: c.GetSts().AsTime().UTC().Format(time.RFC3339Nano)}, nil
+	return &gowarc.RevisitRef{
+		TargetRecordId: c.GetRid(),
+		TargetUri:      c.GetUri(),
+		Profile:        c.GetMct(),
+		TargetDate:     c.GetSts().AsTime().UTC().Format(time.RFC3339Nano),
+	}, nil
 }
 func digestKey(key string) []byte { return append([]byte("d/"), storagecodec.Digest(key)...) }
 

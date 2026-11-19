@@ -25,7 +25,13 @@ func benchmarkCluster(b *testing.B, parts, blocks, lines int) string {
 			b.Fatal(err)
 		}
 	}
-	z := &zipnum{output: root, concurrency: 1, linesPerBlock: lines, blocksPerPart: blocks, newPartID: deterministicIDs(0)}
+	z := &zipnum{
+		output:        root,
+		concurrency:   1,
+		linesPerBlock: lines,
+		blocksPerPart: blocks,
+		newPartID:     deterministicIDs(0),
+	}
 	for i := range parts {
 		name, err := z.allocatePartName()
 		if err != nil {
@@ -166,7 +172,13 @@ func BenchmarkClusterOperations(b *testing.B) {
 	slog.SetDefault(slog.New(slog.DiscardHandler))
 	defer slog.SetDefault(logger)
 	emptyCluster := filepath.Join(dir, "empty-cluster")
-	if err := (options{input: emptyRaw, output: emptyCluster, concurrency: 1, linesPerBlock: m.meta.LinesPerBlock, blocksPerPart: m.meta.BlocksPerPart}).run(context.Background()); err != nil {
+	if err := (options{
+		input:         emptyRaw,
+		output:        emptyCluster,
+		concurrency:   1,
+		linesPerBlock: m.meta.LinesPerBlock,
+		blocksPerPart: m.meta.BlocksPerPart,
+	}).run(context.Background()); err != nil {
 		b.Fatal(err)
 	}
 	for _, mode := range []string{"repartition", "merge", "add"} {

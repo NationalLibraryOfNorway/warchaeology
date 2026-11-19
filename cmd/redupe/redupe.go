@@ -67,9 +67,15 @@ type RedupeOptions struct {
 }
 
 func (f *RedupeFlags) ToRedupeOptions() (_ *RedupeOptions, err error) {
-	o := &RedupeOptions{Audit: viper.GetBool("audit"), VerifyPayloads: viper.GetBool("verify-payloads"),
-		ReportPath: viper.GetString("report"), IndexDir: viper.GetString("index-dir"), OutputDir: f.WriterFlags.OutputDir(),
-		Concurrency: f.ConcurrencyFlags.Concurrency(), MinimumSizeGain: util.ParseSizeInBytes(viper.GetString("min-size-gain"))}
+	o := &RedupeOptions{
+		Audit:           viper.GetBool("audit"),
+		VerifyPayloads:  viper.GetBool("verify-payloads"),
+		ReportPath:      viper.GetString("report"),
+		IndexDir:        viper.GetString("index-dir"),
+		OutputDir:       f.WriterFlags.OutputDir(),
+		Concurrency:     f.ConcurrencyFlags.Concurrency(),
+		MinimumSizeGain: util.ParseSizeInBytes(viper.GetString("min-size-gain")),
+	}
 	defer func() {
 		if err != nil {
 			err = errors.Join(err, o.Close())
@@ -106,17 +112,27 @@ func (f *RedupeFlags) ToRedupeOptions() (_ *RedupeOptions, err error) {
 			return nil, err
 		}
 	}
-	o.configuration = map[string]any{"policy": "utc-year-preserve-all-v1", "min_size_gain": o.MinimumSizeGain,
-		"compress": f.WriterFlags.Compress(), "compression_level": f.WriterFlags.CompressionLevel(),
-		"file_size": f.WriterFlags.FileSize(), "prefix": f.WriterFlags.FilePrefix(), "warc_version": f.WriterFlags.WarcVersion(),
-		"concurrent_writers": f.WriterFlags.ConcurrentWriters(), "flush": f.WriterFlags.Flush(),
-		"open_output_hook": f.OutputHookFlags.OpenOutputFileHook(), "close_output_hook": f.OutputHookFlags.CloseOutputFileHook()}
+	o.configuration = map[string]any{
+		"policy":             "utc-year-preserve-all-v1",
+		"min_size_gain":      o.MinimumSizeGain,
+		"compress":           f.WriterFlags.Compress(),
+		"compression_level":  f.WriterFlags.CompressionLevel(),
+		"file_size":          f.WriterFlags.FileSize(),
+		"prefix":             f.WriterFlags.FilePrefix(),
+		"warc_version":       f.WriterFlags.WarcVersion(),
+		"concurrent_writers": f.WriterFlags.ConcurrentWriters(),
+		"flush":              f.WriterFlags.Flush(),
+		"open_output_hook":   f.OutputHookFlags.OpenOutputFileHook(),
+		"close_output_hook":  f.OutputHookFlags.CloseOutputFileHook(),
+	}
 	return o, nil
 }
 
 func NewCmdRedupe() *cobra.Command {
 	f := NewRedupeFlags()
-	cmd := &cobra.Command{Use: "redupe SOURCE...", Short: "Rebuild self-contained yearly WARC collections",
+	cmd := &cobra.Command{
+		Use:               "redupe SOURCE...",
+		Short:             "Rebuild self-contained yearly WARC collections",
 		Long:              "Rebuild self-contained UTC yearly WARC collections. Every input record is retained\n(or accounted for as an identical alias). There are no record or date filters.\nUnsupported or unresolved payload dependencies block publication of affected years.",
 		ValidArgsFunction: flag.SuffixCompletionFn,
 		RunE: func(cmd *cobra.Command, args []string) (err error) {
@@ -135,7 +151,8 @@ func NewCmdRedupe() *cobra.Command {
 			defer cancel()
 			cmd.SilenceUsage = true
 			return o.Run(ctx)
-		}}
+		},
+	}
 	f.AddFlags(cmd)
 	return cmd
 }

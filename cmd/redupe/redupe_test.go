@@ -48,7 +48,12 @@ func full(t *testing.T, id, date string) gowarc.WarcRecord {
 func revisit(t *testing.T, id, date string, target gowarc.WarcRecord) gowarc.WarcRecord {
 	t.Helper()
 	original := full(t, id, date)
-	ref := &gowarc.RevisitRef{Profile: gowarc.ProfileIdenticalPayloadDigestV1_1, TargetRecordId: target.RecordId(), TargetUri: target.WarcHeader().Get(gowarc.WarcTargetURI), TargetDate: target.WarcHeader().Get(gowarc.WarcDate)}
+	ref := &gowarc.RevisitRef{
+		Profile:        gowarc.ProfileIdenticalPayloadDigestV1_1,
+		TargetRecordId: target.RecordId(),
+		TargetUri:      target.WarcHeader().Get(gowarc.WarcTargetURI),
+		TargetDate:     target.WarcHeader().Get(gowarc.WarcDate),
+	}
 	wr, err := original.ToRevisitRecord(ref)
 	if err != nil {
 		t.Fatal(err)
@@ -83,8 +88,16 @@ func testOptions(t *testing.T, paths ...string) *RedupeOptions {
 	if err != nil {
 		t.Fatal(err)
 	}
-	o := &RedupeOptions{Paths: paths, OutputDir: out, IndexDir: t.TempDir(), Concurrency: 2, MinimumSizeGain: 0,
-		FileWalker: filewalker.New(filewalker.WithFs(afero.NewOsFs())), WriterConfig: config, configuration: map[string]any{"policy": "test"}}
+	o := &RedupeOptions{
+		Paths:           paths,
+		OutputDir:       out,
+		IndexDir:        t.TempDir(),
+		Concurrency:     2,
+		MinimumSizeGain: 0,
+		FileWalker:      filewalker.New(filewalker.WithFs(afero.NewOsFs())),
+		WriterConfig:    config,
+		configuration:   map[string]any{"policy": "test"},
+	}
 	t.Cleanup(func() {
 		if err := o.Close(); err != nil {
 			t.Error(err)

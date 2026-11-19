@@ -36,17 +36,25 @@ func (f ServeFlags) AddFlags(cmd *cobra.Command) {
 
 func (f ServeFlags) ToOptions() (*ServeOptions, error) {
 	o := &ServeOptions{
-		address:  viper.GetString("address"),
-		fulltext: viper.GetBool("fulltext"), textDir: viper.GetString("fulltext-dir"), textRebuild: viper.GetBool("fulltext-rebuild"),
+		address:        viper.GetString("address"),
+		fulltext:       viper.GetBool("fulltext"),
+		textDir:        viper.GetString("fulltext-dir"),
+		textRebuild:    viper.GetBool("fulltext-rebuild"),
 		collectionsDir: viper.GetString("collections-dir"),
-		httpOptions:    captures.Options{MaxBytes: viper.GetInt64("upload-max-bytes"), MaxLine: viper.GetInt("upload-max-line"), UploadTimeout: viper.GetDuration("upload-timeout"), ScanLimit: viper.GetInt("query-scan-limit"), ResultLimit: viper.GetInt("query-result-limit")},
-		prefix:         strings.TrimRight(viper.GetString("path-prefix"), "/"),
-		format:         viper.GetString("index-format"),
-		zipnumDir:      viper.GetString("zipnum-dir"),
-		readOnly:       viper.GetBool("read-only"),
-		hasInputs:      viper.GetString("source-file-list") != "",
-		prefixLimit:    viper.GetInt("warcserver-prefix-max-records"),
-		database:       f.IndexFlags.CaptureDatabaseFlags.ToOptions(),
+		httpOptions: captures.Options{
+			MaxBytes:      viper.GetInt64("upload-max-bytes"),
+			MaxLine:       viper.GetInt("upload-max-line"),
+			UploadTimeout: viper.GetDuration("upload-timeout"),
+			ScanLimit:     viper.GetInt("query-scan-limit"),
+			ResultLimit:   viper.GetInt("query-result-limit"),
+		},
+		prefix:      strings.TrimRight(viper.GetString("path-prefix"), "/"),
+		format:      viper.GetString("index-format"),
+		zipnumDir:   viper.GetString("zipnum-dir"),
+		readOnly:    viper.GetBool("read-only"),
+		hasInputs:   viper.GetString("source-file-list") != "",
+		prefixLimit: viper.GetInt("warcserver-prefix-max-records"),
+		database:    f.IndexFlags.CaptureDatabaseFlags.ToOptions(),
 	}
 	o.database.ReadOnly = o.readOnly
 	if o.format != zipnumFormat && !o.readOnly && o.collectionsDir == "" {

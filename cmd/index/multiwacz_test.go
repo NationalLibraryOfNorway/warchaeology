@@ -44,7 +44,11 @@ func packageBytes(t *testing.T, entries map[string][]byte) []byte {
 }
 func leafPackage(t *testing.T) []byte {
 	f := fixtures(t)[0]
-	return packageBytes(t, map[string][]byte{"archive/" + f.Name: f.Warc, "indexes/index.cdxj": []byte(f.Cdxj), "datapackage.json": []byte(`{"title":"Leaf","custom":9007199254740993}`)})
+	return packageBytes(t, map[string][]byte{
+		"archive/" + f.Name:  f.Warc,
+		"indexes/index.cdxj": []byte(f.Cdxj),
+		"datapackage.json":   []byte(`{"title":"Leaf","custom":9007199254740993}`),
+	})
 }
 func runPackage(t *testing.T, db *cdxstore.DB, name string) error {
 	t.Helper()

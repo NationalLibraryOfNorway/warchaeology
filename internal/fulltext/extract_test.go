@@ -21,7 +21,13 @@ func TestExtractBrowsertrixResource(t *testing.T) {
 	if err := os.WriteFile(path, []byte(raw), 0600); err != nil {
 		t.Fatal(err)
 	}
-	c := &cdx.Capture{Uri: "urn:text:https://example.org/", Mct: "text/plain", Ref: "warcfile:" + path + "#0", Source: path, Sts: timestamppb.New(time.Now())}
+	c := &cdx.Capture{
+		Uri:    "urn:text:https://example.org/",
+		Mct:    "text/plain",
+		Ref:    "warcfile:" + path + "#0",
+		Source: path,
+		Sts:    timestamppb.New(time.Now()),
+	}
 	doc, err := Extract(context.Background(), loader.FileStorageLoader{}, c, 1024)
 	if err != nil {
 		t.Fatal(err)

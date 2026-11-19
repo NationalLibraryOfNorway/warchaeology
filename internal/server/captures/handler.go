@@ -71,7 +71,12 @@ func New(ctx context.Context, o Options, single *cdxstore.DB) (*Handler, error) 
 			if !e.IsDir() || !validName.MatchString(e.Name()) {
 				continue
 			}
-			db, err := cdxstore.Open(ctx, cdxstore.Options{Format: "badger", Dir: filepath.Join(o.Directory, e.Name()), ReadOnly: o.ReadOnly, IndexOnly: true})
+			db, err := cdxstore.Open(ctx, cdxstore.Options{
+				Format:    "badger",
+				Dir:       filepath.Join(o.Directory, e.Name()),
+				ReadOnly:  o.ReadOnly,
+				IndexOnly: true,
+			})
 			if err != nil {
 				_ = h.Close()
 				return nil, fmt.Errorf("collection %s: %w", e.Name(), err)

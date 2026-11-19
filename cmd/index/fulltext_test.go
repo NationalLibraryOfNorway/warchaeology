@@ -15,7 +15,11 @@ func TestNestedInlineTextBackfillOnCachedPackage(t *testing.T) {
 	leaf := leafPackage(t)
 	// A nested package with inline text also exercises page-only metadata.
 	pages := []byte("{\"format\":\"json-pages-1.0\"}\n{\"url\":\"https://example.org/\",\"title\":\"Northern archive\",\"text\":\"Blåbær and northern lights\",\"ts\":\"2026-01-01T00:00:00Z\"}\n")
-	leaf = packageBytes(t, map[string][]byte{"child.wacz": leaf, "pages/pages.jsonl": pages, "datapackage.json": []byte(`{"resources":[{"path":"child.wacz"}]}`)})
+	leaf = packageBytes(t, map[string][]byte{
+		"child.wacz":        leaf,
+		"pages/pages.jsonl": pages,
+		"datapackage.json":  []byte(`{"resources":[{"path":"child.wacz"}]}`),
+	})
 	path := filepath.Join(t.TempDir(), "nested.wacz")
 	if err := os.WriteFile(path, packageBytes(t, map[string][]byte{"leaf.wacz": leaf}), 0600); err != nil {
 		t.Fatal(err)

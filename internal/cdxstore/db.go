@@ -79,7 +79,14 @@ func Open(ctx context.Context, o Options) (*DB, error) {
 	if string(mode) != "index-only" && string(mode) != "full" {
 		return fail(fmt.Errorf("invalid database capabilities"))
 	}
-	d := &DB{kv: k, readOnly: o.ReadOnly, indexOnly: string(mode) == "index-only", dir: o.Dir, tasks: map[string]context.CancelFunc{}, deleted: map[string]bool{}}
+	d := &DB{
+		kv:        k,
+		readOnly:  o.ReadOnly,
+		indexOnly: string(mode) == "index-only",
+		dir:       o.Dir,
+		tasks:     map[string]context.CancelFunc{},
+		deleted:   map[string]bool{},
+	}
 	pending, e := k.Get(ctx, resetKey)
 	if e != nil {
 		return fail(e)
@@ -364,7 +371,14 @@ func (d *DB) finishReset(ctx context.Context) error {
 
 func queryFromRequest(req index.Request) index.Query {
 	key := req.Ssurt()
-	q := index.Query{Key: key, Match: "exact", Lower: key + " ", Upper: key + "!", Limit: req.Limit(), Closest: req.Closest()}
+	q := index.Query{
+		Key:     key,
+		Match:   "exact",
+		Lower:   key + " ",
+		Upper:   key + "!",
+		Limit:   req.Limit(),
+		Closest: req.Closest(),
+	}
 	if key == "" {
 		q.Lower = ""
 		q.Upper = ""
@@ -395,7 +409,14 @@ func queryFromRequest(req index.Request) index.Query {
 
 func (d *DB) IndexOnly() bool { return d.indexOnly }
 func (d *DB) Capabilities() map[string]any {
-	return map[string]any{"format": formatVersion, "indexOnly": d.indexOnly, "recordIDLookup": !d.indexOnly, "nativeContent": !d.indexOnly, "completeRecordIDCoverage": false, "writable": !d.readOnly}
+	return map[string]any{
+		"format":                   formatVersion,
+		"indexOnly":                d.indexOnly,
+		"recordIDLookup":           !d.indexOnly,
+		"nativeContent":            !d.indexOnly,
+		"completeRecordIDCoverage": false,
+		"writable":                 !d.readOnly,
+	}
 }
 func (d *DB) Stats(ctx context.Context) (map[string]any, error) {
 	n, e := d.count(ctx)

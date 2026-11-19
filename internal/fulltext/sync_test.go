@@ -35,7 +35,14 @@ func TestSyncVisibilityReplacementDeletionAndReopen(t *testing.T) {
 			t.Fatal(err)
 		}
 		if text != "" {
-			err = db.WriteCapture(generation, &cdx.Capture{Uri: uri, Ssu: "stored-text-key", Mct: "Text/Plain; charset=UTF-8", Source: path, Ref: "warcfile:" + path + "#0", Sts: timestamppb.New(time.Date(2026, 1, 1, 20, 15, 59, 0, time.UTC))})
+			err = db.WriteCapture(generation, &cdx.Capture{
+				Uri:    uri,
+				Ssu:    "stored-text-key",
+				Mct:    "Text/Plain; charset=UTF-8",
+				Source: path,
+				Ref:    "warcfile:" + path + "#0",
+				Sts:    timestamppb.New(time.Date(2026, 1, 1, 20, 15, 59, 0, time.UTC)),
+			})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -123,7 +130,12 @@ func TestPhraseAndTimelineCoverAllMatches(t *testing.T) {
 	start := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	var docs []Document
 	for n := 0; n < 60; n++ {
-		docs = append(docs, Document{ID: fmt.Sprint(n), URL: "https://example.org/", Text: "northern lights", Timestamp: start.Add(time.Duration(n) * time.Hour)})
+		docs = append(docs, Document{
+			ID:        fmt.Sprint(n),
+			URL:       "https://example.org/",
+			Text:      "northern lights",
+			Timestamp: start.Add(time.Duration(n) * time.Hour),
+		})
 	}
 	docs = append(docs, Document{ID: "different", URL: "https://example.org/", Text: "lights in the northern sky", Timestamp: start})
 	if err = idx.Publish(t.Context(), docs, nil); err != nil {

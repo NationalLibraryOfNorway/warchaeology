@@ -15,7 +15,12 @@ func TestDonorFailureAndConcurrentRegistration(t *testing.T) {
 		t.Fatal(e)
 	}
 	defer idx.Close()
-	ref := &gowarc.RevisitRef{Profile: gowarc.ProfileIdenticalPayloadDigestV1_1, TargetRecordId: "https://example.com/record/1", TargetUri: "https://example.com/", TargetDate: "2020-01-01T00:00:00.123456789Z"}
+	ref := &gowarc.RevisitRef{
+		Profile:        gowarc.ProfileIdenticalPayloadDigestV1_1,
+		TargetRecordId: "https://example.com/record/1",
+		TargetUri:      "https://example.com/",
+		TargetDate:     "2020-01-01T00:00:00.123456789Z",
+	}
 	failure := errors.New("output failed")
 	if e = idx.WriteWithDonor("sha1:1234", ref, func(*gowarc.RevisitRef) error { return failure }); !errors.Is(e, failure) {
 		t.Fatal(e)

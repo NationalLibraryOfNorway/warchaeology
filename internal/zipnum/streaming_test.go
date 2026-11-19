@@ -111,7 +111,14 @@ func TestPartitionOutOfOrderCompletion(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	z := &zipnum{output: stage, concurrency: 2, linesPerBlock: 1, blocksPerPart: 1, getKey: getPartitionKey, newPartID: deterministicIDs(0)}
+	z := &zipnum{
+		output:        stage,
+		concurrency:   2,
+		linesPerBlock: 1,
+		blocksPerPart: 1,
+		getKey:        getPartitionKey,
+		newPartID:     deterministicIDs(0),
+	}
 	first := partPrefix + deterministicIDs(0)().String() + partExt
 	last := partPrefix + deterministicIDs(15)().String()
 	gate, laterFinished := make(chan struct{}), make(chan struct{})

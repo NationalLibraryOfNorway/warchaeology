@@ -51,7 +51,16 @@ func TestVirtualArchiveRangeAndCDX(t *testing.T) {
 			if e != nil {
 				t.Fatal(e)
 			}
-			capture := &cdx.Capture{Uri: "https://example.org/", Ssu: cdx.CanonicalKey("https://example.org/"), Source: string(locator), Filename: "same.warc.gz", Ref: "warcfile:" + string(locator) + "#2", Offset: 2, Rle: 4, Sts: timestamppb.New(time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC))}
+			capture := &cdx.Capture{
+				Uri:      "https://example.org/",
+				Ssu:      cdx.CanonicalKey("https://example.org/"),
+				Source:   string(locator),
+				Filename: "same.warc.gz",
+				Ref:      "warcfile:" + string(locator) + "#2",
+				Offset:   2,
+				Rle:      4,
+				Sts:      timestamppb.New(time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)),
+			}
 			if e = db.WriteCapture(generation, capture); e != nil {
 				t.Fatal(e)
 			}

@@ -68,7 +68,18 @@ func Extract(ctx context.Context, records loader.RecordLoader, c *cdx.Capture, m
 		return nil, err
 	}
 	sum := sha256.Sum256([]byte(c.GetRef()))
-	return &Document{ID: hex.EncodeToString(sum[:]), URL: original, Host: strings.ToLower(parsed.Hostname()), Text: string(text), Timestamp: c.GetSts().AsTime(), Source: c.GetSource(), Generation: c.GetGeneration(), CaptureKey: c.GetSsu(), CaptureURI: c.GetUri(), Ref: c.GetRef(), Snippet: snippet(string(text))}, nil
+	return &Document{
+		ID:         hex.EncodeToString(sum[:]),
+		URL:        original,
+		Host:       strings.ToLower(parsed.Hostname()),
+		Text:       string(text),
+		Timestamp:  c.GetSts().AsTime(),
+		Source:     c.GetSource(),
+		Generation: c.GetGeneration(),
+		CaptureKey: c.GetSsu(), CaptureURI: c.GetUri(),
+		Ref:     c.GetRef(),
+		Snippet: snippet(string(text)),
+	}, nil
 }
 
 func snippet(text string) string {

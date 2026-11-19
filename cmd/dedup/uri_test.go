@@ -54,7 +54,12 @@ func TestURITextPreserved(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	o := &DedupOptions{WarcWriterConfig: cfg, DigestIndex: idx, RecordTypes: []gowarc.RecordType{gowarc.Response}, MinimumSizeGain: 0}
+	o := &DedupOptions{
+		WarcWriterConfig: cfg,
+		DigestIndex:      idx,
+		RecordTypes:      []gowarc.RecordType{gowarc.Response},
+		MinimumSizeGain:  0,
+	}
 	defer o.Close()
 	result, err := o.handleFile(afero.NewOsFs(), input)
 	if err != nil {

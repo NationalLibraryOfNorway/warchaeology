@@ -45,7 +45,19 @@ func NewCapture(rec gowarc.Record, source, filename string) (*Capture, error) {
 	if err != nil {
 		return nil, err
 	}
-	c := &Capture{Uri: h.Get(gowarc.WarcTargetURI), Sts: timestamppb.New(t), Srt: wr.Type().String(), Rid: wr.RecordId(), Rct: h.GetId(gowarc.WarcConcurrentTo), Rle: rec.Size, Offset: rec.Offset, Source: source, Filename: filename, Dig: h.Get(gowarc.WarcPayloadDigest), Mct: h.Get(gowarc.ContentType)}
+	c := &Capture{
+		Uri:      h.Get(gowarc.WarcTargetURI),
+		Sts:      timestamppb.New(t),
+		Srt:      wr.Type().String(),
+		Rid:      wr.RecordId(),
+		Rct:      h.GetId(gowarc.WarcConcurrentTo),
+		Rle:      rec.Size,
+		Offset:   rec.Offset,
+		Source:   source,
+		Filename: filename,
+		Dig:      h.Get(gowarc.WarcPayloadDigest),
+		Mct:      h.Get(gowarc.ContentType),
+	}
 	c.Ref = "warcfile:" + source + "#" + strconv.FormatInt(rec.Offset, 10)
 	c.Ssu = CanonicalKey(c.GetUri())
 	c.Cle, _ = h.GetInt64(gowarc.ContentLength)
@@ -159,7 +171,17 @@ func ParseLine(line []byte) (*Capture, error) {
 		return nil, err
 	}
 	str := func(k string) string { v, _ := m[k].(string); return v }
-	c := &Capture{Ssu: fields[0], Sts: timestamppb.New(t), Uri: str("url"), Mct: str("mime"), Dig: str("digest"), Filename: str("filename"), Method: str("method"), RequestBody: str("requestBody"), ExtraJson: []byte(fields[2])}
+	c := &Capture{
+		Ssu:         fields[0],
+		Sts:         timestamppb.New(t),
+		Uri:         str("url"),
+		Mct:         str("mime"),
+		Dig:         str("digest"),
+		Filename:    str("filename"),
+		Method:      str("method"),
+		RequestBody: str("requestBody"),
+		ExtraJson:   []byte(fields[2]),
+	}
 	c.Offset, _ = strconv.ParseInt(str("offset"), 10, 64)
 	c.Rle, _ = strconv.ParseInt(str("length"), 10, 64)
 	status, _ := strconv.Atoi(str("status"))

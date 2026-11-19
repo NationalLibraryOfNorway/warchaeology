@@ -44,7 +44,15 @@ func fixtures(t *testing.T) []fixture {
 }
 
 func options(sink cdx.Sink, paths ...string) *IndexOptions {
-	return &IndexOptions{Paths: paths, Concurrency: 2, FileWalker: filewalker.New(filewalker.WithFs(afero.NewOsFs())), Filter: filter.New(filter.WithRecordTypes(gowarc.Response | gowarc.Revisit | gowarc.Resource | gowarc.Metadata)), DefaultRecords: true, Sink: sink, WarcRecordOptions: []gowarc.WarcRecordOption{gowarc.WithSyntaxErrorPolicy(gowarc.ErrWarn), gowarc.WithSpecViolationPolicy(gowarc.ErrWarn)}}
+	return &IndexOptions{
+		Paths:             paths,
+		Concurrency:       2,
+		FileWalker:        filewalker.New(filewalker.WithFs(afero.NewOsFs())),
+		Filter:            filter.New(filter.WithRecordTypes(gowarc.Response | gowarc.Revisit | gowarc.Resource | gowarc.Metadata)),
+		DefaultRecords:    true,
+		Sink:              sink,
+		WarcRecordOptions: []gowarc.WarcRecordOption{gowarc.WithSyntaxErrorPolicy(gowarc.ErrWarn), gowarc.WithSpecViolationPolicy(gowarc.ErrWarn)},
+	}
 }
 
 func entries(t *testing.T, s string) []any {
@@ -235,7 +243,11 @@ func TestPinnedSURTCompatibility(t *testing.T) {
 	if e = json.Unmarshal(b, &cases); e != nil {
 		t.Fatal(e)
 	}
-	differences := map[string]string{"http://example.com\\path": "com,example)/path", "http://example.com/../a": "com,example)/a", "http://example.com/%2e%2e/a": "com,example)/a"}
+	differences := map[string]string{
+		"http://example.com\\path":    "com,example)/path",
+		"http://example.com/../a":     "com,example)/a",
+		"http://example.com/%2e%2e/a": "com,example)/a",
+	}
 	for _, c := range cases {
 		want := c.Reference
 		if intentional, ok := differences[c.URL]; ok {

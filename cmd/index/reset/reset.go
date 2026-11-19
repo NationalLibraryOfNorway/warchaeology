@@ -46,7 +46,9 @@ func (o *ResetOptions) Close() error {
 func NewCmdReset() *cobra.Command {
 	flags := ResetFlags{}
 	cmd := &cobra.Command{
-		Use: "reset", Short: "Reset the selected index database", Args: cobra.NoArgs,
+		Use:   "reset",
+		Short: "Reset the selected index database",
+		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) (err error) {
 			o := flags.ToOptions()
 			defer func() { err = errors.Join(err, o.Close()) }()

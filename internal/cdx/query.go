@@ -60,7 +60,16 @@ type captureFilter struct {
 
 //nolint:gocyclo // Validate the complete query before any output is written.
 func ParseQuery(v url.Values) (Query, error) {
-	q := Query{Match: v.Get("matchType"), From: v.Get("from"), To: v.Get("to"), Order: v.Get("sort"), Closest: v.Get("closest"), Output: v.Get("output"), Limit: 0, PageSize: 10}
+	q := Query{
+		Match:    v.Get("matchType"),
+		From:     v.Get("from"),
+		To:       v.Get("to"),
+		Order:    v.Get("sort"),
+		Closest:  v.Get("closest"),
+		Output:   v.Get("output"),
+		Limit:    0,
+		PageSize: 10,
+	}
 	raw := v.Get("url")
 	if raw == "" && v.Get("urlkey") == "" {
 		return q, fmt.Errorf("url is required")

@@ -43,7 +43,12 @@ func TestCLIValidationAndVersion(t *testing.T) {
 		{"blocks", options{input: in, output: filepath.Join(dir, "d"), concurrency: 1, blocksSet: true}},
 		{"empty output", options{input: in, concurrency: 1}},
 		{"merge count", options{input: in, output: filepath.Join(dir, "e"), merge: true, concurrency: 1}},
-		{"repartition count", options{input: in + "," + filepath.Join(dir, "missing*"), output: filepath.Join(dir, "f"), repartition: true, concurrency: 1}},
+		{"repartition count", options{
+			input:       in + "," + filepath.Join(dir, "missing*"),
+			output:      filepath.Join(dir, "f"),
+			repartition: true,
+			concurrency: 1,
+		}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -90,7 +95,13 @@ func TestLegacyMigrationAndUUIDReuse(t *testing.T) {
 	}
 	srcPart := srcManifest.parts[0]
 	preservedOut := filepath.Join(dir, "preserved")
-	if err := (options{input: source + "," + empty, output: preservedOut, merge: true, concurrency: 1, newPartID: deterministicIDs(60)}).run(context.Background()); err != nil {
+	if err := (options{
+		input:       source + "," + empty,
+		output:      preservedOut,
+		merge:       true,
+		concurrency: 1,
+		newPartID:   deterministicIDs(60),
+	}).run(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 	preserved, err := readCluster(preservedOut)
@@ -109,7 +120,15 @@ func TestLegacyMigrationAndUUIDReuse(t *testing.T) {
 	}
 
 	legacy := filepath.Join(dir, "legacy")
-	if err := (options{input: source, output: legacy, repartition: true, concurrency: 1, linesPerBlock: 1, blocksPerPart: 1, newPartID: deterministicIDs(70)}).run(context.Background()); err != nil {
+	if err := (options{
+		input:         source,
+		output:        legacy,
+		repartition:   true,
+		concurrency:   1,
+		linesPerBlock: 1,
+		blocksPerPart: 1,
+		newPartID:     deterministicIDs(70),
+	}).run(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 	lm, _ := readCluster(legacy)
@@ -131,7 +150,13 @@ func TestLegacyMigrationAndUUIDReuse(t *testing.T) {
 		t.Fatal(err)
 	}
 	migrated := filepath.Join(dir, "migrated")
-	if err := (options{input: legacy + "," + empty, output: migrated, merge: true, concurrency: 1, newPartID: deterministicIDs(80)}).run(context.Background()); err != nil {
+	if err := (options{
+		input:       legacy + "," + empty,
+		output:      migrated,
+		merge:       true,
+		concurrency: 1,
+		newPartID:   deterministicIDs(80),
+	}).run(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 	mm, _ := readCluster(migrated)
