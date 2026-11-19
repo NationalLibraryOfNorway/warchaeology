@@ -8,7 +8,11 @@ import (
 	"archive/zip"
 	"bytes"
 	"context"
+	"crypto/sha1"
+	"encoding/base32"
 	"encoding/json"
+	"fmt"
+	"github.com/nationallibraryofnorway/warchaeology/v5/internal/fulltext"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -214,7 +218,11 @@ func TestDedupPublicationFailureLeavesIndexesUncommitted(t *testing.T) {
 			}
 			args := []string{"dedup", "--output-dir", out, "--index-dir", work, "--keep-index", "--compress=false",
 				"--min-disk-free=0", "--min-index-disk-free=0", "--concurrent-writers=1", mode, source}
-			if err := executeCaptureCommand(t, args...); err == nil || !strings.Contains(err.Error(), "rename") {
+			want := "rename"
+			if mode == "--one-to-one" {
+				want = "reserve"
+			}
+			if err := executeCaptureCommand(t, args...); err == nil || !strings.Contains(err.Error(), want) {
 				t.Fatalf("expected a publication error, got %v", err)
 			}
 			donor, err := index.NewDigestIndex(work, true, false)
@@ -413,6 +421,206 @@ func TestWACZRevalidatesAfterParserConfigChange(t *testing.T) {
 	}
 }
 
+func resourceBytes(id int) []byte {
+	return resourceWithBody(id, strings.Repeat("payload", 500))
+}
+
+func resourceWithBody(id int, body string) []byte {
+	digest := sha1.Sum([]byte(body))
+	return fmt.Appendf(nil, "WARC/1.1\r\nWARC-Type: resource\r\nWARC-Record-ID: <urn:uuid:20add669-b781-4c66-977c-%012d>\r\nWARC-Date: 2022-01-01T00:00:00Z\r\nWARC-Target-URI: https://example.org/%d\r\nContent-Type: text/plain\r\nWARC-Payload-Digest: sha1:%s\r\nContent-Length: %d\r\n\r\n%s\r\n\r\n", id, id, base32.StdEncoding.EncodeToString(digest[:]), len(body), body)
+}
+
+func TestDedupOneToOneCollision(t *testing.T) {
+	for _, mode := range []string{"--deterministic", "--concurrency=2"} {
+		t.Run(mode, func(t *testing.T) {
+			out := t.TempDir()
+			args := []string{"dedup", "--one-to-one", mode, "--output-dir", out, "--index-dir", t.TempDir(), "--keep-index", "--compress=false", "--min-disk-free=0", "--min-index-disk-free=0"}
+			for i := range 2 {
+				p := filepath.Join(t.TempDir(), "capture.warc")
+				if err := os.WriteFile(p, resourceBytes(i), 0600); err != nil {
+					t.Fatal(err)
+				}
+				args = append(args, p)
+			}
+			if err := executeCaptureCommand(t, args...); err == nil || !strings.Contains(err.Error(), "reserve") {
+				t.Fatalf("collision error %v", err)
+			}
+			data, err := os.ReadFile(filepath.Join(out, "capture.warc"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !bytes.Contains(data, []byte("WARC-Type: resource")) || bytes.Contains(data, []byte("WARC-Type: revisit")) {
+				t.Fatal("published donor lost")
+			}
+			if err := executeCaptureCommand(t, "audit", out); err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+}
+
+func TestIndexSelectionStopsBeforeMalformedRecord(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "partial.warc")
+	if err := os.WriteFile(p, append(resourceBytes(0), "WARC/1.1\r\ninvalid\r\n\r\n"...), 0600); err != nil {
+		t.Fatal(err)
+	}
+	for _, flag := range []string{"--limit=1", "--nth=1"} {
+		out := filepath.Join(t.TempDir(), "index.cdxj")
+		if err := executeCaptureCommand(t, "index", flag, "--post-append", "--index-file", out, p); err != nil {
+			t.Fatal(err)
+		}
+		data, err := os.ReadFile(out)
+		if err != nil || !bytes.Contains(data, []byte("example.org/0")) {
+			t.Fatalf("capture %s, %v", data, err)
+		}
+	}
+}
+
+func TestIndexLimitWithPairedRequest(t *testing.T) {
+	for _, first := range []string{"request", "response"} {
+		t.Run(first, func(t *testing.T) {
+			var data bytes.Buffer
+			second := "response"
+			if first == "response" {
+				second = "request"
+			}
+			for i, kind := range []string{first, second} {
+				block := "HTTP/1.1 200 OK\r\n\r\nresult"
+				if kind == "request" {
+					block = "POST / HTTP/1.1\r\nContent-Type: application/x-www-form-urlencoded\r\nContent-Length: 3\r\n\r\nx=y"
+				}
+				const id = "urn:uuid:20add669-b781-4c66-977c-"
+				fmt.Fprintf(&data, "WARC/1.1\r\nWARC-Type: %s\r\nWARC-Record-ID: <%s%012d>\r\nWARC-Date: 2022-01-01T00:00:00Z\r\nWARC-Target-URI: https://example.org/\r\n", kind, id, i)
+				if i == 1 {
+					fmt.Fprintf(&data, "WARC-Concurrent-To: <%s%012d>\r\n", id, 0)
+				}
+				fmt.Fprintf(&data, "Content-Type: application/http; msgtype=%s\r\nContent-Length: %d\r\n\r\n%s\r\n\r\n", kind, len(block), block)
+			}
+			data.WriteString("WARC/1.1\r\ninvalid\r\n\r\n")
+			path := filepath.Join(t.TempDir(), "input.warc")
+			if err := os.WriteFile(path, data.Bytes(), 0600); err != nil {
+				t.Fatal(err)
+			}
+			out := filepath.Join(t.TempDir(), "out.cdxj")
+			if err := executeCaptureCommand(t, "index", "--post-append", "--limit=1", "--index-file", out, path); err != nil {
+				t.Fatal(err)
+			}
+			rows, err := os.ReadFile(out)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if bytes.Count(rows, []byte("\n")) != 1 || !bytes.Contains(rows, []byte(`"requestBody":"x=y"`)) {
+				t.Fatalf("emitted %s", rows)
+			}
+		})
+	}
+}
+
+func TestFulltextIndexesMixedCaseResources(t *testing.T) {
+	dir := t.TempDir()
+	source := filepath.Join(dir, "resources.warc")
+	second := bytes.Replace(resourceWithBody(2, "northern lights"), []byte("text/plain"), []byte("Text/Plain; charset=UTF-8"), 1)
+	if err := os.WriteFile(source, append(resourceWithBody(1, "northern summer"), second...), 0600); err != nil {
+		t.Fatal(err)
+	}
+	textDir := filepath.Join(dir, "text")
+	if err := executeCaptureCommand(t, "index", "--index-format=badger", "--index-dir", dir, "--fulltext", "--fulltext-dir", textDir, source); err != nil {
+		t.Fatal(err)
+	}
+	idx, err := fulltext.Open(textDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer testcheck.Close(t, idx)
+	hits, err := idx.Search(t.Context(), fulltext.Request{Query: "northern"})
+	if err != nil || hits.Total != 2 {
+		t.Fatalf("search = %+v, %v", hits, err)
+	}
+}
+
+func TestNativeCloseHookControlsPublication(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("uses shell hook")
+	}
+	for _, ext := range []string{".warc", ".wacz"} {
+		t.Run(ext, func(t *testing.T) {
+			dir := t.TempDir()
+			path := filepath.Join(t.TempDir(), "input"+ext)
+			for _, step := range []struct {
+				id      int
+				reject  bool
+				visible int
+			}{{1, true, 0}, {1, false, 1}, {2, true, 1}, {2, false, 2}} {
+				body := resourceBytes(step.id)
+				if ext == ".wacz" {
+					var data bytes.Buffer
+					z := zip.NewWriter(&data)
+					w, e := z.Create("archive/input.warc")
+					if e != nil {
+						t.Fatal(e)
+					}
+					if _, e = w.Write(body); e != nil {
+						t.Fatal(e)
+					}
+					if e = z.Close(); e != nil {
+						t.Fatal(e)
+					}
+					body = data.Bytes()
+				}
+				if err := os.WriteFile(path, body, 0600); err != nil {
+					t.Fatal(err)
+				}
+				args := []string{"index", "--index-format", "badger", "--index-dir", dir, path}
+				if step.reject {
+					args = append(args, "--close-input-file-hook", "/bin/false")
+				}
+				if err := executeCaptureCommand(t, args...); (err != nil) != step.reject {
+					t.Fatalf("ingest: %v", err)
+				}
+				db, err := cdxstore.Open(t.Context(), cdxstore.Options{Format: "badger", Dir: dir, ReadOnly: true})
+				if err != nil {
+					t.Fatal(err)
+				}
+				var ids []string
+				err = db.Scan(t.Context(), "", "", func(c *cdx.Capture) error { ids = append(ids, c.GetRid()); return nil })
+				for id := 1; id <= 2; id++ {
+					rid := fmt.Sprintf("urn:uuid:20add669-b781-4c66-977c-%012d", id)
+					ref, e := db.StorageRefById(t.Context(), rid)
+					if e != nil || (ref != "") != (step.visible == id) {
+						t.Errorf("visible=%d lookup %s: %q, %v", step.visible, rid, ref, e)
+					}
+				}
+				if closeErr := db.Close(); closeErr != nil {
+					t.Fatal(closeErr)
+				}
+				if err != nil || len(ids) != min(1, step.visible) {
+					t.Fatalf("visible=%d captures=%v: %v", step.visible, ids, err)
+				}
+			}
+		})
+	}
+}
+
+func TestIndexFiltersResourceFields(t *testing.T) {
+	src := filepath.Join(t.TempDir(), "input.warc")
+	if err := os.WriteFile(src, resourceBytes(1), 0600); err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		flag, value string
+		want        bool
+	}{{"--mime-type", "text/plain", true}, {"--response-code", "404", false}} {
+		out := filepath.Join(t.TempDir(), "out.cdxj")
+		if err := executeCaptureCommand(t, "index", tc.flag, tc.value, "--index-file", out, src); err != nil {
+			t.Fatal(err)
+		}
+		data, err := os.ReadFile(out)
+		if err != nil || (len(data) > 0) != tc.want {
+			t.Fatalf("%s output %q, %v", tc.flag, data, err)
+		}
+	}
+}
+
 func TestRedupeSymlinkContainment(t *testing.T) {
 	source := t.TempDir()
 	inside := filepath.Join(source, "published")
@@ -458,7 +666,7 @@ func TestWACZStagingDuplicates(t *testing.T) {
 	rows := strings.Repeat(row, 257)
 	write := func() {
 		t.Helper()
-		raw := zipWithMembers(t, map[string][]byte{"archive/a.warc": []byte("x"), "indexes/a.cdxj": []byte(rows)})
+		raw := zipWithMembers(t, map[string][]byte{"archive/a.warc": resourceBytes(1), "indexes/a.cdxj": []byte(rows)})
 		if err := os.WriteFile(file, raw, 0600); err != nil {
 			t.Fatal(err)
 		}

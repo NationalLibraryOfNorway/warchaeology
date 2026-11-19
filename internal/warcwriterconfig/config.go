@@ -20,6 +20,7 @@ import (
 const DefaultDateFormat = "2006-1-2"
 
 type WarcWriterConfig struct {
+	compressed            bool
 	hookErrorsMu          sync.Mutex
 	hookErrors            error
 	FilePrefix            string
@@ -229,6 +230,7 @@ func New(cmd string, options ...func(*WarcWriterOptions)) (*WarcWriterConfig, er
 	}
 
 	return &WarcWriterConfig{
+		compressed:            o.Compress,
 		DefaultTime:           defaultTime,
 		OutDir:                outDir,
 		FilePrefix:            o.FilePrefix,
@@ -241,6 +243,35 @@ func New(cmd string, options ...func(*WarcWriterOptions)) (*WarcWriterConfig, er
 		WarcVersion:           version,
 		OneToOneWriter:        o.OneToOneWriter,
 	}, nil
+}
+
+// ReserveOutput claims the final one-to-one filename across concurrent writers.
+func (w *WarcWriterConfig) ReserveOutput(path string, date time.Time) (func() error, error) {
+	dir := filepath.Join(w.OutDir, parseSubdirPattern(w.SubDirPattern, date))
+	if err := os.MkdirAll(dir, 0777); err != nil {
+		return nil, err
+	}
+	_, name := NewIdentityNamer(path, w.FilePrefix, dir).NewWarcfileName()
+	if w.compressed {
+		name += ".gz"
+	}
+	dest := filepath.Join(dir, name)
+	lock := dest + ".reserve"
+	f, err := os.OpenFile(lock, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
+	if err != nil {
+		return nil, fmt.Errorf("reserve %s for %s: %w", dest, path, err)
+	}
+	release := func() error { return os.Remove(lock) }
+	if err = f.Close(); err != nil {
+		return nil, errors.Join(err, release())
+	}
+	if _, err = os.Lstat(dest); !errors.Is(err, os.ErrNotExist) {
+		if err == nil {
+			err = os.ErrExist
+		}
+		return nil, errors.Join(fmt.Errorf("reserve %s for %s: %w", dest, path, err), release())
+	}
+	return release, nil
 }
 
 func (w *WarcWriterConfig) GetWarcWriter(path string, warcDate time.Time) (*gowarc.WarcFileWriter, error) {
@@ -345,6 +376,7 @@ func FinalizeWriter(writer *gowarc.WarcFileWriter) error {
 // No writer or mutex is shared with the template.
 func (w *WarcWriterConfig) ForDirectory(dir string) *WarcWriterConfig {
 	return &WarcWriterConfig{
+		compressed:            w.compressed,
 		FilePrefix:            w.FilePrefix,
 		DefaultTime:           w.DefaultTime,
 		OutDir:                dir,
