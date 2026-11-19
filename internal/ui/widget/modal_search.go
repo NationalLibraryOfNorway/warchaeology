@@ -37,16 +37,15 @@ func (w *SearchModal) Init(gui *gocui.Gui) error {
 	view.Editor = gocui.DefaultEditor
 
 	gui.Cursor = true
+	return nil
+}
+
+func (w *SearchModal) Bind(gui *gocui.Gui) error {
 
 	if err := gui.SetKeybinding(w.viewName, gocui.KeyEnter, gocui.ModNone, w.onSearch); err != nil {
 		return err
 	}
 	return gui.SetKeybinding(w.viewName, gocui.KeyEsc, gocui.ModNone, w.ctrl.CloseModal)
-}
-
-func (w *SearchModal) Dispose(gui *gocui.Gui) error {
-	gui.Cursor = false
-	return nil
 }
 
 func (w *SearchModal) onSearch(gui *gocui.Gui, view *gocui.View) error {

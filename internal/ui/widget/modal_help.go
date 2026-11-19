@@ -62,7 +62,3 @@ func (w *ShortcutsModal) Init(gui *gocui.Gui) error {
 
 	return nil
 }
-
-func (w *ShortcutsModal) Dispose(gui *gocui.Gui) error {
-	return nil
-}

@@ -7,8 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"strings"
-	"sync"
-	"sync/atomic"
 
 	"github.com/awesome-gocui/gocui"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/ui/model"
@@ -21,7 +19,6 @@ type Entry[T any] struct {
 }
 
 type ListWidget[T any] struct {
-	gui      *gocui.Gui
 	viewName string
 
 	items   []Entry[T]
@@ -34,37 +31,26 @@ type ListWidget[T any] struct {
 	makeText     func(T) string
 	makeColor    func(T) string // optional; returns a pre-escaped fg color sequence
 	makeSubtitle func(T) string // optional; extra info appended to "N/M" subtitle
-	matches      func(item T, search string) bool
+	matches      func(T) bool
 
 	nav Controller
 
 	onSelectionChanged func(item T, ok bool)
-
-	dirty       bool
-	flushQueued atomic.Bool
-	mu          sync.Mutex
 }
 
 func NewListWidget[T any](
-	gui *gocui.Gui,
 	viewName string,
 	makeText func(T) string,
 	nav Controller,
 	onSelectionChanged func(item T, ok bool),
 ) *ListWidget[T] {
-	w := &ListWidget[T]{
-		gui:                gui,
+	return &ListWidget[T]{
 		viewName:           viewName,
 		makeText:           makeText,
 		nav:                nav,
 		onSelectionChanged: onSelectionChanged,
 		selected:           -1,
-		visible:            make([]int, 0),
-		items:              make([]Entry[T], 0),
-		dirty:              true,
 	}
-
-	return w
 }
 
 func (w *ListWidget[T]) Layout(gui *gocui.Gui, x0, y0, x1, y1 int) error {
@@ -94,222 +80,91 @@ func (w *ListWidget[T]) Layout(gui *gocui.Gui, x0, y0, x1, y1 int) error {
 				return err
 			}
 		}
-		w.requestFlush()
 	}
+	_, height := v.Size()
+	height = max(1, height)
+	// Keep the highlight on screen and fill newly available rows after a resize.
+	first := max(0, w.selected-height+1)
+	last := max(0, min(w.selected, len(w.visible)-height))
+	w.offset = max(first, min(w.offset, last))
+	w.draw(v, height)
 	return nil
 }
 
-func (w *ListWidget[T]) SetPredicate(matches func(T, string) bool) {
-	w.mu.Lock()
-	w.matches = matches
-	emitClear, emitNew, item := w.rebuildAndEmitLocked()
-	w.mu.Unlock()
-	w.dispatchEmit(emitClear, emitNew, item)
-}
+func (w *ListWidget[T]) VisibleCount() int { return len(w.visible) }
 
-func (w *ListWidget[T]) SetColorizer(makeColor func(T) string) {
-	w.mu.Lock()
-	w.makeColor = makeColor
-	w.mu.Unlock()
-}
+func (w *ListWidget[T]) SetColorizer(f func(T) string)     { w.makeColor = f }
+func (w *ListWidget[T]) SetSubtitleMaker(f func(T) string) { w.makeSubtitle = f }
 
-func (w *ListWidget[T]) SetSubtitleMaker(makeSubtitle func(T) string) {
-	w.mu.Lock()
-	w.makeSubtitle = makeSubtitle
-	w.mu.Unlock()
+func (w *ListWidget[T]) SetPredicate(f func(T) bool) {
+	w.matches = f
+	w.refilter()
 }
 
 func (w *ListWidget[T]) SetFilter(q string) {
-	w.mu.Lock()
 	w.filter = normalize(q)
-	emitClear, emitNew, item := w.rebuildAndEmitLocked()
-	w.mu.Unlock()
-	w.dispatchEmit(emitClear, emitNew, item)
+	w.refilter()
 }
 
-// rebuildAndEmitLocked rebuilds the visible slice and returns what to emit.
-// Must be called with mu held; sets w.dirty.
-func (w *ListWidget[T]) rebuildAndEmitLocked() (emitClear bool, emitNew bool, item T) {
-	prevHadSelection := w.selected >= 0 && w.selected < len(w.visible)
-	prevItemIdx := -1
-	if prevHadSelection {
-		prevItemIdx = w.visible[w.selected]
+func (w *ListWidget[T]) selectedIndex() int {
+	if w.selected < 0 {
+		return -1
 	}
-
-	w.rebuildVisibleLocked()
-	w.dirty = true
-
-	if len(w.visible) == 0 {
-		if prevHadSelection {
-			emitClear = true
-		}
-	} else {
-		newItemIdx := w.visible[w.selected]
-		if !prevHadSelection || newItemIdx != prevItemIdx {
-			emitNew = true
-			item = w.items[newItemIdx].Item
-		}
-	}
-	return
+	return w.visible[w.selected]
 }
 
-// dispatchEmit fires onSelectionChanged and requestFlush after the lock is released.
-func (w *ListWidget[T]) dispatchEmit(emitClear bool, emitNew bool, item T) {
-	if emitClear {
-		var zero T
-		w.onSelectionChanged(zero, false)
-	}
-	if emitNew {
-		w.onSelectionChanged(item, true)
-	}
-	w.requestFlush()
-}
-
-func (w *ListWidget[T]) SetItems(items []T) {
-	entries := make([]Entry[T], 0, len(items))
-	for _, item := range items {
-		text := w.makeText(item)
-		entries = append(entries, Entry[T]{
-			Item:    item,
-			Display: text,
-			Search:  normalize(text),
-		})
-	}
-
-	var (
-		selectedItem T
-		ok           bool
-	)
-
-	w.mu.Lock()
-	w.items = entries
-	w.offset = 0
-	w.rebuildVisibleLocked()
-
-	if len(w.visible) > 0 {
-		w.selected = 0
-		ok = true
-		selectedItem = w.items[w.visible[0]].Item
-	}
-
-	w.dirty = true
-	w.mu.Unlock()
-
-	w.onSelectionChanged(selectedItem, ok)
-
-	w.requestFlush()
-}
-
-// Clear resets the list to an empty state, clearing selection and scroll position.
-func (w *ListWidget[T]) Clear() {
-	w.mu.Lock()
-	w.items = w.items[:0]
+func (w *ListWidget[T]) refilter() {
+	previous := w.selectedIndex()
 	w.visible = w.visible[:0]
 	w.selected = -1
-	w.offset = 0
-	w.dirty = true
-	w.mu.Unlock()
-
-	var zero T
-	w.onSelectionChanged(zero, false)
-	w.requestFlush()
-}
-
-// AddElements appends a batch of items to the list, updating visibility and
-// the subtitle incrementally so the user sees progress during large loads.
-// onSelectionChanged is only fired when the first visible item is gained.
-func (w *ListWidget[T]) AddElements(items []T) {
-	// Build entries outside the lock; makeText may be expensive.
-	entries := make([]Entry[T], len(items))
-	for i, item := range items {
-		text := w.makeText(item)
-		entries[i] = Entry[T]{
-			Item:    item,
-			Display: text,
-			Search:  normalize(text),
+	for i, entry := range w.items {
+		if w.include(entry) {
+			if i == previous {
+				w.selected = len(w.visible)
+			}
+			w.visible = append(w.visible, i)
 		}
 	}
-
-	var (
-		emit bool
-		sel  T
-	)
-
-	w.mu.Lock()
-
-	hadSelection := len(w.visible) > 0 && w.selected >= 0 && w.selected < len(w.visible)
-
-	for _, entry := range entries {
-		idx := len(w.items)
-		w.items = append(w.items, entry)
-		if w.matchesLocked(entry.Item, entry.Search) {
-			w.visible = append(w.visible, idx)
-		}
-	}
-
-	if !hadSelection && len(w.visible) > 0 {
+	if w.selected < 0 && len(w.visible) > 0 {
 		w.selected = 0
-		w.offset = 0
-		sel = w.items[w.visible[0]].Item
-		emit = true
 	}
-
-	w.dirty = true
-	w.mu.Unlock()
-
-	if emit {
-		w.onSelectionChanged(sel, true)
+	if w.selectedIndex() != previous {
+		w.onSelectionChanged(w.SelectedItem())
 	}
-	w.requestFlush()
 }
 
-func (w *ListWidget[T]) flush(g *gocui.Gui) error {
-	w.mu.Lock()
-	visible := append([]int(nil), w.visible...)
-	items := append([]Entry[T](nil), w.items...)
-	selected := w.selected
-	offset := w.offset
-	w.dirty = false
-	w.mu.Unlock()
+func (w *ListWidget[T]) include(e Entry[T]) bool {
+	return strings.Contains(e.Search, w.filter) && (w.matches == nil || w.matches(e.Item))
+}
 
-	v, err := g.View(w.viewName)
-	if err != nil {
-		return err
+func (w *ListWidget[T]) Clear() {
+	w.items, w.visible = nil, nil
+	w.selected, w.offset = -1, 0
+	w.onSelectionChanged(w.SelectedItem())
+}
+
+func (w *ListWidget[T]) AddElements(items []T) {
+	for _, item := range items {
+		display := w.makeText(item)
+		entry := Entry[T]{item, display, normalize(display)}
+		if w.include(entry) {
+			w.visible = append(w.visible, len(w.items))
+		}
+		w.items = append(w.items, entry)
 	}
-
-	_, height := v.Size()
-	if height < 1 {
-		height = 1
+	if w.selected < 0 && len(w.visible) > 0 {
+		w.setSelected(0)
 	}
+}
 
-	n := len(visible)
-	if n == 0 {
-		selected = -1
-		offset = 0
-	} else {
-		if selected < 0 {
-			selected = 0
-		}
-		if selected >= n {
-			selected = n - 1
-		}
-		if selected < offset {
-			offset = selected
-		}
-		if selected >= offset+height {
-			offset = selected - height + 1
-		}
-		if offset < 0 {
-			offset = 0
-		}
-	}
-
+func (w *ListWidget[T]) draw(v *gocui.View, height int) {
+	n, selected, offset := len(w.visible), w.selected, w.offset
 	v.Clear()
 
 	end := min(offset+height, n)
 
 	for row := offset; row < end; row++ {
-		entry := items[visible[row]]
+		entry := w.items[w.visible[row]]
 		if row == selected {
 			fmt.Fprintf(v, "%s> %s%s%s%s\n", model.SGRReset, model.SelectionBg, model.SelectionFg, entry.Display, model.SGRReset)
 		} else if w.makeColor != nil {
@@ -319,130 +174,31 @@ func (w *ListWidget[T]) flush(g *gocui.Gui) error {
 		}
 	}
 
-	if n == 0 {
-		v.Subtitle = "0/0"
-	} else {
-		counter := fmt.Sprintf("%d/%d", selected+1, n)
-		if w.makeSubtitle != nil {
-			if extra := w.makeSubtitle(items[visible[selected]].Item); extra != "" {
-				v.Subtitle = extra + "  " + counter
-			} else {
-				v.Subtitle = counter
-			}
-		} else {
-			v.Subtitle = counter
+	v.Subtitle = fmt.Sprintf("%d/%d", selected+1, n)
+	if w.makeSubtitle != nil && selected >= 0 {
+		if extra := w.makeSubtitle(w.items[w.visible[selected]].Item); extra != "" {
+			v.Subtitle = extra + "  " + v.Subtitle
 		}
 	}
-
-	w.mu.Lock()
-	w.selected = selected
-	w.offset = offset
-	w.mu.Unlock()
-
-	return nil
 }
 
-func (w *ListWidget[T]) requestFlush() {
-	if !w.flushQueued.CompareAndSwap(false, true) {
-		return
-	}
-
-	w.gui.Update(func(g *gocui.Gui) error {
-		w.flushQueued.Store(false)
-		return w.flush(g)
-	})
-}
-
-// SelectedItem returns the currently selected item, or the zero value and false
-// if nothing is selected. Safe to call from any goroutine.
 func (w *ListWidget[T]) SelectedItem() (T, bool) {
-	w.mu.Lock()
-	defer w.mu.Unlock()
-	if w.selected < 0 || w.selected >= len(w.visible) {
-		var zero T
-		return zero, false
+	if i := w.selectedIndex(); i >= 0 {
+		return w.items[i].Item, true
 	}
-	return w.items[w.visible[w.selected]].Item, true
+	var zero T
+	return zero, false
 }
 
-func (w *ListWidget[T]) setSelected(selected int) {
-	w.mu.Lock()
-
-	n := len(w.visible)
-	if n == 0 {
-		wasSelected := w.selected != -1
-
-		w.selected = -1
-		w.dirty = true
-		w.mu.Unlock()
-
-		if wasSelected {
-			var zero T
-			w.onSelectionChanged(zero, false)
-		}
-
-		w.requestFlush()
-		return
-	}
-
-	if selected < 0 {
-		selected = 0
-	}
-	if selected >= n {
-		selected = n - 1
-	}
-
-	if selected == w.selected {
-		w.mu.Unlock()
-		return
-	}
-
-	w.selected = selected
-
-	itemIdx := w.visible[selected]
-	item := w.items[itemIdx].Item
-
-	w.dirty = true
-	w.mu.Unlock()
-
-	w.onSelectionChanged(item, true)
-	w.requestFlush()
-}
-
-func (w *ListWidget[T]) rebuildVisibleLocked() {
-	w.visible = w.visible[:0]
-
-	for i, entry := range w.items {
-		if w.matchesLocked(entry.Item, entry.Search) {
-			w.visible = append(w.visible, i)
-		}
-	}
-
+func (w *ListWidget[T]) setSelected(row int) {
 	if len(w.visible) == 0 {
-		w.selected = -1
-		w.offset = 0
 		return
 	}
-
-	if w.selected >= len(w.visible) {
-		w.selected = len(w.visible) - 1
+	row = max(0, min(row, len(w.visible)-1))
+	if row != w.selected {
+		w.selected = row
+		w.onSelectionChanged(w.SelectedItem())
 	}
-	if w.selected < 0 {
-		w.selected = 0
-	}
-	if w.offset > w.selected {
-		w.offset = w.selected
-	}
-}
-
-func (w *ListWidget[T]) matchesLocked(item T, search string) bool {
-	if w.filter != "" && !strings.Contains(search, w.filter) {
-		return false
-	}
-	if w.matches != nil && !w.matches(item, w.filter) {
-		return false
-	}
-	return true
 }
 
 func (w *ListWidget[T]) moveSelection(delta int) error {
@@ -464,11 +220,7 @@ func (w *ListWidget[T]) onCurrentView(_ *gocui.Gui, v *gocui.View) error {
 
 	_, cy := v.Cursor()
 
-	w.mu.Lock()
-	offset := w.offset
-	w.mu.Unlock()
-
-	w.setSelected(offset + cy)
+	w.setSelected(w.offset + cy)
 	return nil
 }
 
@@ -478,9 +230,7 @@ func (w *ListWidget[T]) onGotoStart(_ *gocui.Gui, _ *gocui.View) error {
 }
 
 func (w *ListWidget[T]) onGotoEnd(_ *gocui.Gui, _ *gocui.View) error {
-	w.mu.Lock()
 	last := len(w.visible) - 1
-	w.mu.Unlock()
 	w.setSelected(last)
 	return nil
 }
