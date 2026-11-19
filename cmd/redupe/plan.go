@@ -292,6 +292,8 @@ func (o *RedupeOptions) plan(ctx context.Context, e *entry) (_ *planned, resultE
 	eligible := donor.Capture.GetSrt() == "response" || donor.Capture.GetSrt() == "resource"
 	if eligible {
 		p.Action = actionFull
+	}
+	if eligible && !donor.Truncated {
 		key := "x/target/" + p.Period + "/" + hashString(donor.Capture.GetSrt()+":"+identity)
 		var target gowarc.RevisitRef
 		err = o.get(key, &target)
@@ -339,6 +341,9 @@ func (o *RedupeOptions) resolveWithBackup(ctx context.Context, e *entry, seen ma
 	if err := ctx.Err(); err != nil {
 		return nil, nil, err
 	}
+	if e.Issue == invalidRevisitDate {
+		return nil, nil, errors.New(e.Issue)
+	}
 	ref := e.Capture.GetRef()
 	if seen[ref] {
 		return nil, nil, errors.New("revisit reference cycle")
@@ -366,8 +371,11 @@ func (o *RedupeOptions) resolveWithBackup(ctx context.Context, e *entry, seen ma
 	if target == nil {
 		return nil, nil, &missingTarget{link: e}
 	}
-	if o.collectionAudit && !targetMatches(e.Capture, target.Capture) {
+	if !targetMatches(e.Capture, target.Capture) {
 		return nil, nil, errors.New("conflicting target URI or date")
+	}
+	if target.Truncated {
+		return nil, nil, errors.New("truncated donor")
 	}
 	donor, chain, err := o.resolveWithBackup(ctx, target, seen, backup)
 	if err != nil {
@@ -457,6 +465,9 @@ func rebuildChain(ctx context.Context, e, donor *entry, chain []*entry) (gowarc.
 		if err = verifyBlock(capture); err != nil {
 			return nil, errors.Join(err, capture.Close(), wr.Close())
 		}
+		if err = verifyPayload(wr, capture.WarcHeader().Get(gowarc.WarcPayloadDigest)); err != nil {
+			return nil, errors.Join(err, capture.Close(), wr.Close())
+		}
 		rebuilt, buildErr := loader.ReconstructIdentical(capture, wr)
 		closeErr := errors.Join(capture.Close(), wr.Close())
 		if buildErr != nil || closeErr != nil {
@@ -508,11 +519,15 @@ func verifyRecord(wr gowarc.WarcRecord) error {
 	if err := verifyBlock(wr); err != nil {
 		return err
 	}
+	return verifyPayload(wr, wr.WarcHeader().Get(gowarc.WarcPayloadDigest))
+}
+
+func verifyPayload(wr gowarc.WarcRecord, label string) error {
 	r, err := payloadReader(wr)
 	if err != nil {
 		return err
 	}
-	return warcdigest.Verify(wr.WarcHeader().Get(gowarc.WarcPayloadDigest), r)
+	return warcdigest.Verify(label, r)
 }
 
 func (o *RedupeOptions) reportContext(ctx context.Context, e *entry, period string) error {

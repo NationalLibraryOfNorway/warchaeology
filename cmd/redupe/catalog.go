@@ -27,13 +27,15 @@ import (
 	"github.com/spf13/afero"
 )
 
+const invalidRevisitDate = "invalid revisit target date"
+
 type entry struct {
 	Audit         *auditEvidence `json:"audit,omitempty"`
 	Capture       *cdx.Capture   `json:"capture"`
 	Fingerprint   string         `json:"fingerprint"`
 	Profile       string         `json:"profile,omitempty"`
-	Segmented     bool           `json:"segmented,omitempty"`
 	Truncated     bool           `json:"truncated,omitempty"`
+	Segmented     bool           `json:"segmented,omitempty"`
 	PayloadLength int64          `json:"payloadLength"`
 	Context       []string       `json:"context,omitempty"`
 	Issue         string         `json:"issue,omitempty"`
@@ -243,6 +245,9 @@ func inventoryRecord(rec gowarc.Record, source, path string) (*entry, error) {
 	}
 	if length, err := wr.ContentLength(); err != nil || length != wr.Block().Size() {
 		e.Issue = "invalid content length"
+	}
+	if wr.Type() == gowarc.Revisit && wr.WarcHeader().Get(gowarc.WarcRefersToDate) != "" && c.GetRod() == nil {
+		e.Issue = invalidRevisitDate
 	}
 	if wr.RecordId() == "" {
 		e.Issue = "missing record ID"

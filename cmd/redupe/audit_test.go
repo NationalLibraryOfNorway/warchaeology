@@ -190,3 +190,25 @@ func TestAuditExactURIDateRecovery(t *testing.T) {
 		t.Fatal(err, out.String())
 	}
 }
+
+func TestAuditMalformedRevisitDate(t *testing.T) {
+	const date = "2023-01-02T03:04:05Z"
+	donor := full(t, "a", date)
+	link := revisit(t, "b", date, donor)
+	link.WarcHeader().Set(gowarc.WarcRefersToDate, "invalid")
+	src := fixtureFile(t, donor, link)
+	var out bytes.Buffer
+	if err := (auditOptions{}).run(t.Context(), filepath.Dir(src), &out); err == nil {
+		t.Fatal("certified invalid revisit")
+	}
+	var report struct {
+		Summary auditSummary
+		Records []auditFinding
+	}
+	if err := json.Unmarshal(out.Bytes(), &report); err != nil {
+		t.Fatal(err)
+	}
+	if !report.Summary.Complete || report.Summary.Counts["unverifiable"] != 1 || len(report.Records) != 1 || report.Records[0].Detail != invalidRevisitDate {
+		t.Fatalf("%s", out.Bytes())
+	}
+}

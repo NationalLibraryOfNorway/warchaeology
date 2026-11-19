@@ -791,6 +791,85 @@ func TestRejectSwappedCompletion(t *testing.T) {
 	}
 }
 
+func resource(t *testing.T, id, date string) gowarc.WarcRecord {
+	t.Helper()
+	b := gowarc.NewRecordBuilder(gowarc.Resource, gowarc.WithAddMissingDigest(true))
+	b.AddWarcHeader(gowarc.WarcRecordID, "<urn:uuid:"+id+">")
+	b.AddWarcHeader(gowarc.WarcDate, date)
+	b.AddWarcHeader(gowarc.WarcTargetURI, "https://example.org/"+id)
+	b.AddWarcHeader(gowarc.ContentType, "application/octet-stream")
+	if _, err := b.WriteString(testPayload); err != nil {
+		t.Fatal(err)
+	}
+	wr, _, err := b.Build()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = wr.Close() })
+	return wr
+}
+
+func TestContradictoryRevisitBlocksPublication(t *testing.T) {
+	for _, tc := range []struct{ header, value, finding string }{
+		{gowarc.WarcPayloadDigest, "sha256:" + strings.Repeat("0", 64), "digest mismatch"},
+		{gowarc.WarcRefersToTargetURI, "https://other.example/", "conflicting target URI or date"},
+		{gowarc.WarcRefersToDate, "invalid", "invalid revisit target date"},
+		{gowarc.WarcRefersToDate, "2020-01-01T00:00:00Z", "conflicting target URI or date"},
+	} {
+		t.Run(tc.header, func(t *testing.T) {
+			a := resource(t, "a", "2023-01-01T00:00:00Z")
+			original := resource(t, "b", "2023-02-01T00:00:00Z")
+			b, err := original.ToRevisitRecord(&gowarc.RevisitRef{
+				Profile:        gowarc.ProfileIdenticalPayloadDigestV1_1,
+				TargetRecordId: a.RecordId(),
+				TargetUri:      a.WarcHeader().Get(gowarc.WarcTargetURI),
+				TargetDate:     a.WarcHeader().Get(gowarc.WarcDate),
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer testcheck.Close(t, b)
+			b.WarcHeader().Delete(gowarc.WarcPayloadDigest)
+			b.WarcHeader().Set(tc.header, tc.value)
+			o := testOptions(t, fixtureFile(t, a, b))
+			if err := o.Run(t.Context()); err == nil {
+				t.Fatal("contradictory revisit accepted")
+			}
+			period := o.report.Periods["2023"]
+			if period == nil || period.Completed || period.Failed != 1 || len(period.Findings) != 1 || !strings.Contains(period.Findings[0].Message, tc.finding) {
+				t.Fatalf("unexpected period report: %+v", period)
+			}
+			if _, err := os.Stat(filepath.Join(o.OutputDir, "2023")); !errors.Is(err, os.ErrNotExist) {
+				t.Fatalf("unexpected publication: %v", err)
+			}
+		})
+	}
+}
+
+func TestTruncatedCaptureCannotDonate(t *testing.T) {
+	a := resource(t, "partial", "2023-01-01T00:00:00Z")
+	a.WarcHeader().Set(gowarc.WarcTruncated, "length")
+	b := resource(t, "complete", "2023-02-01T00:00:00Z")
+	c := resource(t, "later", "2023-03-01T00:00:00Z")
+	o := testOptions(t, fixtureFile(t, a, b, c))
+	if err := o.Run(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	m := readManifest(t, o.OutputDir, "2023")
+	if len(m) != 3 || m[0].Action != actionFull || m[1].Action != actionFull || m[2].Target == nil || m[2].Target.TargetRecordId != b.RecordId() {
+		t.Fatalf("unexpected donor selection: %+v", m)
+	}
+}
+
+func TestFTPSourceHasNoLocalContainer(t *testing.T) {
+	for _, root := range []string{"ftp://archive.example/", "ftp+account://reader@archive.example/"} {
+		container, err := sourceContainer(filewalker.MemberLocator([]string{root}, "/input.warc"))
+		if err != nil || container != nil {
+			t.Fatalf("%s: container %v, error %v", root, container, err)
+		}
+	}
+}
+
 func TestIncompleteSourceCannotPublish(t *testing.T) {
 	data, err := os.ReadFile("../../testdata/warc/single-record.warc")
 	if err != nil {
@@ -806,15 +885,6 @@ func TestIncompleteSourceCannotPublish(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(o.OutputDir, "2023")); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("published incomplete period: %v", err)
-	}
-}
-
-func TestFTPSourceHasNoLocalContainer(t *testing.T) {
-	for _, root := range []string{"ftp://archive.example/", "ftp+account://reader@archive.example/"} {
-		container, err := sourceContainer(filewalker.MemberLocator([]string{root}, "/input.warc"))
-		if err != nil || container != nil {
-			t.Fatalf("%s: container %v, error %v", root, container, err)
-		}
 	}
 }
 
@@ -876,22 +946,4 @@ func TestReportPathAliases(t *testing.T) {
 	if err != nil || !bytes.Equal(before, after) {
 		t.Fatal("findings truncated published manifest")
 	}
-}
-
-func resource(t *testing.T, id, date string) gowarc.WarcRecord {
-	t.Helper()
-	b := gowarc.NewRecordBuilder(gowarc.Resource, gowarc.WithAddMissingDigest(true))
-	b.AddWarcHeader(gowarc.WarcRecordID, "<urn:uuid:"+id+">")
-	b.AddWarcHeader(gowarc.WarcDate, date)
-	b.AddWarcHeader(gowarc.WarcTargetURI, "https://example.org/"+id)
-	b.AddWarcHeader(gowarc.ContentType, "application/octet-stream")
-	if _, err := b.WriteString(testPayload); err != nil {
-		t.Fatal(err)
-	}
-	wr, _, err := b.Build()
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = wr.Close() })
-	return wr
 }
