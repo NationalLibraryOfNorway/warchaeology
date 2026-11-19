@@ -8,9 +8,11 @@ import (
 	"bytes"
 	"encoding/json"
 	"io"
+	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"testing"
@@ -46,6 +48,7 @@ func packageBytes(t *testing.T, entries map[string][]byte) []byte {
 	return b.Bytes()
 }
 func leafPackage(t *testing.T) []byte {
+	t.Helper()
 	f := fixtures(t)[0]
 	return packageBytes(t, map[string][]byte{
 		"archive/" + f.Name:  f.Warc,
@@ -107,13 +110,13 @@ func TestMultiWACZReopenManifestAndReplacement(t *testing.T) {
 	defer db.Close()
 	e = db.Scan(t.Context(), "", "", func(c *cdx.Capture) error {
 		var source filewalker.Source
-		if e := json.Unmarshal([]byte(c.Source), &source); e != nil {
+		if e := json.Unmarshal([]byte(c.GetSource()), &source); e != nil {
 			return e
 		}
 		if len(source.Roots) < 2 {
-			t.Errorf("lost nested roots: %s", c.Source)
+			t.Errorf("lost nested roots: %s", c.GetSource())
 		}
-		record, e := (loader.FileStorageLoader{}).RecordByStorageRef(t.Context(), c.Ref)
+		record, e := (loader.FileStorageLoader{}).RecordByStorageRef(t.Context(), c.GetRef())
 		if e != nil {
 			return e
 		}
@@ -127,7 +130,7 @@ func TestMultiWACZReopenManifestAndReplacement(t *testing.T) {
 		t.Fatal(e)
 	}
 	response := httptest.NewRecorder()
-	h.ServeHTTP(response, httptest.NewRequest("GET", "/archive/packages", nil))
+	h.ServeHTTP(response, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/archive/packages", nil))
 	if response.Code != 200 {
 		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
 	}
@@ -216,5 +219,56 @@ func TestMultiWACZNestingLimit(t *testing.T) {
 	}
 	if captureCount(t, db) != 0 {
 		t.Fatal("overdeep package published captures")
+	}
+}
+
+func TestFailedMultiWACZReplacementKeepsPublishedTree(t *testing.T) {
+	wacz := filepath.Join(t.TempDir(), "bundle.wacz")
+	write := func(first, second []byte) {
+		t.Helper()
+		if err := os.WriteFile(wacz, packageBytes(t, map[string][]byte{
+			"a.wacz": first, "b.wacz": second,
+		}), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	db, err := cdxstore.Open(t.Context(), cdxstore.Options{Format: "badger", Dir: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	leaf := leafPackage(t)
+	write(leaf, leaf)
+	if err := runPackage(t, db, wacz); err != nil {
+		t.Fatal(err)
+	}
+	generations := func() []string {
+		t.Helper()
+		var visible []string
+		if err := db.Scan(t.Context(), "", "", func(c *cdx.Capture) error {
+			visible = append(visible, c.GetGeneration())
+			return nil
+		}); err != nil {
+			t.Fatal(err)
+		}
+		return visible
+	}
+	before := generations()
+	if len(before) == 0 {
+		t.Fatal("expected captures in the original bundle")
+	}
+	write(leaf, []byte("invalid ZIP"))
+	if err := runPackage(t, db, wacz); err == nil {
+		t.Fatal("accepted a malformed child")
+	}
+	if after := generations(); !slices.Equal(before, after) {
+		t.Fatalf("published generations changed from %v to %v", before, after)
+	}
+	write(leaf, leaf)
+	if err := runPackage(t, db, wacz); err != nil {
+		t.Fatal(err)
+	}
+	if after := generations(); len(after) != len(before) || slices.Equal(before, after) {
+		t.Fatalf("complete retry did not replace generations: %v", after)
 	}
 }

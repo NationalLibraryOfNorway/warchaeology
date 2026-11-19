@@ -12,32 +12,41 @@ import (
 	"os"
 
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/cdx/schema"
+	"github.com/nationallibraryofnorway/warchaeology/v5/internal/filewalker"
 )
+
+type ArchiveInfo struct {
+	*schema.FileInfo
+
+	Generation string
+	CRC        *uint32
+	Container  *filewalker.FileVersion
+}
 
 // ArchiveSource resolves an opaque public file ID to a registered native source.
 // Callers cannot use this API to open an arbitrary filesystem path.
-func (d *DB) ArchiveSource(ctx context.Context, id string) (*schema.FileInfo, string, error) {
+func (d *DB) ArchiveSource(ctx context.Context, id string) (ArchiveInfo, error) {
 	if len(id) != 64 {
-		return nil, "", os.ErrNotExist
+		return ArchiveInfo{}, os.ErrNotExist
 	}
 	if _, err := hex.DecodeString(id); err != nil {
-		return nil, "", os.ErrNotExist
+		return ArchiveInfo{}, os.ErrNotExist
 	}
 	raw, err := d.kv.Get(ctx, "s/"+id)
 	if err != nil {
-		return nil, "", err
+		return ArchiveInfo{}, err
 	}
 	if len(raw) == 0 {
-		return nil, "", os.ErrNotExist
+		return ArchiveInfo{}, os.ErrNotExist
 	}
 	var cp checkpoint
 	if err = json.Unmarshal(raw, &cp); err != nil {
-		return nil, "", err
+		return ArchiveInfo{}, err
 	}
-	if cp.File == nil || cp.File.Path == "" {
-		return nil, "", fmt.Errorf("source checkpoint has no file")
+	if cp.File.GetPath() == "" {
+		return ArchiveInfo{}, fmt.Errorf("source checkpoint has no file")
 	}
-	return cp.File, cp.Generation, nil
+	return ArchiveInfo{FileInfo: cp.File, Generation: cp.Generation, CRC: cp.CRC, Container: cp.Container}, nil
 }
 
 func ArchiveID(source string) string { return identity(source) }

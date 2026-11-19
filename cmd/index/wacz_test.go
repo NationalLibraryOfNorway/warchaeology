@@ -15,6 +15,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"runtime"
+	"strings"
 	"testing"
 
 	cdx "github.com/nationallibraryofnorway/warchaeology/v5/internal/cdx"
@@ -34,16 +35,24 @@ func TestWACZImportAndRetrieve(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	entry.Write(fixture.Warc)
+	if _, e = entry.Write(fixture.Warc); e != nil {
+		t.Fatal(e)
+	}
 	// Use a native export so offsets and filenames match this exact member.
 	line := fixture.Cdxj
 	entry, e = z.Create("indexes/index.cdxj")
 	if e != nil {
 		t.Fatal(e)
 	}
-	entry.Write([]byte(line))
-	z.Close()
-	f.Close()
+	if _, e = entry.Write([]byte(line)); e != nil {
+		t.Fatal(e)
+	}
+	if e = z.Close(); e != nil {
+		t.Fatal(e)
+	}
+	if e = f.Close(); e != nil {
+		t.Fatal(e)
+	}
 	db, e := cdxstore.Open(t.Context(), cdxstore.Options{Format: "badger", Dir: t.TempDir()})
 	if e != nil {
 		t.Fatal(e)
@@ -58,10 +67,10 @@ func TestWACZImportAndRetrieve(t *testing.T) {
 	e = db.Scan(t.Context(), "", "", func(c *cdx.Capture) error {
 		n++
 		var src map[string]any
-		if e := json.Unmarshal([]byte(c.Source), &src); e != nil {
+		if e := json.Unmarshal([]byte(c.GetSource()), &src); e != nil {
 			return e
 		}
-		rec, e := (loader.FileStorageLoader{}).RecordByStorageRef(t.Context(), c.Ref)
+		rec, e := (loader.FileStorageLoader{}).RecordByStorageRef(t.Context(), c.GetRef())
 		if e != nil {
 			return e
 		}
@@ -75,8 +84,7 @@ func TestWACZImportAndRetrieve(t *testing.T) {
 	if e = o2.Run(t.Context()); e != nil {
 		t.Fatal(e)
 	}
-	count := 0
-	db.Scan(t.Context(), "", "", func(*cdx.Capture) error { count++; return nil })
+	count := captureCount(t, db)
 	if count != n {
 		t.Fatalf("repeat changed count: %d != %d", count, n)
 	}
@@ -109,20 +117,28 @@ func TestWACZIndexModes(t *testing.T) {
 					n += ".gz"
 					var b bytes.Buffer
 					g := gzip.NewWriter(&b)
-					g.Write(content)
-					g.Close()
+					if _, e = g.Write(content); e != nil {
+						t.Fatal(e)
+					}
+					if e = g.Close(); e != nil {
+						t.Fatal(e)
+					}
 					content = b.Bytes()
 				}
 				w, e = z.Create(n)
 				if e != nil {
 					t.Fatal(e)
 				}
-				w.Write(content)
+				if _, e = w.Write(content); e != nil {
+					t.Fatal(e)
+				}
 			}
 			if e = z.Close(); e != nil {
 				t.Fatal(e)
 			}
-			f.Close()
+			if e = f.Close(); e != nil {
+				t.Fatal(e)
+			}
 			db, e := cdxstore.Open(t.Context(), cdxstore.Options{Format: "badger", Dir: t.TempDir()})
 			if e != nil {
 				t.Fatal(e)
@@ -134,14 +150,59 @@ func TestWACZIndexModes(t *testing.T) {
 				o.WaczIndex = "warc"
 			}
 			e = o.Run(t.Context())
-			count := 0
-			db.Scan(t.Context(), "", "", func(*cdx.Capture) error { count++; return nil })
+			count := captureCount(t, db)
 			if mode == "broken" {
 				if e == nil || count != 0 {
 					t.Fatalf("broken index: count=%d error=%v", count, e)
 				}
 			} else if e != nil || count == 0 {
 				t.Fatalf("count=%d error=%v", count, e)
+			}
+		})
+	}
+}
+
+func TestWACZMemberPublicationAndEmptyReplacement(t *testing.T) {
+	for _, mode := range []string{"auto", waczRawIndex} {
+		t.Run(mode, func(t *testing.T) {
+			fixture := fixtures(t)[0]
+			name := filepath.Join(t.TempDir(), "members.wacz")
+			db, err := cdxstore.Open(t.Context(), cdxstore.Options{Format: badgerFormat, Dir: t.TempDir()})
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer db.Close()
+			for _, both := range []bool{true, false} {
+				const other = "second.warc"
+				entries := map[string][]byte{
+					waczArchiveDir + fixture.Name: fixture.Warc,
+					waczArchiveDir + other:        nil,
+					"indexes/index.cdxj":          []byte(fixture.Cdxj),
+				}
+				if both {
+					entries[waczArchiveDir+other] = fixture.Warc
+					lines := strings.TrimSpace(fixture.Cdxj) + "\n" + strings.ReplaceAll(fixture.Cdxj, fixture.Name, other)
+					entries["indexes/index.cdxj"] = []byte(lines)
+				}
+				if err := os.WriteFile(name, packageBytes(t, entries), 0600); err != nil {
+					t.Fatal(err)
+				}
+				opts := options(db, name)
+				opts.WaczIndex = mode
+				err := opts.Run(t.Context())
+				if closeErr := opts.Close(); err != nil || closeErr != nil {
+					t.Fatalf("index error=%v close error=%v", err, closeErr)
+				}
+				sources := map[string]int{}
+				if err := db.Scan(t.Context(), "", "", func(c *cdx.Capture) error {
+					sources[c.GetFilename()]++
+					return nil
+				}); err != nil {
+					t.Fatal(err)
+				}
+				if sources[fixture.Name] == 0 || (sources[other] != 0) != both {
+					t.Fatalf("both=%v, captures per member=%v", both, sources)
+				}
 			}
 		})
 	}
@@ -227,5 +288,38 @@ func TestWACZInputHooks(t *testing.T) {
 				t.Fatalf("unexpected close hook: %q, %v", closed, err)
 			}
 		})
+	}
+}
+
+func TestWACZPreservesStoredPOSTKey(t *testing.T) {
+	f := fixtures(t)[0]
+	indexLine, _, _ := strings.Cut(f.Cdxj, "\n")
+	_, fields, _ := strings.Cut(indexLine, " ")
+	const key = "org,example)/form?__wb_method=post&field=value"
+	wacz := filepath.Join(t.TempDir(), "post.wacz")
+	if err := os.WriteFile(wacz, packageBytes(t, map[string][]byte{
+		"archive/" + f.Name:  f.Warc,
+		"indexes/index.cdxj": []byte(key + " " + fields + "\n"),
+	}), 0600); err != nil {
+		t.Fatal(err)
+	}
+	db, err := cdxstore.Open(t.Context(), cdxstore.Options{Format: "badger", Dir: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if err := runPackage(t, db, wacz); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Scan(t.Context(), "", "", func(c *cdx.Capture) error {
+		if c.GetSsu() != key {
+			t.Errorf("got key %q, want %q", c.GetSsu(), key)
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if count := captureCount(t, db); count != 1 {
+		t.Fatalf("got %d captures, want one", count)
 	}
 }

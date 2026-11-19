@@ -332,7 +332,11 @@ registered WARC sources, including members of nested WACZ files. The regular
 The byte endpoint supports GET, HEAD, Range, conditional requests and ETags. It
 returns stored WARC bytes without applying HTTP `Content-Encoding: gzip`, so a
 `.warc.gz` member's offsets remain valid. An obsolete source generation returns
-410; an unregistered source returns 404. Only registered sources can be opened.
+410; an unregistered source returns 404. A file or container whose indexed
+metadata has changed returns 409. Reindex changed sources and previously indexed
+mounted sources that have no container metadata. Keep registered source bytes
+immutable between indexing and replay. Capture deletion changes the lookup
+index while the registered WARC file and its byte offsets stay intact.
 STORE ZIP members support direct reads; DEFLATE members may require streaming
 through a prefix to reach a requested offset. Neither requires unpacking a WACZ.
 

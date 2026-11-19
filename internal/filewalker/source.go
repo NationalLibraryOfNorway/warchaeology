@@ -4,12 +4,16 @@
 package filewalker
 
 import (
+	"archive/zip"
 	"encoding/json"
 	"errors"
 	"io"
+	"io/fs"
+	"os"
 	"path/filepath"
 	"slices"
 	"strings"
+	"time"
 
 	archivefs "github.com/nationallibraryofnorway/warchaeology/v5/internal/fs"
 	"github.com/spf13/afero"
@@ -21,10 +25,79 @@ type Source struct {
 	Roots []string `json:"roots,omitempty"`
 	Path  string   `json:"path"`
 }
+
+// FileVersion identifies the file metadata used to derive byte offsets.
+type FileVersion struct {
+	Size     int64     `json:"size"`
+	Modified time.Time `json:"modified"`
+	CRC      *uint32   `json:"crc,omitempty"`
+}
+
+func VersionOf(info fs.FileInfo) FileVersion {
+	version := FileVersion{Size: info.Size(), Modified: info.ModTime().UTC()}
+	if header, ok := info.Sys().(*zip.FileHeader); ok {
+		version.CRC = new(header.CRC32)
+	}
+	return version
+}
+
+func (v FileVersion) Matches(other FileVersion) bool {
+	if v.Size != other.Size || !v.Modified.Equal(other.Modified) {
+		return false
+	}
+	return v.CRC == nil || (other.CRC != nil && *v.CRC == *other.CRC)
+}
+
+// LocalContainer returns the outer local archive for a mounted source.
+func LocalContainer(locator string) (string, error) {
+	if !strings.HasPrefix(locator, "{") {
+		return "", nil
+	}
+	var src Source
+	if err := json.Unmarshal([]byte(locator), &src); err != nil {
+		return "", err
+	}
+	if len(src.Roots) == 0 {
+		return "", nil
+	}
+	return localRootPath(src.Roots[0]), nil
+}
+
+// ContainerVersion snapshots the outer container, when a local one exists.
+func ContainerVersion(locator string) (FileVersion, bool, error) {
+	path, err := LocalContainer(locator)
+	if err != nil || path == "" {
+		return FileVersion{}, false, err
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		return FileVersion{}, false, err
+	}
+	return VersionOf(info), true, nil
+}
+
 type sourceFS struct {
 	afero.Fs
 
 	roots []string
+}
+
+func MemberLocator(roots []string, member string) string {
+	data, _ := json.Marshal(Source{Roots: roots, Path: member}) //nolint:errchkjson // Source contains only strings.
+	return string(data)
+}
+
+func localRootPath(root string) string {
+	scheme, local, ok := strings.Cut(root, "://")
+	if ok {
+		switch strings.ToLower(scheme) {
+		case "ftp":
+			return ""
+		case "zip", "tar", "tgz":
+			return local
+		}
+	}
+	return root
 }
 
 func SourceLocator(fs afero.Fs, path string) (string, error) {
@@ -54,8 +127,7 @@ func SourceLocator(fs afero.Fs, path string) (string, error) {
 		}
 		roots[0] = prefix + abs
 	}
-	b, err := json.Marshal(Source{Roots: roots, Path: path})
-	return string(b), err
+	return MemberLocator(roots, path), nil
 }
 
 func OpenSource(locator string) (afero.File, io.Closer, error) {
@@ -99,17 +171,4 @@ func (c sourceClosers) Close() error {
 // WithSourceRoots associates a mounted filesystem with its reopenable mount chain.
 func WithSourceRoots(fs afero.Fs, roots []string) afero.Fs {
 	return &sourceFS{Fs: fs, roots: append([]string(nil), roots...)}
-}
-
-func localRootPath(root string) string {
-	scheme, local, ok := strings.Cut(root, "://")
-	if ok {
-		switch strings.ToLower(scheme) {
-		case "ftp":
-			return ""
-		case "zip", "tar", "tgz":
-			return local
-		}
-	}
-	return root
 }

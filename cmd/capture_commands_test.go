@@ -8,8 +8,12 @@ import (
 	"archive/zip"
 	"bytes"
 	"context"
+	"encoding/json"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/cdxstore"
+	"github.com/nationallibraryofnorway/warchaeology/v5/internal/server/archiveapi"
 	"io"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -290,6 +294,96 @@ func TestWACZRevalidatesAfterParserConfigChange(t *testing.T) {
 	}
 }
 
+func TestIndexDirRoot(t *testing.T) {
+	warc, err := os.ReadFile("../testdata/warc/convert.warc")
+	if err != nil {
+		t.Fatal(err)
+	}
+	base := t.TempDir()
+	t.Chdir(base)
+	for _, year := range []string{"2024", "2025"} {
+		dir := filepath.Join("warcs", year)
+		if err := os.MkdirAll(dir, 0700); err != nil {
+			t.Fatal(err)
+		}
+		data := bytes.ReplaceAll(warc, []byte("http://example.test"), []byte("http://example.test/"+year))
+		if err := os.WriteFile(filepath.Join(dir, "news.warc"), data, 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	rel := filepath.Join("warcs", "2025", "news.warc")
+	abs := filepath.Join(base, rel)
+	root := filepath.Join(base, "warcs")
+	for _, tc := range []struct{ name, root, input, want string }{
+		{"both absolute", root, abs, "2025/news.warc"},
+		{"relative input", root, rel, "2025/news.warc"},
+		{"relative root", "warcs", abs, "2025/news.warc"},
+		{"both relative", "warcs", rel, "2025/news.warc"},
+		{"basename", "", abs, "news.warc"},
+		{"outside", filepath.Join(root, "2024"), rel, "../2025/news.warc"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			args := []string{"index", "--index-file", "captures.cdxj", tc.input}
+			if tc.root != "" {
+				args = append(args, "--dir-root", tc.root)
+			}
+			if err := executeCaptureCommand(t, args...); err != nil {
+				t.Fatal(err)
+			}
+			data, err := os.ReadFile("captures.cdxj")
+			if err != nil {
+				t.Fatal(err)
+			}
+			for line := range strings.SplitSeq(strings.TrimSpace(string(data)), "\n") {
+				c, err := cdx.ParseIngestLine([]byte(line))
+				if err != nil || c.GetFilename() != tc.want {
+					t.Fatalf("filename = %q, want %q, error = %v", c.GetFilename(), tc.want, err)
+				}
+			}
+		})
+	}
+	if err := executeCaptureCommand(t, "index", "--recursive", "--index-format", "badger", "--index-dir", "db", "--dir-root", root, "warcs"); err != nil {
+		t.Fatal(err)
+	}
+	db, err := cdxstore.Open(t.Context(), cdxstore.Options{Format: "badger", Dir: "db", ReadOnly: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	archives := archiveapi.New(db, 100, 100)
+	get := func(handler http.Handler, path string) []byte {
+		t.Helper()
+		w := httptest.NewRecorder()
+		handler.ServeHTTP(w, httptest.NewRequestWithContext(t.Context(), http.MethodGet, path, nil))
+		if w.Code != http.StatusOK {
+			t.Fatalf("GET %s: %d %s", path, w.Code, w.Body.String())
+		}
+		return w.Body.Bytes()
+	}
+	for _, year := range []string{"2024", "2025"} {
+		query := "?url=http://example.test/" + year + "&output=json&fl=filename&limit=1"
+		var hit struct {
+			Filename string `json:"filename"`
+		}
+		if err := json.Unmarshal(get(cdx.CDXHandler(db), "/cdx"+query), &hit); err != nil {
+			t.Fatal(err)
+		}
+		if hit.Filename != year+"/news.warc" {
+			t.Fatalf("CDX filename = %q for year %s", hit.Filename, year)
+		}
+		if err := json.Unmarshal(get(archives, "/archives/cdx"+query), &hit); err != nil {
+			t.Fatal(err)
+		}
+		want, err := os.ReadFile(filepath.Join(root, year, "news.warc"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !bytes.Equal(get(archives, "/archives/"+hit.Filename), want) {
+			t.Fatalf("wrong WARC bytes for year %s", year)
+		}
+	}
+}
+
 func TestRedupeSymlinkContainment(t *testing.T) {
 	source := t.TempDir()
 	inside := filepath.Join(source, "published")
@@ -311,6 +405,80 @@ func TestRedupeSymlinkContainment(t *testing.T) {
 	}
 }
 
+func zipWithMembers(t *testing.T, members map[string][]byte) []byte {
+	t.Helper()
+	var data bytes.Buffer
+	w := zip.NewWriter(&data)
+	for name, body := range members {
+		f, err := w.Create(name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err = f.Write(body); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := w.Close(); err != nil {
+		t.Fatal(err)
+	}
+	return data.Bytes()
+}
+func TestWACZStagingDuplicates(t *testing.T) {
+	dir := t.TempDir()
+	file := filepath.Join(dir, "p.wacz")
+	database := filepath.Join(dir, "db")
+	row := `org,example)/ 20200101000000 {"url":"https://example.org/","filename":"a.warc","offset":"0","length":"1","custom":"first"}` + "\n"
+	rows := strings.Repeat(row, 257)
+	write := func() {
+		t.Helper()
+		raw := zipWithMembers(t, map[string][]byte{"archive/a.warc": []byte("x"), "indexes/a.cdxj": []byte(rows)})
+		if err := os.WriteFile(file, raw, 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write()
+	args := []string{"index", "--index-format=badger", "--index-dir", database, file}
+	if err := executeCaptureCommand(t, args...); err != nil {
+		t.Fatal(err)
+	}
+	rows += strings.Replace(row, "first", "second", 1)
+	write()
+	if err := executeCaptureCommand(t, args...); err == nil || !strings.Contains(err.Error(), "conflicting capture") {
+		t.Fatal(err)
+	}
+	var unsorted bytes.Buffer
+	viper.Reset()
+	command := NewWarcCommand()
+	command.SetOut(&unsorted)
+	command.SetArgs([]string{"index", file})
+	if err := command.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Count(unsorted.String(), "first") != 257 || strings.Count(unsorted.String(), "second") != 1 {
+		t.Fatal("unsorted export lost embedded rows")
+	}
+	out := filepath.Join(dir, "out.cdxj")
+	if err := executeCaptureCommand(t, "index", "--index-file", out, file); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(out)
+	if err != nil || bytes.Count(data, []byte("\n")) != 2 {
+		t.Fatal(err, string(data))
+	}
+	db, err := cdxstore.Open(t.Context(), cdxstore.Options{Dir: database, Format: "badger", ReadOnly: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if err := db.Close(); err != nil {
+			t.Error(err)
+		}
+	}()
+	var exported bytes.Buffer
+	if err = db.Export(t.Context(), &exported); err != nil || strings.Count(exported.String(), "first") != 1 || strings.Contains(exported.String(), "second") {
+		t.Fatal(err, exported.String())
+	}
+}
 func TestFulltextRejectsBeforeIngestion(t *testing.T) {
 	opts := cdxstore.Options{Dir: t.TempDir(), Format: "badger", IndexOnly: true}
 	db, err := cdxstore.Open(t.Context(), opts)

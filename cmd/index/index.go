@@ -16,7 +16,6 @@ import (
 	"path/filepath"
 	"sync"
 	"syscall"
-	"time"
 
 	"github.com/nationallibraryofnorway/gowarc/v3"
 	"github.com/nationallibraryofnorway/warchaeology/v5/cmd/index/reset"
@@ -104,20 +103,30 @@ type IndexOptions struct {
 }
 
 func (o *IndexOptions) Complete(cmd *cobra.Command, args []string) error {
+	if err := o.validateWaczIndex(); err != nil {
+		return err
+	}
 	o.Paths = append(o.Paths, args...)
 	o.stdout = cmd.OutOrStdout()
 	for _, name := range []string{"id", "record-type", "mime-type", "response-code", "offset", "nth", "limit", flag.StrictValidation, flag.LenientValidation, flag.LaxHostParsing, "force", "post-append"} {
 		if flag.Explicit(cmd, name) {
-			o.WaczIndex = "warc"
+			o.WaczIndex = waczRawIndex
 			break
 		}
 	}
 	return nil
 }
 
-func (o *IndexOptions) Validate() error {
-	if o.WaczIndex != "" && o.WaczIndex != "auto" && o.WaczIndex != "warc" {
+func (o *IndexOptions) validateWaczIndex() error {
+	if o.WaczIndex != "" && o.WaczIndex != "auto" && o.WaczIndex != waczRawIndex {
 		return errors.New("wacz-index must be auto or warc")
+	}
+	return nil
+}
+
+func (o *IndexOptions) Validate() error {
+	if err := o.validateWaczIndex(); err != nil {
+		return err
 	}
 	if o.TextRebuild && !o.Fulltext {
 		return errors.New("fulltext-rebuild requires fulltext")
@@ -242,17 +251,12 @@ func (o *IndexOptions) openSink(ctx context.Context) error {
 	return err
 }
 
-type fileFinisher interface {
-	BeginFile(context.Context, string) (context.Context, error)
-	FinishFile(context.Context, string, int64, time.Time) error
-}
-
 type stagedFile struct {
-	db       *cdxstore.DB
-	ctx      context.Context
-	source   string
-	size     int64
-	modified time.Time
+	db        *cdxstore.DB
+	ctx       context.Context
+	source    string
+	version   filewalker.FileVersion
+	container *filewalker.FileVersion
 }
 
 func (o *IndexOptions) indexInput(ctx context.Context, fs afero.Fs, path string) (err error) {
@@ -269,7 +273,7 @@ func (o *IndexOptions) indexInput(ctx context.Context, fs afero.Fs, path string)
 		return o.handleFile(ctx, fs, p, stage)
 	})
 	if err == nil && stage != nil {
-		return stage.db.FinishFile(stage.ctx, stage.source, stage.size, stage.modified)
+		return stage.db.FinishFileVersion(stage.ctx, stage.source, stage.version, stage.container)
 	}
 	return err
 }
@@ -284,11 +288,18 @@ func (o *IndexOptions) handleFile(ctx context.Context, fs afero.Fs, path string,
 	if err != nil {
 		return result, err
 	}
-	if f, ok := o.Sink.(fileFinisher); ok {
-		ctx, err = f.BeginFile(ctx, source)
-		if stage != nil {
-			stage.ctx, stage.source = ctx, source
+
+	var container *filewalker.FileVersion
+	if stage != nil {
+		version, present, e := filewalker.ContainerVersion(source)
+		if e != nil {
+			return result, e
 		}
+		if present {
+			container = &version
+		}
+		ctx, err = stage.db.BeginFile(ctx, source)
+		stage.ctx, stage.source = ctx, source
 		if err != nil {
 			return result, err
 		}
@@ -404,19 +415,18 @@ func (o *IndexOptions) handleFile(ctx context.Context, fs afero.Fs, path string,
 	if e := emit(pending, pendingAccept); e != nil {
 		return result, e
 	}
+	version := filewalker.VersionOf(info)
+	if stage != nil {
+		if e := checkArchiveVersion(file, version, source, container); e != nil {
+			return result, e
+		}
+	}
 	closed = true
 	if e := reader.Close(); e != nil {
 		return result, e
 	}
 	if stage != nil {
-		stage.size, stage.modified = info.Size(), info.ModTime()
-	} else if f, ok := o.Sink.(fileFinisher); ok {
-		if e := o.Sink.Flush(ctx); e != nil {
-			return result, e
-		}
-		if e := f.FinishFile(ctx, source, info.Size(), info.ModTime()); e != nil {
-			return result, e
-		}
+		stage.version, stage.container = version, container
 	}
 	return result, nil
 }
@@ -436,6 +446,26 @@ func captureFilename(fs afero.Fs, name, root string) (string, error) {
 	}
 	relative, err := filepath.Rel(root, name)
 	return filepath.ToSlash(relative), err
+}
+
+func checkArchiveVersion(file afero.File, version filewalker.FileVersion, source string, container *filewalker.FileVersion) error {
+	info, err := file.Stat()
+	if err != nil {
+		return err
+	}
+	if !version.Matches(filewalker.VersionOf(info)) {
+		return errors.New("archive source changed during indexing")
+	}
+	if container != nil {
+		current, present, err := filewalker.ContainerVersion(source)
+		if err != nil {
+			return err
+		}
+		if !present || !container.Matches(current) {
+			return errors.New("archive container changed during indexing")
+		}
+	}
+	return nil
 }
 
 func (o *IndexOptions) captureRecord(file io.ReaderAt, rec gowarc.Record, source, filename string) (c *cdx.Capture, accept bool, method, query string, err error) {

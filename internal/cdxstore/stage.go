@@ -5,6 +5,7 @@ package cdxstore
 
 import (
 	"context"
+	"fmt"
 	"strings"
 
 	cdx "github.com/nationallibraryofnorway/warchaeology/v5/internal/cdx"
@@ -14,9 +15,10 @@ import (
 // CaptureStage buffers a package on disk and indexes its captures by source.
 // Callers write and scan one package at a time.
 type CaptureStage struct {
-	kv   kv
-	ops  []mutation
-	size int
+	kv       kv
+	ops      []mutation
+	size     int
+	sequence uint64
 }
 
 func OpenCaptureStage(ctx context.Context, dir string) (*CaptureStage, error) {
@@ -32,7 +34,8 @@ func (s *CaptureStage) WriteCapture(ctx context.Context, c *cdx.Capture) error {
 	if err != nil {
 		return err
 	}
-	key := identity(c.GetSource()) + "/" + captureKey(c)
+	key := identity(c.GetSource()) + "/" + captureKey(c) + fmt.Sprintf("/%020d", s.sequence)
+	s.sequence++
 	s.ops = append(s.ops, mutation{key: key, value: encoded})
 	s.size += len(key) + len(encoded)
 	if len(s.ops) >= 256 || s.size >= 1<<20 {

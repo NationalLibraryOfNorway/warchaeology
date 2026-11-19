@@ -29,7 +29,18 @@ and metadata. `--record-type` overrides this selection. Existing filters,
 concurrency, error policies, traversal options and input hooks apply. Processing,
 output, flush and close errors cause command failure.
 
-Exported filenames default to basenames. `--dir-root` exports relative paths.
+Exported filenames default to basenames. Use `--dir-root` to keep the path
+relative to an archive directory in the CDX `filename` field. For example,
+from `/srv`, both commands emit `2025/news.warc.gz`:
+
+```sh
+warc index --dir-root /srv/warcs /srv/warcs/2025/news.warc.gz
+warc index --dir-root /srv/warcs warcs/2025/news.warc.gz
+```
+
+Inputs outside the root can produce paths containing `../`. For example,
+with the same root, `/srv/other/news.warc.gz` yields `../other/news.warc.gz`.
+
 Database retrieval uses separate structured source locators containing literal
 archive mount paths and member names. Basename collisions produce an ambiguity
 error. Configure pywb's archive paths separately when using exported indexes.

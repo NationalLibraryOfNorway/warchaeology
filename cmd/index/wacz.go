@@ -12,9 +12,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/nationallibraryofnorway/warchaeology/v5/internal/hooks"
-	"github.com/nationallibraryofnorway/warchaeology/v5/internal/stat"
-	"github.com/nationallibraryofnorway/warchaeology/v5/internal/wacz"
+	"hash"
 	"io"
 	"os"
 	"path"
@@ -24,26 +22,58 @@ import (
 	cdx "github.com/nationallibraryofnorway/warchaeology/v5/internal/cdx"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/cdxstore"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/filewalker"
+	"github.com/nationallibraryofnorway/warchaeology/v5/internal/hooks"
+	"github.com/nationallibraryofnorway/warchaeology/v5/internal/stat"
+	"github.com/nationallibraryofnorway/warchaeology/v5/internal/wacz"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/zipfs"
 	"github.com/spf13/afero"
 )
 
-func (o *IndexOptions) handleWACZ(ctx context.Context, fs afero.Fs, name string) (bool, error) {
+const (
+	waczRawIndex     = "warc"
+	waczArchiveDir   = "archive/"
+	multiWaczProfile = "multi-wacz-package"
+)
+
+type waczPackage struct {
+	roots             []string
+	members           map[string]*zip.File
+	names, children   []string
+	indexes           []*zip.File
+	aliases           map[string]string
+	manifest          json.RawMessage
+	sourceFingerprint string
+}
+
+func (p *waczPackage) sourceFor(member string) string {
+	return filewalker.MemberLocator(p.roots, "/"+member)
+}
+
+func (o *IndexOptions) handleWACZ(ctx context.Context, fs afero.Fs, name string) (_ bool, err error) {
 	if !strings.EqualFold(path.Ext(name), ".wacz") {
 		return false, nil
 	}
 	if !o.FileWalker.HasSuffix(name) {
 		return true, nil
 	}
-	_, err := filewalker.PrePostHookContext(ctx, fs, name, o.OpenInputFileHook, o.CloseInputFileHook, func(fs afero.Fs, path string) (stat.Result, error) {
-		return nil, o.indexWACZ(ctx, fs, path)
+	var update *cdxstore.PackageUpdate
+	if db, ok := o.Sink.(*cdxstore.DB); ok {
+		update = db.NewPackageUpdate()
+		defer func() { err = errors.Join(err, update.Discard(context.WithoutCancel(ctx))) }()
+	}
+	_, err = filewalker.PrePostHookContext(ctx, fs, name, o.OpenInputFileHook, o.CloseInputFileHook, func(fs afero.Fs, path string) (stat.Result, error) {
+		return nil, o.indexWACZ(ctx, fs, path, nil, update)
 	})
 	if errors.Is(err, hooks.ErrSkipFile) {
 		return true, nil
 	}
+	if err == nil && update != nil {
+		err = update.Publish(ctx)
+	}
 	return true, err
 }
-func (o *IndexOptions) indexWACZ(ctx context.Context, fs afero.Fs, name string) (err error) {
+
+func (o *IndexOptions) indexWACZ(ctx context.Context, fs afero.Fs, name string, outer *filewalker.FileVersion, update *cdxstore.PackageUpdate) (err error) {
 	locator, err := filewalker.SourceLocator(fs, name)
 	if err != nil {
 		return err
@@ -55,7 +85,6 @@ func (o *IndexOptions) indexWACZ(ctx context.Context, fs afero.Fs, name string) 
 	if len(source.Roots) >= 16 {
 		return fmt.Errorf("WACZ nesting exceeds 16 levels")
 	}
-	roots := append(source.Roots, source.Path)
 	f, err := fs.Open(name)
 	if err != nil {
 		return err
@@ -65,269 +94,266 @@ func (o *IndexOptions) indexWACZ(ctx context.Context, fs afero.Fs, name string) 
 	if err != nil {
 		return err
 	}
+	version := filewalker.VersionOf(info)
+	if outer == nil {
+		if len(source.Roots) == 0 {
+			outer = &version
+		} else if container, present, e := filewalker.ContainerVersion(locator); e != nil {
+			return e
+		} else if present {
+			outer = &container
+		}
+	}
 	zr, err := zip.NewReader(f, info.Size())
 	if err != nil {
 		return err
 	}
-	members := map[string]*zip.File{}
-	var indexes []*zip.File
-	hash := sha256.New()
-	fmt.Fprintf(hash, "wacz-7/%d/%d/%s", info.Size(), info.ModTime().UnixNano(), o.WaczIndex)
-	fmt.Fprintf(hash, "/%#v/%t/%t/%d/%d/%d/%s/%t", o.Filter, o.DefaultRecords, o.Force, o.Offset, o.Nth, o.Limit, o.DirRoot, o.PostAppend)
-	hash.Write([]byte(o.WaczConfig))
-	for _, z := range zr.File {
-		if z.FileInfo().IsDir() {
-			continue
-		}
-		if path.Clean(z.Name) != z.Name || strings.HasPrefix(z.Name, "/") || strings.HasPrefix(z.Name, "../") || strings.Contains(z.Name, "\\") {
-			return fmt.Errorf("unsafe WACZ member %q", z.Name)
-		}
-		if _, ok := members[z.Name]; ok {
-			return fmt.Errorf("duplicate WACZ member %q", z.Name)
-		}
-		members[z.Name] = z
-		fmt.Fprintf(hash, "/%s/%d/%d/%d", z.Name, z.CRC32, z.UncompressedSize64, z.CompressedSize64)
-		if strings.HasPrefix(z.Name, "indexes/") && (strings.HasSuffix(z.Name, ".cdx") || strings.HasSuffix(z.Name, ".cdxj") || strings.HasSuffix(z.Name, ".cdx.gz") || strings.HasSuffix(z.Name, ".cdxj.gz")) {
-			indexes = append(indexes, z)
-		}
+	digest := sha256.New()
+	_, _ = fmt.Fprintf(digest, "wacz-8/%d/%d/%s", version.Size, version.Modified.UnixNano(), o.WaczIndex)
+	if outer != nil {
+		_, _ = fmt.Fprintf(digest, "/%d/%d", outer.Size, outer.Modified.UnixNano())
 	}
-	aliases := map[string]string{}
-	for n := range members {
-		if strings.HasPrefix(n, "archive/") {
-			b := path.Base(n)
-			if _, exists := aliases[b]; exists {
-				aliases[b] = ""
-			} else {
-				aliases[b] = n
-			}
-		}
+	_, _ = fmt.Fprintf(digest, "/%#v/%t/%t/%d/%d/%d/%s/%t", o.Filter, o.DefaultRecords, o.Force, o.Offset, o.Nth, o.Limit, o.DirRoot, o.PostAppend)
+	digest.Write([]byte(o.WaczConfig))
+	pkg, err := inspectWACZ(zr, append(source.Roots, source.Path), digest)
+	if err != nil {
+		return err
 	}
-	var manifestJSON json.RawMessage
-	var metadata waczManifest
-	if manifest := members["datapackage.json"]; manifest != nil {
-		r, e := manifest.Open()
-		if e != nil {
-			return e
-		}
-		raw, e := io.ReadAll(io.LimitReader(r, 16<<20+1))
-		e = errors.Join(e, r.Close())
-		if e != nil {
-			return e
-		}
-		if len(raw) > 16<<20 {
-			return fmt.Errorf("WACZ manifest exceeds 16 MiB")
-		}
-
-		if !strings.HasPrefix(strings.TrimSpace(string(raw)), "{") {
-			return fmt.Errorf("WACZ manifest must be a JSON object")
-		}
-		if e = json.Unmarshal(raw, &metadata); e != nil {
-			return fmt.Errorf("invalid WACZ manifest: %w", e)
-		}
-		manifestJSON = raw
-		hash.Write(raw)
-		for _, resource := range metadata.Resources {
-			if strings.HasPrefix(resource.Path, "archive/") && resource.Name != "" {
-				if previous, ok := aliases[resource.Name]; ok && previous != resource.Path {
-					aliases[resource.Name] = ""
-				} else {
-					aliases[resource.Name] = resource.Path
-				}
-			}
-		}
-	}
-	children, e := waczChildren(metadata, members)
-	if e != nil {
-		return e
-	}
-	fingerprint := fmt.Sprintf("%x", hash.Sum(nil))
+	pkg.sourceFingerprint = wacz.Fingerprint(info, zr)
+	fingerprint := fmt.Sprintf("%x", digest.Sum(nil))
 	db, _ := o.Sink.(*cdxstore.DB)
 	if db != nil {
 		if db.IndexOnly() {
 			return fmt.Errorf("WACZ requires a native-content database")
 		}
-		same, e := db.PackageMatches(ctx, locator, fingerprint)
-		if e != nil {
-			return e
-		}
-		if same {
-			return nil
-		}
-	}
-	sourceFor := func(member string) string {
-		b, _ := json.Marshal(filewalker.Source{Roots: roots, Path: "/" + member})
-		return string(b)
-	}
-	var names []string
-	for n := range members {
-		if strings.HasPrefix(n, "archive/") && (strings.HasSuffix(n, ".warc") || strings.HasSuffix(n, ".warc.gz")) {
-			names = append(names, n)
-		}
-	}
-	sort.Strings(names)
-	if len(names) == 0 && len(children) == 0 && metadata.Profile != "multi-wacz-package" {
-		return fmt.Errorf("WACZ contains no WARCs or child WACZ packages")
-	}
-	var childLocators []string
-	for _, child := range children {
-		childLocators = append(childLocators, sourceFor(child))
-	}
-	packageMetadata := cdxstore.PackageInfo{SourceFingerprint: wacz.Fingerprint(info, zr), Manifest: manifestJSON, Children: childLocators}
-	if len(names) == 0 {
-		if db != nil {
-			if err = db.BeginPackage(ctx, locator, nil, childLocators...); err != nil {
-				return err
-			}
-		}
-		mounted := filewalker.WithSourceRoots(zipfs.NewWACZ(zr), roots)
-		for _, child := range children {
-			if err = o.indexWACZ(ctx, mounted, "/"+child); err != nil {
-				return fmt.Errorf("%s: %w", child, err)
-			}
-		}
-		current, e := f.Stat()
-		if e != nil {
-			return e
-		}
-		if current.Size() != info.Size() || !current.ModTime().Equal(info.ModTime()) {
-			return fmt.Errorf("WACZ changed during indexing")
-		}
-		if db != nil {
-			return db.FinishPackage(ctx, locator, fingerprint, nil, packageMetadata)
-		}
-		return nil
-	}
-	// A disk-backed staging sink validates the entire index before native publication.
-	dir, err := os.MkdirTemp(o.tmpDir, "wacz-index-")
-	if err != nil {
-		return err
-	}
-	defer os.RemoveAll(dir)
-	stage, err := cdxstore.Open(ctx, cdxstore.Options{Format: "badger", Dir: dir, Scratch: true})
-	if err != nil {
-		return err
-	}
-	defer func() { err = errors.Join(err, stage.Close()) }()
-	if len(indexes) > 0 && o.WaczIndex != "warc" {
-		for _, z := range indexes {
-			err = func() error {
-				r, e := z.Open()
-				if e != nil {
-					return e
-				}
-				defer r.Close()
-				var input io.Reader = r
-				if strings.HasSuffix(z.Name, ".gz") {
-					g, e := gzip.NewReader(r)
-					if e != nil {
-						return e
-					}
-					defer g.Close()
-					input = g
-				}
-				scanner := bufio.NewScanner(input)
-				scanner.Buffer(make([]byte, 4096), 1<<20)
-				for scanner.Scan() {
-					if e := ctx.Err(); e != nil {
-						return e
-					}
-					c, e := cdx.ParseIndexedLine(scanner.Bytes())
-					if e != nil {
-						return fmt.Errorf("%s: %w", z.Name, e)
-					}
-					member := c.Filename
-					if !strings.HasPrefix(member, "archive/") {
-						if resolved, exists := aliases[member]; exists {
-							if resolved == "" {
-								return fmt.Errorf("ambiguous WARC member %q", member)
-							}
-							member = resolved
-						} else {
-							member = "archive/" + member
-						}
-					}
-					zf, ok := members[member]
-					if !ok || path.Clean(member) != member || !(strings.HasSuffix(member, ".warc") || strings.HasSuffix(member, ".warc.gz")) {
-						return fmt.Errorf("missing or unsafe WARC member %q", c.Filename)
-					}
-					if c.Offset < 0 || uint64(c.Offset) > zf.UncompressedSize64 || uint64(c.Rle) > zf.UncompressedSize64-uint64(c.Offset) {
-						return fmt.Errorf("record outside %s", member)
-					}
-					c.Source = sourceFor(member)
-					c.Ref = fmt.Sprintf("warcfile:%s#%d", c.Source, c.Offset)
-					if e = stage.WriteCapture(ctx, c); e != nil {
-						return e
-					}
-				}
-				return scanner.Err()
-			}()
-			if err != nil {
-				return err
-			}
-		}
-	} else {
-		mounted := zipfs.NewWACZ(zr)
-		for _, n := range names {
-			// Preserve the native indexer's metadata, filters and request pairing.
-			memberFS := filewalker.WithSourceRoots(mounted, roots)
-			copyOptions := *o
-			copyOptions.Sink = stage
-			if _, err = copyOptions.handleFile(ctx, memberFS, "/"+n, nil); err != nil {
-				return err
-			}
-		}
-	}
-	current, e := f.Stat()
-	if e != nil {
-		return e
-	}
-	if current.Size() != info.Size() || !current.ModTime().Equal(info.ModTime()) {
-		return fmt.Errorf("WACZ changed during indexing")
-	}
-	var sources []string
-	for _, n := range names {
-		sources = append(sources, sourceFor(n))
-	}
-	if db != nil {
-		if err = db.BeginPackage(ctx, locator, sources, childLocators...); err != nil {
+		if same, err := db.PackageMatches(ctx, locator, fingerprint); err != nil || same {
 			return err
 		}
 	}
-	for _, n := range names {
-		src := sourceFor(n)
-		writeCtx := ctx
-		finisher, ok := o.Sink.(fileFinisher)
-		if ok {
-			writeCtx, err = finisher.BeginFile(ctx, src)
-			if err != nil {
-				return err
-			}
-		}
-		err = stage.Scan(ctx, "", "", func(c *cdx.Capture) error {
-			if c.Source != src {
-				return nil
-			}
-			c.Generation = ""
-			return o.Sink.WriteCapture(writeCtx, c)
-		})
+
+	mounted := filewalker.WithSourceRoots(zipfs.NewWACZ(zr), pkg.roots)
+	var stage *cdxstore.CaptureStage
+	if len(pkg.names) > 0 {
+		dir, err := os.MkdirTemp(o.tmpDir, "wacz-index-")
 		if err != nil {
 			return err
 		}
-		if ok {
-			z := members[n]
-			if err = finisher.FinishFile(writeCtx, src, int64(z.UncompressedSize64), z.Modified); err != nil {
+		defer func() { err = errors.Join(err, os.RemoveAll(dir)) }()
+		stage, err = cdxstore.OpenCaptureStage(ctx, dir)
+		if err != nil {
+			return err
+		}
+		defer func() { err = errors.Join(err, stage.Close()) }()
+		if err = o.stageWACZ(ctx, pkg, mounted, stage); err != nil {
+			return err
+		}
+	}
+	if err = checkArchiveVersion(f, version, pkg.sourceFor(""), outer); err != nil {
+		return err
+	}
+	if err = o.stageWACZTree(ctx, pkg, mounted, stage, update, locator, fingerprint, outer); err != nil {
+		return err
+	}
+	return checkArchiveVersion(f, version, pkg.sourceFor(""), outer)
+}
+
+func inspectWACZ(zr *zip.Reader, roots []string, digest hash.Hash) (*waczPackage, error) {
+	pkg := &waczPackage{roots: roots, members: make(map[string]*zip.File), aliases: make(map[string]string)}
+	for _, z := range zr.File {
+		if z.FileInfo().IsDir() {
+			continue
+		}
+		if path.Clean(z.Name) != z.Name || strings.HasPrefix(z.Name, "/") || strings.HasPrefix(z.Name, "../") || strings.Contains(z.Name, "\\") {
+			return nil, fmt.Errorf("unsafe WACZ member %q", z.Name)
+		}
+		if _, ok := pkg.members[z.Name]; ok {
+			return nil, fmt.Errorf("duplicate WACZ member %q", z.Name)
+		}
+		pkg.members[z.Name] = z
+		_, _ = fmt.Fprintf(digest, "/%s/%d/%d/%d", z.Name, z.CRC32, z.UncompressedSize64, z.CompressedSize64)
+		if isCDXMember(z.Name) {
+			pkg.indexes = append(pkg.indexes, z)
+		}
+		if strings.HasPrefix(z.Name, waczArchiveDir) {
+			pkg.addAlias(path.Base(z.Name), z.Name)
+			if isWARCMember(z.Name) {
+				pkg.names = append(pkg.names, z.Name)
+			}
+		}
+	}
+	sort.Strings(pkg.names)
+
+	var metadata waczManifest
+	if manifest := pkg.members["datapackage.json"]; manifest != nil {
+		raw, err := readWACZManifest(manifest, &metadata)
+		if err != nil {
+			return nil, err
+		}
+		pkg.manifest = raw
+		digest.Write(raw)
+		for _, resource := range metadata.Resources {
+			if strings.HasPrefix(resource.Path, waczArchiveDir) && resource.Name != "" {
+				pkg.addAlias(resource.Name, resource.Path)
+			}
+		}
+	}
+	children, err := waczChildren(metadata, pkg.members)
+	if err != nil {
+		return nil, err
+	}
+	if len(pkg.names) == 0 && len(children) == 0 && metadata.Profile != multiWaczProfile {
+		return nil, fmt.Errorf("WACZ contains no WARCs or child WACZ packages")
+	}
+	pkg.children = children
+	return pkg, nil
+}
+
+func isCDXMember(name string) bool {
+	if !strings.HasPrefix(name, "indexes/") {
+		return false
+	}
+	name = strings.TrimSuffix(name, ".gz")
+	return strings.HasSuffix(name, ".cdx") || strings.HasSuffix(name, ".cdxj")
+}
+
+func isWARCMember(name string) bool {
+	return strings.HasSuffix(strings.TrimSuffix(name, ".gz"), ".warc")
+}
+
+func (p *waczPackage) addAlias(alias, member string) {
+	if previous, ok := p.aliases[alias]; ok && previous != member {
+		p.aliases[alias] = ""
+		return
+	}
+	p.aliases[alias] = member
+}
+
+func readWACZManifest(manifest *zip.File, metadata *waczManifest) ([]byte, error) {
+	r, err := manifest.Open()
+	if err != nil {
+		return nil, err
+	}
+	const maxManifest = 16 << 20
+	raw, err := io.ReadAll(io.LimitReader(r, maxManifest+1))
+	if err = errors.Join(err, r.Close()); err != nil {
+		return nil, err
+	}
+	if len(raw) > maxManifest {
+		return nil, fmt.Errorf("WACZ manifest exceeds 16 MiB")
+	}
+	if !strings.HasPrefix(strings.TrimSpace(string(raw)), "{") {
+		return nil, fmt.Errorf("WACZ manifest must be a JSON object")
+	}
+	if err = json.Unmarshal(raw, metadata); err != nil {
+		return nil, fmt.Errorf("invalid WACZ manifest: %w", err)
+	}
+	return raw, nil
+}
+
+func (o *IndexOptions) stageWACZ(ctx context.Context, pkg *waczPackage, mounted afero.Fs, stage *cdxstore.CaptureStage) error {
+	if len(pkg.indexes) > 0 && o.WaczIndex != waczRawIndex {
+		for _, index := range pkg.indexes {
+			if err := pkg.stageCDX(ctx, index, stage); err != nil {
+				return fmt.Errorf("%s: %w", index.Name, err)
+			}
+		}
+	} else {
+		copyOptions := *o
+		copyOptions.Sink = stage
+		for _, name := range pkg.names {
+			if _, err := copyOptions.handleFile(ctx, mounted, "/"+name, nil); err != nil {
 				return err
 			}
 		}
 	}
-	mounted := filewalker.WithSourceRoots(zipfs.NewWACZ(zr), roots)
-	for _, child := range children {
-		if err = o.indexWACZ(ctx, mounted, "/"+child); err != nil {
+	return stage.Flush(ctx)
+}
+
+func (p *waczPackage) stageCDX(ctx context.Context, index *zip.File, stage *cdxstore.CaptureStage) (err error) {
+	r, err := index.Open()
+	if err != nil {
+		return err
+	}
+	defer func() { err = errors.Join(err, r.Close()) }()
+	var input io.Reader = r
+	if strings.HasSuffix(index.Name, ".gz") {
+		g, err := gzip.NewReader(r)
+		if err != nil {
+			return err
+		}
+		defer func() { err = errors.Join(err, g.Close()) }()
+		input = g
+	}
+	scanner := bufio.NewScanner(input)
+	scanner.Buffer(make([]byte, 4096), 1<<20)
+	for scanner.Scan() {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		capture, err := cdx.ParseIndexedLine(scanner.Bytes())
+		if err != nil {
+			return err
+		}
+		member, err := p.warcMember(capture)
+		if err != nil {
+			return err
+		}
+		capture.Source = p.sourceFor(member)
+		capture.Ref = fmt.Sprintf("warcfile:%s#%d", capture.GetSource(), capture.GetOffset())
+		if err := stage.WriteCapture(ctx, capture); err != nil {
+			return err
+		}
+	}
+	return scanner.Err()
+}
+
+func (p *waczPackage) warcMember(c *cdx.Capture) (string, error) {
+	member := c.GetFilename()
+	if !strings.HasPrefix(member, waczArchiveDir) {
+		if resolved, exists := p.aliases[member]; exists {
+			if resolved == "" {
+				return "", fmt.Errorf("ambiguous WARC member %q", member)
+			}
+			member = resolved
+		} else {
+			member = waczArchiveDir + member
+		}
+	}
+	zf, ok := p.members[member]
+	if !ok || !strings.HasPrefix(member, waczArchiveDir) || !isWARCMember(member) {
+		return "", fmt.Errorf("missing or unsafe WARC member %q", c.GetFilename())
+	}
+	offset, length := uint64(c.GetOffset()), uint64(c.GetRle())
+	if offset > zf.UncompressedSize64 || length > zf.UncompressedSize64-offset {
+		return "", fmt.Errorf("record outside %s", member)
+	}
+	return member, nil
+}
+
+func (o *IndexOptions) stageWACZTree(ctx context.Context, pkg *waczPackage, mounted afero.Fs, stage *cdxstore.CaptureStage, update *cdxstore.PackageUpdate, locator, fingerprint string, outer *filewalker.FileVersion) error {
+	info := cdxstore.PackageInfo{Locator: locator, Fingerprint: fingerprint, SourceFingerprint: pkg.sourceFingerprint, Manifest: pkg.manifest}
+	for _, name := range pkg.names {
+		source := pkg.sourceFor(name)
+		info.Sources = append(info.Sources, source)
+		if update != nil {
+			version := filewalker.VersionOf(pkg.members[name].FileInfo())
+			if err := update.StageMember(ctx, stage, source, version, outer); err != nil {
+				return err
+			}
+		} else if err := stage.ScanSource(ctx, source, func(c *cdx.Capture) error {
+			return o.Sink.WriteCapture(ctx, c)
+		}); err != nil {
+			return err
+		}
+	}
+	for _, child := range pkg.children {
+		info.Children = append(info.Children, pkg.sourceFor(child))
+		if err := o.indexWACZ(ctx, mounted, "/"+child, outer, update); err != nil {
 			return fmt.Errorf("%s: %w", child, err)
 		}
 	}
-	if db != nil {
-		return db.FinishPackage(ctx, locator, fingerprint, sources, packageMetadata)
+	if update != nil {
+		update.AddPackage(info)
 	}
 	return nil
 }
@@ -342,7 +368,7 @@ type waczManifest struct {
 }
 
 func waczChildren(manifest waczManifest, members map[string]*zip.File) ([]string, error) {
-	if manifest.Profile == "multi-wacz-package" && manifest.Resources == nil {
+	if manifest.Profile == multiWaczProfile && manifest.Resources == nil {
 		return nil, fmt.Errorf("multi-WACZ manifest requires a resources array")
 	}
 	var children []string
@@ -352,7 +378,7 @@ func waczChildren(manifest waczManifest, members map[string]*zip.File) ([]string
 		if member == "" {
 			member = resource.URL
 		}
-		if manifest.Profile != "multi-wacz-package" && !strings.EqualFold(path.Ext(member), ".wacz") && !strings.EqualFold(path.Ext(resource.Name), ".wacz") {
+		if manifest.Profile != multiWaczProfile && !strings.EqualFold(path.Ext(member), ".wacz") && !strings.EqualFold(path.Ext(resource.Name), ".wacz") {
 			continue
 		}
 		if member == "" {
@@ -373,7 +399,7 @@ func waczChildren(manifest waczManifest, members map[string]*zip.File) ([]string
 		seen[member] = true
 		children = append(children, member)
 	}
-	if len(children) == 0 && manifest.Profile != "multi-wacz-package" {
+	if len(children) == 0 && manifest.Profile != multiWaczProfile {
 		for name := range members {
 			if strings.EqualFold(path.Ext(name), ".wacz") {
 				children = append(children, name)

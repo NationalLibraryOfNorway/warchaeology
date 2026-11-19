@@ -9,9 +9,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
+	"log/slog"
 	"net/http"
 	"os"
 	"strings"
+	"time"
 
 	cdx "github.com/nationallibraryofnorway/warchaeology/v5/internal/cdx"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/cdxstore"
@@ -24,7 +27,7 @@ func (s source) Available(ctx context.Context, c *cdx.Capture) (bool, error) {
 	if c.GetSource() == "" || c.GetRef() == "" {
 		return false, nil
 	}
-	_, _, err := s.ArchiveSource(ctx, cdxstore.ArchiveID(c.GetSource()))
+	_, err := s.ArchiveSource(ctx, cdxstore.ArchiveID(c.GetSource()))
 	if errors.Is(err, os.ErrNotExist) {
 		return false, nil
 	}
@@ -40,53 +43,87 @@ func New(db *cdxstore.DB, scanLimit, resultLimit int) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /archives/cdx", cdx.CDXHandlerWithTransform(source{db}, scanLimit, resultLimit, func(ctx context.Context, c *cdx.Capture, fields map[string]any) error {
 		id := cdxstore.ArchiveID(c.GetSource())
-		name := "capture.warc"
-		if strings.HasSuffix(c.GetFilename(), ".gz") {
-			name += ".gz"
-		}
-		fields["filename"] = id + "/" + c.GetGeneration() + "/" + name
+		fields["filename"] = VirtualFilename(id, c.GetGeneration(), c.GetFilename())
 		return nil
 	}))
 	mux.HandleFunc("GET /archives/{id}/{generation}/{name}", func(w http.ResponseWriter, r *http.Request) {
-		info, generation, err := db.ArchiveSource(r.Context(), r.PathValue("id"))
+		info, err := db.ArchiveSource(r.Context(), r.PathValue("id"))
 		if errors.Is(err, os.ErrNotExist) {
 			http.NotFound(w, r)
 			return
 		}
 		if err != nil {
-			http.Error(w, "archive catalogue unavailable", 500)
+			http.Error(w, "archive catalogue unavailable", http.StatusInternalServerError)
 			return
 		}
-		if generation != r.PathValue("generation") {
+		if info.Generation != r.PathValue("generation") {
 			http.Error(w, "archive generation changed; refresh capture index", http.StatusGone)
+			return
+		}
+		if !checkContainer(w, info) {
 			return
 		}
 		file, mounts, err := filewalker.OpenSource(info.GetPath())
 		if err != nil {
-			http.Error(w, "archive source unavailable", 404)
+			http.Error(w, "archive source unavailable", http.StatusNotFound)
 			return
 		}
-		defer file.Close()
+		defer func() {
+			if err := file.Close(); err != nil {
+				slog.Warn("Failed to close replay source", "error", err)
+			}
+		}()
 		defer mounts.Close()
 		stat, err := file.Stat()
 		if err != nil {
-			http.Error(w, "archive metadata unavailable", 500)
+			http.Error(w, "archive metadata unavailable", http.StatusInternalServerError)
 			return
 		}
-		if stat.Size() != info.GetSize() {
-			http.Error(w, "archive source changed; reindex before replay", 409)
+		version := filewalker.FileVersion{Size: info.GetSize(), Modified: info.GetLastModified().AsTime(), CRC: info.CRC}
+		if !version.Matches(filewalker.VersionOf(stat)) {
+			http.Error(w, "archive source changed; reindex before replay", http.StatusConflict)
 			return
 		}
-		// Content-Encoding must remain unset: offsets refer to exact stored WARC
-		// bytes, including gzip members. HTTP clients must not decompress transport.
-		mime := "application/warc"
-		if strings.HasSuffix(info.GetName(), ".gz") {
-			mime = "application/gzip"
+		if info.Container != nil && !checkContainer(w, info) {
+			return
 		}
-		w.Header().Set("Content-Type", mime)
-		w.Header().Set("X-Content-Type-Options", "nosniff")
-		w.Header().Set("ETag", fmt.Sprintf("\"%s-%s\"", r.PathValue("id"), generation))
-		http.ServeContent(w, r, info.GetName(), info.GetLastModified().AsTime(), file)
+		ServeWARC(w, r, info.GetName(), r.PathValue("id"), info.Generation, info.GetLastModified().AsTime(), file)
 	})
 	return mux
+}
+
+func checkContainer(w http.ResponseWriter, info cdxstore.ArchiveInfo) bool {
+	current, present, err := filewalker.ContainerVersion(info.GetPath())
+	switch {
+	case errors.Is(err, os.ErrNotExist):
+		http.Error(w, "archive source unavailable", http.StatusNotFound)
+	case err != nil:
+		http.Error(w, "archive metadata unavailable", http.StatusInternalServerError)
+	case present && (info.Container == nil || !info.Container.Matches(current)):
+		http.Error(w, "archive container needs reindexing before replay", http.StatusConflict)
+	default:
+		return true
+	}
+	return false
+}
+
+// VirtualFilename identifies a WARC member and its generation without exposing its source path.
+func VirtualFilename(id, generation, name string) string {
+	suffix := "capture.warc"
+	if strings.HasSuffix(name, ".gz") {
+		suffix += ".gz"
+	}
+	return id + "/" + generation + "/" + suffix
+}
+
+// ServeWARC implements conditional and range requests against the exact stored bytes.
+func ServeWARC(w http.ResponseWriter, r *http.Request, name, id, generation string, modified time.Time, file io.ReadSeeker) {
+	mime := "application/warc"
+	if strings.HasSuffix(name, ".gz") {
+		mime = "application/gzip"
+	}
+	w.Header().Set("Content-Type", mime)
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.Header().Set("ETag", fmt.Sprintf("\"%s-%s\"", id, generation))
+	http.ServeContent(w, r, name, modified, file)
 }

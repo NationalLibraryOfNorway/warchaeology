@@ -251,6 +251,47 @@ func TestURIRecordIDIsExact(t *testing.T) {
 	}
 }
 
+func TestReindexSameOffsetPreservesCaptureCount(t *testing.T) {
+	db, err := Open(t.Context(), Options{Format: "badger", Dir: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	const source = "source.warc"
+	for range 2 {
+		ctx, err := db.BeginFile(t.Context(), source)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, name := range []string{"source.warc", "archive/source.warc"} {
+			capture := &index.Capture{
+				Uri: "https://example.org/", Ssu: "org,example)/",
+				Filename: name, Source: source, Sts: timestamppb.New(time.Unix(100, 0)),
+			}
+			if err := db.WriteCapture(ctx, capture); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if err := db.FinishFile(ctx, source, 100, time.Unix(100, 0)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	stats, err := db.Stats(t.Context())
+	if err != nil || stats["captures"] != int64(2) {
+		t.Fatalf("stats = %v, error = %v", stats, err)
+	}
+	rows := 0
+	if err := db.kv.Scan(t.Context(), "c/", "c0", func(_ string, _ []byte) error {
+		rows++
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if rows != 2 {
+		t.Fatalf("found %d stored rows, want 2", rows)
+	}
+}
+
 type cancelResetBatch struct {
 	kv
 	cancel context.CancelFunc
