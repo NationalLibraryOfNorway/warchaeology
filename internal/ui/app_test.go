@@ -158,3 +158,22 @@ func TestShutdownReleasesWaitingScanner(t *testing.T) {
 		t.Fatal("delivered a batch after shutdown")
 	}
 }
+
+func TestRecordDetailsDisplaysFailedRead(t *testing.T) {
+	a, g := simulator(t)
+	if err := a.layoutAt(g, 100, 30); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(t.TempDir(), "empty.warc")
+	if err := os.WriteFile(path, nil, 0600); err != nil {
+		t.Fatal(err)
+	}
+	a.loadRecordDetails(g, RecordItem{Path: path})
+	view, err := g.View(viewRecordErrors)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(view.Buffer(), "EOF") {
+		t.Fatalf("expected read diagnostic, got %q", view.Buffer())
+	}
+}

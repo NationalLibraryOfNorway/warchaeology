@@ -282,19 +282,23 @@ func (a *App) loadRecordDetails(g *gocui.Gui, item RecordItem) {
 		a.recordPanel.RenderReadError(g, item.Err)
 		return
 	}
+	if err := a.readRecordDetails(g, item); err != nil {
+		a.recordPanel.RenderReadError(g, err)
+	}
+}
+
+func (a *App) readRecordDetails(g *gocui.Gui, item RecordItem) (err error) {
 	reader, err := gowarc.NewWarcFileReader(item.Path, item.Offset, gowarc.WithBufferTmpDir(a.tmpDir))
 	if err != nil {
-		a.recordPanel.RenderReadError(g, err)
-		return
+		return err
 	}
-	defer reader.Close()
+	defer func() { err = errors.Join(err, reader.Close()) }()
 
 	rec, err := reader.Next()
-	defer rec.Close()
 	if err != nil {
-		a.recordPanel.RenderReadError(g, err)
-		return
+		return errors.Join(err, rec.Close())
 	}
 	a.recordPanel.PopulateContent(g, rec)
 	a.recordPanel.RenderErrors(g, rec.Validation)
+	return rec.Close()
 }

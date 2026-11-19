@@ -166,11 +166,11 @@ func (w *ListWidget[T]) draw(v *gocui.View, height int) {
 	for row := offset; row < end; row++ {
 		entry := w.items[w.visible[row]]
 		if row == selected {
-			fmt.Fprintf(v, "%s> %s%s%s%s\n", model.SGRReset, model.SelectionBg, model.SelectionFg, entry.Display, model.SGRReset)
+			_, _ = fmt.Fprintf(v, "%s> %s%s%s%s\n", model.SGRReset, model.SelectionBg, model.SelectionFg, entry.Display, model.SGRReset)
 		} else if w.makeColor != nil {
-			fmt.Fprintf(v, "%s%s  %s%s\n", model.SGRReset, w.makeColor(entry.Item), entry.Display, model.ColorReset)
+			_, _ = fmt.Fprintf(v, "%s%s  %s%s\n", model.SGRReset, w.makeColor(entry.Item), entry.Display, model.ColorReset)
 		} else {
-			fmt.Fprintf(v, "%s  %s\n", model.SGRReset, entry.Display)
+			_, _ = fmt.Fprintf(v, "%s  %s\n", model.SGRReset, entry.Display)
 		}
 	}
 
