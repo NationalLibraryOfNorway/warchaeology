@@ -283,7 +283,7 @@ func (o *ListOptions) handleFile(ctx context.Context, fs afero.Fs, path string) 
 	return nil
 }
 
-func (o *ListOptions) handleRecord(record gowarc.Record, path string) error {
-	defer record.Close()
+func (o *ListOptions) handleRecord(record gowarc.Record, path string) (resultErr error) {
+	defer func() { resultErr = errors.Join(resultErr, record.Close()) }()
 	return o.writer.WriteRecord(record, path)
 }

@@ -269,22 +269,19 @@ func (o *CatOptions) handleFile(ctx context.Context, fs afero.Fs, path string) e
 			}
 			return warc.ErrorFrom(record, err)
 		}
-		if err := o.handleRecord(record); err != nil {
+		if err := o.handleRecord(os.Stdout, record); err != nil {
 			return warc.ErrorFrom(record, err)
 		}
 	}
 	return nil
 }
 
-func (o *CatOptions) handleRecord(record gowarc.Record) error {
-	defer record.Close()
-	var w io.Writer
+func (o *CatOptions) handleRecord(w io.Writer, record gowarc.Record) (resultErr error) {
+	defer func() { resultErr = errors.Join(resultErr, record.Close()) }()
 	if o.compress {
-		gw := gzip.NewWriter(os.Stdout)
-		defer gw.Close()
+		gw := gzip.NewWriter(w)
+		defer func() { resultErr = errors.Join(resultErr, gw.Close()) }()
 		w = gw
-	} else {
-		w = os.Stdout
 	}
 	return o.writer.writeWarcRecord(w, record.WarcRecord)
 }

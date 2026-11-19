@@ -55,7 +55,7 @@ func (nedlibReader *NedlibReader) Next() (gowarc.Record, error) {
 	if err != nil {
 		return gowarc.Record{}, err
 	}
-	defer response.Body.Close()
+	defer func() { _ = response.Body.Close() }()
 
 	warcRecordBuilder := gowarc.NewRecordBuilder(gowarc.Response, nedlibReader.warcRecordOptions...)
 

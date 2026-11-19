@@ -175,3 +175,23 @@ want is %d bytes, got is %d bytes
 		})
 	}
 }
+
+// gzipHeaderWriter accepts the gzip header and fails when the compressor
+// flushes the small record during Close.
+type gzipHeaderWriter struct{ bytes.Buffer }
+
+func (w *gzipHeaderWriter) Write(p []byte) (int, error) {
+	if w.Len() >= 10 {
+		return 0, io.ErrClosedPipe
+	}
+	return w.Buffer.Write(p)
+}
+
+func TestCompressedRecordReturnsFinalizationError(t *testing.T) {
+	o := CatOptions{compress: true, writer: &writer{}}
+	var dst gzipHeaderWriter
+	err := o.handleRecord(&dst, gowarc.Record{})
+	if !errors.Is(err, io.ErrClosedPipe) || dst.Len() != 10 {
+		t.Fatalf("wrote %d bytes, got %v", dst.Len(), err)
+	}
+}

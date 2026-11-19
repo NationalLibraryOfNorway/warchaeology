@@ -34,8 +34,7 @@ func NewFileIndex(indexDir string, keepIndex, newIndex bool) (*FileIndex, error)
 
 	if newIndex {
 		if err = db.DropAll(); err != nil {
-			idx.Close()
-			return nil, err
+			return nil, errors.Join(err, idx.Close())
 		}
 	}
 

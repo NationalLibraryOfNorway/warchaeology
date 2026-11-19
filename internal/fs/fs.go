@@ -49,7 +49,7 @@ var schemeRegexp = regexp.MustCompile(`^[a-zA-Z][a-zA-Z0-9+.-]*://`)
 
 // ResolveFilesystem treats plain paths and archive-prefixed paths literally.
 // Archive prefixes select the format; only FTP endpoints undergo URL parsing.
-func ResolveFilesystem(fs afero.Fs, name string, options ...func(*fsOptions)) (afero.Fs, error) {
+func ResolveFilesystem(fs afero.Fs, name string, options ...func(*fsOptions)) (_ afero.Fs, resultErr error) {
 	opts := &fsOptions{ftpPoolSize: 1}
 	for _, option := range options {
 		option(opts)
@@ -124,13 +124,13 @@ func ResolveFilesystem(fs afero.Fs, name string, options ...func(*fsOptions)) (a
 		}
 		return &mountedFS{Fs: mounted, closer: f}, nil
 	}
-	defer f.Close()
+	defer func() { resultErr = errors.Join(resultErr, f.Close()) }()
 	if kind == archiveTGZ {
 		r, err := gzip.NewReader(f)
 		if err != nil {
 			return nil, fmt.Errorf("open gzip: %w", err)
 		}
-		defer r.Close()
+		defer func() { resultErr = errors.Join(resultErr, r.Close()) }()
 		mounted, err := readTar(r)
 		if err != nil {
 			return nil, err

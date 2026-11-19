@@ -490,8 +490,8 @@ func (o *DedupOptions) handleFile(fs afero.Fs, path string) (result stat.Result,
 	return result, nil
 }
 
-func (o *DedupOptions) handleRecord(writer *gowarc.WarcFileWriter, record gowarc.Record, result stat.Result) error {
-	defer record.Close()
+func (o *DedupOptions) handleRecord(writer *gowarc.WarcFileWriter, record gowarc.Record, result stat.Result) (resultErr error) {
+	defer func() { resultErr = errors.Join(resultErr, record.Close()) }()
 
 	result.IncrRecords()
 
@@ -542,7 +542,7 @@ func (o *DedupOptions) handleRecord(writer *gowarc.WarcFileWriter, record gowarc
 			result.AddError(warc.ErrorFrom(record, err))
 			return writeRecord(writer, warcRecord)
 		}
-		defer revisit.Close()
+		defer func() { resultErr = errors.Join(resultErr, revisit.Close()) }()
 		err = writeRecord(writer, revisit)
 		if err == nil {
 			result.IncrDuplicates()

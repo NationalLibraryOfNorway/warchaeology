@@ -334,8 +334,8 @@ func (o *ConvertNedlibOptions) handleFile(fs afero.Fs, fileName string) (stat.Re
 	return result, nil
 }
 
-func (o *ConvertNedlibOptions) handleRecord(w *gowarc.WarcFileWriter, record gowarc.Record, result stat.Result) error {
-	defer record.Close()
+func (o *ConvertNedlibOptions) handleRecord(w *gowarc.WarcFileWriter, record gowarc.Record, result stat.Result) (resultErr error) {
+	defer func() { resultErr = errors.Join(resultErr, record.Close()) }()
 
 	result.IncrRecords()
 
