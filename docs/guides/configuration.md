@@ -28,7 +28,7 @@ record-count: 2
 ### Search order for `config.yaml`
 
 1. Current working directory
-2. Standard global config locations
-3. Standard user-specific config locations
+2. Standard user-specific config location
+3. Standard system-wide config locations
 
 To use a specific file, pass `--config <path>`.

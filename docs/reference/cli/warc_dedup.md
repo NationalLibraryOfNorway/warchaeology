@@ -9,8 +9,8 @@ Deduplicate WARC files
 
 Deduplicate WARC files.
 
-NOTE: The filtering options only decides which records are candidates for deduplication.
-The remaining records are written as is.
+Only selected records with verified payload digests are eligible for deduplication.
+Use warc audit COLLECTION to verify revisit targets in existing output.
 
 ```
 warc dedup FILE/DIR ... [flags]
@@ -20,26 +20,26 @@ warc dedup FILE/DIR ... [flags]
 
 ```
       --close-input-file-hook string     command to run after closing each input file; the command receives these environment variables:
-                                                WARC_COMMAND contains the subcommand name
-                                                WARC_HOOK_TYPE contains the hook type (OpenInputFile, CloseInputFile, OpenOutputFile, CloseOutputFile)
-                                                WARC_FILE_NAME contains the file name of the input file
-                                                WARC_ERROR_COUNT contains the number of errors found if the file was validated and the validation failed
+                                             WARC_COMMAND contains the subcommand name
+                                             WARC_HOOK_TYPE contains the hook type (OpenInputFile, CloseInputFile, OpenOutputFile, CloseOutputFile)
+                                             WARC_FILE_NAME contains the file name of the input file
+                                             WARC_ERROR_COUNT contains the number of errors found if the file was validated and the validation failed
       --close-output-file-hook string    command to run after closing each output file; the command receives these environment variables:
-                                                WARC_COMMAND contains the subcommand name
-                                                WARC_HOOK_TYPE contains the hook type (OpenInputFile, CloseInputFile, OpenOutputFile, CloseOutputFile)
-                                                WARC_FILE_NAME contains the file name of the output file
-                                                WARC_SIZE contains the size of the output file
-                                                WARC_INFO_ID contains the ID of the output file's WARCInfo-record if created
-                                                WARC_SRC_FILE_NAME contains the file name of the input file if the output file is generated from an input file
-                                                WARC_HASH contains the hash of the output file if computed
-                                                WARC_ERROR_COUNT contains the number of errors found if the file was validated and the validation failed
+                                             WARC_COMMAND contains the subcommand name
+                                             WARC_HOOK_TYPE contains the hook type (OpenInputFile, CloseInputFile, OpenOutputFile, CloseOutputFile)
+                                             WARC_FILE_NAME contains the file name of the output file
+                                             WARC_SIZE contains the size of the output file
+                                             WARC_INFO_ID contains the ID of the output file's WARCInfo-record if created
+                                             WARC_SRC_FILE_NAME contains the file name of the input file if the output file is generated from an input file
+                                             WARC_HASH contains the hash of the output file if computed
+                                             WARC_ERROR_COUNT contains the number of errors found if the file was validated and the validation failed
   -z, --compress[=true|false]            enable gzip compression for WARC output files (default true)
       --compression-level int            gzip compression level (1-9, -1 uses the gzip library default) (default -1)
   -c, --concurrency int                  number of input files to process in parallel (default 21)
   -C, --concurrent-writers int           maximum number of WARC files written concurrently.
                                          This may create at least this many output files even with a single input file. (default 16)
       --continue-on-error[=true|false]   continue processing remaining files and directories after errors
-      --default-date string              fallback date used when records are missing WARC-Date metadata (time is set to 12:00 UTC) (default "2026-11-17")
+      --default-date string              fallback date used when records are missing WARC-Date metadata (time is set to 12:00 UTC) (default "2026-11-18")
       --deterministic[=true|false]       force deterministic execution order (single worker and sorted input paths)
       --file-size string                 maximum size of each WARC output file (default "1GB")
       --flush[=true|false]               sync each WARC file to disk after every record
@@ -49,9 +49,9 @@ warc dedup FILE/DIR ... [flags]
       --index-dir string                 directory used to store index data (default "/home/vscode/.cache/warchaeology/dedup")
   -i, --input-file string                input filesystem source; default is the local OS filesystem
                                          Legal values:
-                                                /path/to/archive.( tar | tar.gz | tgz | zip | wacz )
-                                                zip://LITERAL_PATH, tar://LITERAL_PATH, tgz://LITERAL_PATH (no URL decoding)
-                                                ftp://user:password@host:port (endpoint only; optional trailing /)
+                                             /path/to/archive.( tar | tar.gz | tgz | zip | wacz )
+                                             zip://LITERAL_PATH, tar://LITERAL_PATH, tgz://LITERAL_PATH (no URL decoding)
+                                             ftp://user:password@host:port (endpoint only; optional trailing /)
                                          FTP paths belong in command arguments; URL queries and fragments are not supported.
 
   -k, --keep-index[=true|false]          keep index files in --index-dir after the run so later runs can continue from them
@@ -71,14 +71,14 @@ warc dedup FILE/DIR ... [flags]
       --one-to-one[=true|false]          write each input file to exactly one output file.
                                          Equivalent to: --concurrent-writers=1 --file-size=0 --name-generator=identity
       --open-input-file-hook string      command to run before opening each input file; the command receives these environment variables:
-                                                WARC_COMMAND contains the subcommand name
-                                                WARC_HOOK_TYPE contains the hook type (OpenInputFile, CloseInputFile, OpenOutputFile, CloseOutputFile)
-                                                WARC_FILE_NAME contains the file name of the input file
+                                             WARC_COMMAND contains the subcommand name
+                                             WARC_HOOK_TYPE contains the hook type (OpenInputFile, CloseInputFile, OpenOutputFile, CloseOutputFile)
+                                             WARC_FILE_NAME contains the file name of the input file
       --open-output-file-hook string     command to run before opening each output file; the command receives these environment variables:
-                                                WARC_COMMAND contains the subcommand name
-                                                WARC_HOOK_TYPE contains the hook type (OpenInputFile, CloseInputFile, OpenOutputFile, CloseOutputFile)
-                                                WARC_FILE_NAME contains the file name of the output file
-                                                WARC_SRC_FILE_NAME contains the file name of the input file if the output file is generated from an input file
+                                             WARC_COMMAND contains the subcommand name
+                                             WARC_HOOK_TYPE contains the hook type (OpenInputFile, CloseInputFile, OpenOutputFile, CloseOutputFile)
+                                             WARC_FILE_NAME contains the file name of the output file
+                                             WARC_SRC_FILE_NAME contains the file name of the input file if the output file is generated from an input file
   -w, --output-dir string                output directory for generated WARC files (must already exist) (default ".")
   -p, --prefix string                    filename prefix for generated WARC files
       --record-types strings             comma separated list of record types to deduplicate. Other record types are written as is. (default [response,resource])
@@ -108,5 +108,5 @@ warc dedup FILE/DIR ... [flags]
 
 ### SEE ALSO
 
-* [warc](warc.md)        - A tool for handling warc files
+* [warc](warc.md)     - A tool for handling warc files
 

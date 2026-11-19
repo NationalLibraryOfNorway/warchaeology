@@ -7,38 +7,50 @@ Replace the sample filenames and server address with your own.
 
 ## Read a local archive
 
-Use an archive as the input filesystem, then select files inside it:
+Pass archive files directly:
 
 ```shell
-warc ls --input-file collection.zip --recursive /
-warc validate --input-file collection.tar.gz --recursive /
+warc ls collection.zip
+warc validate collection.tar.gz
 ```
 
 The archive's extension selects the format: `.zip` and `.wacz` use ZIP;
 `.tar` uses TAR; `.tgz` and `.tar.gz` use compressed TAR.
-The positional `/` refers to the archive filesystem's root.
+Archive contents are traversed recursively, including nested archives. Use
+`--recursive` to descend into ordinary input directories.
 
-To select one file within the archive:
-
-```shell
-warc cat --input-file collection.zip records/example.warc.gz
-```
+TAR member paths must be unique after path normalization. A duplicate file or a file/directory conflict rejects the entire TAR before its members are processed. Repeated directory headers are allowed. To recover captures from an already indexed TAR with repeated file paths, give each occurrence a unique path and rebuild the affected index.
 
 ## Validate every WARC file in a WACZ
 
-Mount the WACZ as the input filesystem and validate recursively from its root:
+Validate all WARC members:
 
 ```shell
-warc validate --input-file collection.wacz --recursive --continue-on-error /
+warc validate collection.wacz
 ```
 
 This finds files ending in `.warc` or `.warc.gz` throughout the WACZ, including
-its `archive/` directory. The `/` refers to the root inside the WACZ.
+its `archive/` directory. Add `--continue-on-error` to process the remaining
+files after a failure:
+
+```shell
+warc validate --continue-on-error collection.wacz
+```
+
 `--continue-on-error` allows remaining files to be processed when a file fails;
 it does not turn validation failures into success.
 
 The command reports per-file results and totals. It validates the contained
 WARC files, not the WACZ package's manifests, indexes, or signatures.
+
+## Select a file inside an archive
+
+Use `--input-file` to select the archive and pass the member path as an argument:
+
+```shell
+warc validate --input-file collection.wacz archive/capture.warc.gz
+warc cat --input-file collection.zip records/example.warc.gz
+```
 
 ## Select a format explicitly
 

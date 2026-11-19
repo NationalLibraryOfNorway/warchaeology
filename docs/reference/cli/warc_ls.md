@@ -24,19 +24,19 @@ warc ls FILE/DIR ... [flags]
                                          Field specification letters are mostly the same as the fields in the CDX file specification (https://iipc.github.io/warc-specifications/specifications/cdx-format/cdx-2015/).
 
                                          The following fields are supported:
-                                                a - original URL
-                                                b - date in 14 digit format
-                                                B - date in RFC3339 format
-                                                e - IP address
-                                                g - filename
-                                                h - original host
-                                                i - record id
-                                                k - checksum
-                                                m - document mime type
-                                                s - http response code
-                                                S - record size
-                                                T - record type
-                                                V - offset
+                                             a - original URL
+                                             b - date in 14 digit format
+                                             B - date in RFC3339 format
+                                             e - IP address
+                                             g - filename
+                                             h - original host
+                                             i - record id
+                                             k - checksum
+                                             m - document mime type
+                                             s - http response code
+                                             S - record size
+                                             T - record type
+                                             V - offset
 
                                          A number after the field letter restricts the field length. By adding a + or - sign before the number the field is padded to have the exact length. + is right aligned and - is left aligned.
   -f, --force[=true|false]               continue iterating even when record read errors occur
@@ -45,9 +45,9 @@ warc ls FILE/DIR ... [flags]
       --id strings                       only process records with these record IDs; repeat the flag or use a comma-separated list
   -i, --input-file string                input filesystem source; default is the local OS filesystem
                                          Legal values:
-                                                /path/to/archive.( tar | tar.gz | tgz | zip | wacz )
-                                                zip://LITERAL_PATH, tar://LITERAL_PATH, tgz://LITERAL_PATH (no URL decoding)
-                                                ftp://user:password@host:port (endpoint only; optional trailing /)
+                                             /path/to/archive.( tar | tar.gz | tgz | zip | wacz )
+                                             zip://LITERAL_PATH, tar://LITERAL_PATH, tgz://LITERAL_PATH (no URL decoding)
+                                             ftp://user:password@host:port (endpoint only; optional trailing /)
                                          FTP paths belong in command arguments; URL queries and fragments are not supported.
 
       --json[=true|false]                output as JSON lines
@@ -59,14 +59,14 @@ warc ls FILE/DIR ... [flags]
   -o, --offset int                       start processing at this byte offset in the input file (default: 0)
   -t, --record-type strings              only process records with these record types; repeat the flag or use a comma-separated list.
                                          Legal values:
-                                                warcinfo, request, response, metadata, revisit, resource, continuation and conversion
+                                             warcinfo, request, response, metadata, revisit, resource, continuation and conversion
   -r, --recursive[=true|false]           walk input directories recursively
   -S, --response-code string             only process records by HTTP response code
                                          Example:
-                                                200     - only records with a 200 response
-                                                200-300 - records with response codes between 200 (inclusive) and 300 (exclusive)
-                                                500-    - response codes from 500 and above
-                                                -400    - all response codes below 400
+                                             200    - only records with a 200 response
+                                             200-300    - records with response codes between 200 (inclusive) and 300 (exclusive)
+                                             500-    - response codes from 500 and above
+                                             -400    - all response codes below 400
       --source-file-list string          path to a file listing input paths, one per line
       --strict[=true|false]              fail on the first validation error
       --suffixes strings                 only process files with these suffixes (default [.warc,.warc.gz])
@@ -85,5 +85,5 @@ warc ls FILE/DIR ... [flags]
 
 ### SEE ALSO
 
-* [warc](warc.md)        - A tool for handling warc files
+* [warc](warc.md)     - A tool for handling warc files
 
