@@ -8,9 +8,10 @@ import (
 	"io"
 	"log/slog"
 	"os"
+	"path/filepath"
+	"runtime"
 	"strings"
 
-	"github.com/kirsle/configdir"
 	"github.com/nationallibraryofnorway/warchaeology/v5/cmd/cat"
 	"github.com/nationallibraryofnorway/warchaeology/v5/cmd/console"
 	"github.com/nationallibraryofnorway/warchaeology/v5/cmd/convert"
@@ -96,17 +97,39 @@ func loadConfig(flags *pflag.FlagSet) error {
 	if err != nil {
 		return fmt.Errorf("failed to get current working directory: %v", err)
 	}
-	// local user config path
-	userConfigDir := configdir.LocalConfig("warc")
-	// system config path(s)
-	systemConfigDirs := configdir.SystemConfig("warc")
-	configDirs := []string{workingDirectory, userConfigDir}
-	configDirs = append(configDirs, systemConfigDirs...)
-	for _, configDir := range configDirs {
-		viper.AddConfigPath(configDir)
+	viper.AddConfigPath(workingDirectory)
+	if userConfigDir, err := os.UserConfigDir(); err == nil {
+		viper.AddConfigPath(filepath.Join(userConfigDir, "warc"))
+	}
+	for _, root := range systemConfigRoots() {
+		viper.AddConfigPath(filepath.Join(root, "warc"))
 	}
 
 	return readConfigFile()
+}
+
+func systemConfigRoots() []string {
+	switch runtime.GOOS {
+	case "windows":
+		if root := os.Getenv("PROGRAMDATA"); root != "" {
+			return []string{root}
+		}
+		return nil
+	case "darwin", "ios":
+		return []string{"/Library/Application Support"}
+	default:
+		raw := os.Getenv("XDG_CONFIG_DIRS")
+		if raw == "" {
+			return []string{"/etc/xdg"}
+		}
+		var roots []string
+		for _, root := range filepath.SplitList(raw) {
+			if filepath.IsAbs(root) {
+				roots = append(roots, root)
+			}
+		}
+		return roots
+	}
 }
 
 func readConfigFile() error {
