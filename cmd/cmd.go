@@ -11,7 +11,6 @@ import (
 	"strings"
 
 	"github.com/kirsle/configdir"
-	"github.com/nationallibraryofnorway/warchaeology/v5/cmd/aart"
 	"github.com/nationallibraryofnorway/warchaeology/v5/cmd/cat"
 	"github.com/nationallibraryofnorway/warchaeology/v5/cmd/console"
 	"github.com/nationallibraryofnorway/warchaeology/v5/cmd/convert"
@@ -65,7 +64,6 @@ func NewWarcCommand() *cobra.Command {
 	cmd.AddCommand(convert.NewCmdConvert())   // convert
 	cmd.AddCommand(redupe.NewCmdRedupe())
 	cmd.AddCommand(dedup.NewCmdDedup())     // dedup
-	cmd.AddCommand(aart.NewCmdAart())       // aart
 	cmd.AddCommand(version.NewCmdVersion()) // version
 
 	return cmd

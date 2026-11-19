@@ -38,26 +38,14 @@ Example:
 	MimeTypeHelp = `only process records with these MIME types; repeat the flag or use a comma-separated list`
 )
 
-type FilterFlags struct {
-	defaultMimeType []string
-}
+type FilterFlags struct{}
 
-func WithDefaultMimeType(mimeTypes []string) func(*FilterFlags) {
-	return func(f *FilterFlags) {
-		f.defaultMimeType = mimeTypes
-	}
-}
-
-func (f FilterFlags) AddFlags(cmd *cobra.Command, opts ...func(*FilterFlags)) {
-	for _, opt := range opts {
-		opt(&f)
-	}
-
+func (f FilterFlags) AddFlags(cmd *cobra.Command) {
 	flags := cmd.Flags()
 	flags.StringSlice(RecordId, []string{}, RecordIdHelp)
 	flags.StringSliceP(RecordType, "t", []string{}, RecordTypeHelp)
 	flags.StringP(ResponseCode, "S", "", ResponseCodeHelp)
-	flags.StringSliceP(MimeType, "m", f.defaultMimeType, MimeTypeHelp)
+	flags.StringSliceP(MimeType, "m", nil, MimeTypeHelp)
 
 	if err := cmd.RegisterFlagCompletionFunc(RecordType, SliceCompletion{
 		"warcinfo",
