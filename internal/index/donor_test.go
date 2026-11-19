@@ -5,10 +5,12 @@ package index
 
 import (
 	"errors"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
 
+	"github.com/dgraph-io/badger/v4"
 	"github.com/nationallibraryofnorway/gowarc/v3"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/testcheck"
 )
@@ -82,6 +84,26 @@ func TestUnpublishedDonorRunRefusesRestart(t *testing.T) {
 		t.Fatal(e)
 	}
 	_ = idx.Close()
+}
+
+func TestRejectLegacyCheckpointFormat(t *testing.T) {
+	dir := t.TempDir()
+	idx, err := NewDigestIndex(dir, true, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := idx.db.Update(func(tx *badger.Txn) error { return tx.Set([]byte("!format"), []byte("dedup-v3")) }); err != nil {
+		t.Fatal(err)
+	}
+	if err := idx.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if idx, err := NewDigestIndex(dir, true, false); err == nil {
+		_ = idx.Close()
+		t.Fatal("accepted old donor index")
+	} else if !strings.Contains(err.Error(), "fresh") {
+		t.Fatal(err)
+	}
 }
 
 func TestFileDonorVisibility(t *testing.T) {

@@ -308,8 +308,9 @@ func (o *DedupOptions) Validate() error {
 }
 
 type fileResult struct {
+	path   string
 	result stat.Result
-	cache  bool
+	source string
 }
 
 // Run processes the inputs and publishes the output before recording progress.
@@ -322,7 +323,7 @@ func (o *DedupOptions) Run() error {
 	o.WarcWriterConfig.WarcFileWriterOptions = append(o.WarcWriterConfig.WarcFileWriterOptions, gowarc.WithFlush(true))
 	done := make(chan struct{})
 	var processingErr error
-	var processed []stat.Result
+	var processed []fileResult
 
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
 	defer cancel()
@@ -338,10 +339,10 @@ func (o *DedupOptions) Run() error {
 
 		for item := range results {
 			result := item.result
-			slog := slog.With("path", result.Name())
+			slog := slog.With("path", item.path)
 			for _, err := range result.Errors() {
 				if processingErr == nil {
-					processingErr = fmt.Errorf("%s: %w", result.Name(), err)
+					processingErr = fmt.Errorf("%s: %w", item.path, err)
 				}
 				if recordErr, ok := errors.AsType[warc.RecordError](err); ok {
 					slog.Error("Validation error", "error", recordErr.Error(), "offset", recordErr.Offset())
@@ -351,8 +352,8 @@ func (o *DedupOptions) Run() error {
 			}
 			slog.Info("Deduplicated file", "errors", result.ErrorCount(), "records", result.Records(), "duplicates", result.Duplicates())
 			stats.Merge(result)
-			if item.cache && o.FileIndex != nil {
-				processed = append(processed, result)
+			if item.source != "" {
+				processed = append(processed, item)
 			}
 		}
 		if stats.Errors > 0 && processingErr == nil {
@@ -391,6 +392,7 @@ func (o *DedupOptions) Run() error {
 					result.result.AddError(err)
 				}
 
+				result.path = path
 				results <- result
 			})
 		})
@@ -405,7 +407,7 @@ func (o *DedupOptions) Run() error {
 		return err
 	}
 	for _, result := range processed {
-		if err := o.FileIndex.SaveFileStats(result.Name(), result); err != nil {
+		if err := o.FileIndex.SaveFileStats(result.source, result.result); err != nil {
 			return err
 		}
 	}
@@ -422,8 +424,14 @@ func (o *DedupOptions) Run() error {
 }
 
 func (o *DedupOptions) processFile(ctx context.Context, fs afero.Fs, path string) (fileResult, error) {
+	var source string
 	if o.FileIndex != nil {
-		cached, err := o.FileIndex.GetFileStats(path)
+		var err error
+		source, err = filewalker.SourceLocator(fs, path)
+		if err != nil {
+			return fileResult{}, err
+		}
+		cached, err := o.FileIndex.GetFileStats(source)
 		if err != nil || cached != nil {
 			return fileResult{result: cached}, err
 		}
@@ -435,7 +443,7 @@ func (o *DedupOptions) processFile(ctx context.Context, fs afero.Fs, path string
 		return fileResult{}, err
 	}
 	result, err := filewalker.PrePostHookContext(ctx, fs, path, o.OpenInputFileHook, o.CloseInputFileHook, o.handleFile)
-	return fileResult{result: result, cache: err == nil}, err
+	return fileResult{result: result, source: source}, err
 }
 
 func checkDiskSpace(path string, minimum int64) error {
