@@ -80,7 +80,7 @@ type mergeItem struct {
 	i    int
 }
 
-//nolint:recvcheck // container/heap uses pointer Push/Pop and slice accessors.
+// container/heap uses pointer Push/Pop and slice accessors.
 type mergeHeap []mergeItem
 
 func (h mergeHeap) Len() int { return len(h) }

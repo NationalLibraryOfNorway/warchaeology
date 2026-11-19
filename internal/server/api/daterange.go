@@ -25,7 +25,7 @@ func (d *DateRange) String() string {
 
 func NewDateRange(fromstr string, tostr string) (*DateRange, error) {
 	if fromstr == "" && tostr == "" {
-		return nil, nil //nolint:nilnil // A nil range denotes unbounded dates.
+		return nil, nil // A nil range denotes unbounded dates.
 	}
 
 	from, err := from(fromstr)

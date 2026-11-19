@@ -48,7 +48,7 @@ func TestRejectPreviousCanonicalizationProfile(t *testing.T) {
 	}
 }
 
-//nolint:gocyclo // Run the same lifecycle contract against every backend.
+// Run the same lifecycle contract against every backend.
 func TestBackendContract(t *testing.T) {
 	for _, backend := range []string{"badger"} {
 		t.Run(backend, func(t *testing.T) {

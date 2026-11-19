@@ -103,7 +103,7 @@ func (h *Handler) Close() error {
 	return err
 }
 
-//nolint:gocyclo // Explicit native route dispatch and collection creation.
+// Explicit native route dispatch and collection creation.
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if h.Prefix != "" && !strings.HasPrefix(r.URL.Path, h.Prefix+"/") {
 		http.NotFound(w, r)

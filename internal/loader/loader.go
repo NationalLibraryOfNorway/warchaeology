@@ -81,7 +81,6 @@ func (l *Loader) load(ctx context.Context, storageRef string, seen map[string]bo
 
 	var rtrRecord gowarc.WarcRecord
 
-	//nolint:exhaustive
 	switch record.Type() {
 	case gowarc.Revisit:
 		slog.Debug("Loader found a revisit record",

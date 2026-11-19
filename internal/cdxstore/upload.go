@@ -44,7 +44,7 @@ type UploadOptions struct {
 // Upload stages on disk before publication. A durable marker publishes all
 // versions together. Journal references permit bounded, idempotent reclamation.
 //
-//nolint:gocyclo,maintidx // Validation, staging and publication have distinct cleanup boundaries.
+// Validation, staging and publication have distinct cleanup boundaries.
 func (d *DB) Upload(ctx context.Context, r io.Reader, o UploadOptions) (result UploadResult, err error) {
 	if d.readOnly {
 		return result, ErrReadOnly

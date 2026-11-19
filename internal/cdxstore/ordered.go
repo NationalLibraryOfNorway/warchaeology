@@ -14,7 +14,7 @@ import (
 // ScanOrdered seeks directly to an exact URL's last capture or both sides of
 // the closest timestamp. Two bounded cursors replace full-history sorting.
 //
-//nolint:gocyclo // Two directional cursors group visible versions before merging by distance.
+// Two directional cursors group visible versions before merging by distance.
 func (d *DB) ScanOrdered(ctx context.Context, q cdx.Query, emit func(*cdx.Capture) error) error {
 	ctx, done, e := d.operation(ctx)
 	if e != nil {

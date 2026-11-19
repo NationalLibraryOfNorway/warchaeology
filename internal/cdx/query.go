@@ -61,7 +61,7 @@ type captureFilter struct {
 	regex         *regexp.Regexp
 }
 
-//nolint:gocyclo // Validate the complete query before any output is written.
+// Validate the complete query before any output is written.
 func ParseQuery(v url.Values) (Query, error) {
 	q := Query{
 		Match:    v.Get("matchType"),
@@ -257,7 +257,7 @@ func (q Query) Accept(c *Capture) bool {
 
 var errLimit = errors.New("query limit reached")
 
-//nolint:gocyclo,maintidx // Ordered sources, pagination and external-sort fallbacks share filter and collapse semantics.
+// Ordered sources, pagination and external-sort fallbacks share filter and collapse semantics.
 func (q Query) Run(ctx context.Context, src QuerySource, emit func(*Capture) error) (_ int, resultErr error) {
 	var target time.Time
 	if q.Order == "closest" {

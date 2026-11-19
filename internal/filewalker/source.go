@@ -84,7 +84,7 @@ type sourceFS struct {
 }
 
 func MemberLocator(roots []string, member string) string {
-	data, _ := json.Marshal(Source{Roots: roots, Path: member}) //nolint:errchkjson // Source contains only strings.
+	data, _ := json.Marshal(Source{Roots: roots, Path: member}) // Source contains only strings.
 	return string(data)
 }
 

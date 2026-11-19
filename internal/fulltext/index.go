@@ -34,7 +34,7 @@ type Document struct {
 	Source        string     `json:"source"`
 	Generation    string     `json:"generation"`
 	CaptureKey    string     `json:"captureKey,omitempty"`
-	CaptureURI    string     `json:"captureURI"` //nolint:tagliatelle // Preserve the stored search field name.
+	CaptureURI    string     `json:"captureURI"` // Preserve the stored search field name.
 	Ref           string     `json:"ref"`
 	SyncRun       string     `json:"syncRun"`
 	Snippet       string     `json:"snippet"`

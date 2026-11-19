@@ -209,7 +209,7 @@ func (h Handler) getStorageRefByURN(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-//nolint:dupl // Typed streams have separate wire formats and backend methods.
+// Typed streams have separate wire formats and backend methods.
 func (h Handler) listFiles(w http.ResponseWriter, r *http.Request) {
 	coreAPI, err := api.Parse(r.URL.Query())
 	if err != nil {
@@ -381,7 +381,7 @@ func (h Handler) getReport(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write(lf)
 }
 
-//nolint:dupl // Typed streams have separate wire formats and backend methods.
+// Typed streams have separate wire formats and backend methods.
 func (h Handler) listReports(w http.ResponseWriter, r *http.Request) {
 	coreAPI, err := api.Parse(r.URL.Query())
 	if err != nil {

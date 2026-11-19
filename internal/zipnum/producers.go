@@ -21,7 +21,7 @@ type fileLine struct {
 
 // lineHeap holds one next record per input for the sorted merge.
 //
-//nolint:recvcheck // container/heap uses pointer Push/Pop and slice accessors.
+// container/heap uses pointer Push/Pop and slice accessors.
 type lineHeap []fileLine
 
 func (h lineHeap) Len() int { return len(h) }

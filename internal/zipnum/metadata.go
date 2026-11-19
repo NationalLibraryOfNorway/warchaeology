@@ -14,7 +14,7 @@ import (
 
 // meta is the cluster.json schema. Field order also determines encoded JSON order.
 //
-//nolint:tagliatelle // Preserve the published zipnum metadata format.
+// Preserve the published zipnum metadata format.
 type meta struct {
 	CreatedAt     string   `json:"created_at"`
 	Duration      string   `json:"duration"`
