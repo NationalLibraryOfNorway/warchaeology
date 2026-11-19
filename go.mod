@@ -8,7 +8,7 @@ require (
 	github.com/awesome-gocui/gocui v1.1.0
 	github.com/blevesearch/bleve/v2 v2.6.3
 	github.com/dgraph-io/badger/v4 v4.3.1
-	github.com/jackc/puddle v1.3.0
+	github.com/jackc/puddle/v2 v2.2.4
 	github.com/jlaffaye/ftp v0.2.4
 	github.com/julienschmidt/httprouter v1.3.0
 	github.com/klauspost/compress v1.20.4

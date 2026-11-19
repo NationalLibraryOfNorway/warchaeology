@@ -12,7 +12,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/jackc/puddle"
+	"github.com/jackc/puddle/v2"
 	"github.com/jlaffaye/ftp"
 )
 
@@ -31,9 +31,16 @@ func (c *fakeConnection) List(string) ([]*ftp.Entry, error)   { c.lists++; retur
 func (c *fakeConnection) retrieve(_ string, off uint64) (io.ReadCloser, error) {
 	return io.NopCloser(strings.NewReader(c.data[off:])), nil
 }
-func testPool(t *testing.T, c *fakeConnection) *puddle.Pool {
+func testPool(t *testing.T, c *fakeConnection) *puddle.Pool[connection] {
 	t.Helper()
-	p := puddle.NewPool(func(context.Context) (any, error) { return c, nil }, func(any) {}, 1)
+	p, err := puddle.NewPool(&puddle.Config[connection]{
+		Constructor: func(context.Context) (connection, error) { return c, nil },
+		Destructor:  func(connection) {},
+		MaxSize:     1,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
 	t.Cleanup(p.Close)
 	return p
 }

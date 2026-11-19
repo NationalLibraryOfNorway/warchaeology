@@ -13,7 +13,7 @@ import (
 	"sync"
 	"syscall"
 
-	"github.com/jackc/puddle"
+	"github.com/jackc/puddle/v2"
 	"github.com/jlaffaye/ftp"
 )
 
@@ -21,7 +21,7 @@ type File struct {
 	mu        sync.Mutex
 	resp      io.ReadCloser
 	info      *FileInfo
-	resource  *puddle.Resource
+	resource  *puddle.Resource[connection]
 	pos       int64
 	streamPos int64
 	entries   []*ftp.Entry
@@ -29,9 +29,8 @@ type File struct {
 	listed    bool
 }
 
-func FileOpen(res *puddle.Resource, name string) (*File, error) {
-	c := res.Value().(connection)
-	entry, err := statEntry(c, name)
+func FileOpen(res *puddle.Resource[connection], name string) (*File, error) {
+	entry, err := statEntry(res.Value(), name)
 	if err != nil {
 		res.Release()
 		return nil, err
@@ -87,7 +86,7 @@ func (f *File) closeStream() error {
 	f.resp = nil
 	return err
 }
-func (f *File) ftpClient() connection { return f.resource.Value().(connection) }
+func (f *File) ftpClient() connection { return f.resource.Value() }
 func (f *File) Name() string          { return f.info.fullName }
 func (f *File) Stat() (os.FileInfo, error) {
 	f.mu.Lock()
