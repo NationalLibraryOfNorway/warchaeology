@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -12,6 +13,33 @@ import (
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/server/api"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
+
+func TestRejectPreviousCanonicalizationProfile(t *testing.T) {
+	ctx := t.Context()
+	opts := Options{Format: "badger", Dir: t.TempDir()}
+	k, err := openKV(ctx, opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	const previous = "warchaeology-captures-v3;codec-1;whatwg-url-surt-v0.9.0"
+	if err := k.Put(ctx, "!format", []byte(previous)); err != nil {
+		_ = k.Close()
+		t.Fatal(err)
+	}
+	if err := k.Close(); err != nil {
+		t.Fatal(err)
+	}
+	for _, readOnly := range []bool{false, true} {
+		opts.ReadOnly = readOnly
+		db, err := Open(ctx, opts)
+		if db != nil {
+			_ = db.Close()
+		}
+		if err == nil || !strings.Contains(err.Error(), "incompatible capture database") {
+			t.Fatalf("read-only=%v: expected profile rejection, got %v", readOnly, err)
+		}
+	}
+}
 
 //nolint:gocyclo // Run the same lifecycle contract against every backend.
 func TestBackendContract(t *testing.T) {

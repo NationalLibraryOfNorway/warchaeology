@@ -235,7 +235,7 @@ func TestPinnedSURTCompatibility(t *testing.T) {
 	if e = json.Unmarshal(b, &cases); e != nil {
 		t.Fatal(e)
 	}
-	differences := map[string]string{"http://example.com\\path": "com,example)/path", "dns:Example.COM": "dns:Example.COM", "http://example.com/../a": "com,example)/a", "http://example.com/%2e%2e/a": "com,example)/a", "mailto:Person@Example.COM": "mailto:Person@Example.COM"}
+	differences := map[string]string{"http://example.com\\path": "com,example)/path", "http://example.com/../a": "com,example)/a", "http://example.com/%2e%2e/a": "com,example)/a"}
 	for _, c := range cases {
 		want := c.Reference
 		if intentional, ok := differences[c.URL]; ok {

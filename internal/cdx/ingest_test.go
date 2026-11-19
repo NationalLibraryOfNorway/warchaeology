@@ -3,12 +3,43 @@ package index
 import (
 	"encoding/base64"
 	"errors"
+	"fmt"
 	"io"
+	"net/url"
 	"strconv"
 	"strings"
 	"testing"
 	"testing/iotest"
 )
+
+func TestArchiveSchemeIngestAndQueryKeys(t *testing.T) {
+	for _, tc := range []struct{ original, key string }{
+		{"dns:Example.COM", "dns:example.com"},
+		{"mailto:Person@Example.COM", "mailto:person@example.com"},
+		{"WARCINFO:Foo%2541?B=2&A=1#F", "warcinfo:fooa?a=1&b=2"},
+		{"DNS://Example.org/Path", "org,example)/path"},
+		{"FILEDESC:Foo.arc.gz#F", "FILEDESC:Foo.arc.gz#F"},
+	} {
+		t.Run(tc.original, func(t *testing.T) {
+			if got := CanonicalKey(tc.original); got != tc.key {
+				t.Fatalf("canonical key = %q, want %q", got, tc.key)
+			}
+			// Submitted keys are not authoritative, and original URL evidence survives.
+			line := fmt.Sprintf(`old-key 20200102030405 {"url":%q,"filename":"a.warc.gz","offset":0,"length":100}`, tc.original)
+			capture, err := ParseIngestLine([]byte(line))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if capture.GetSsu() != tc.key || capture.GetUri() != tc.original {
+				t.Fatalf("ingested key/URL = %q / %q", capture.GetSsu(), capture.GetUri())
+			}
+			query, err := ParseQuery(url.Values{"url": {tc.original}})
+			if err != nil || query.Key != capture.GetSsu() {
+				t.Fatalf("query key = %q, error = %v", query.Key, err)
+			}
+		})
+	}
+}
 
 func TestIngestValidationAndPostKeys(t *testing.T) {
 	base := `ignored 20200102030405 {"url":"https://example.com/form","filename":"a","offset":9007199254740993,"length":"9223372036854775807","method":"POST","requestBody":"b=2&a=1","nested":{"n":9007199254740993}}`

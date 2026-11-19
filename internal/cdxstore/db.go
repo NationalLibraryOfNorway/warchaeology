@@ -20,7 +20,7 @@ import (
 
 const countKey = "!count"
 
-const formatVersion = "warchaeology-captures-v3;codec-1;whatwg-url-surt-v0.9.0"
+const formatVersion = "warchaeology-captures-v3;codec-1;whatwg-url-surt-v0.9.1"
 
 var ErrReadOnly = errors.New("database is read-only")
 
