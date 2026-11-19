@@ -23,7 +23,7 @@ type IndexFlags struct {
 func NewIndexFlags() IndexFlags { return IndexFlags{InputHookFlags: &flag.InputHookFlags{}} }
 
 func (f IndexFlags) AddFlags(cmd *cobra.Command) {
-	f.FileWalkerFlags.AddFlags(cmd)
+	f.FileWalkerFlags.AddFlags(cmd, flag.WithDefaultSuffixes([]string{".warc", ".warc.gz", ".wacz"}))
 	f.FilterFlags.AddFlags(cmd)
 	f.WarcIteratorFlags.AddFlags(cmd)
 	f.WarcRecordOptionFlags.AddFlags(cmd)
@@ -33,7 +33,7 @@ func (f IndexFlags) AddFlags(cmd *cobra.Command) {
 	f.CaptureDatabaseFlags.AddFlags(cmd)
 	cmd.Flags().Bool("fulltext", false, "index available text extracts in embedded Bleve")
 	cmd.Flags().Bool("fulltext-rebuild", false, "rebuild text search from registered captures")
-	cmd.Flags().String("fulltext-dir", "", "text index directory (default: BADGER-DIR/fulltext)")
+	cmd.Flags().String("fulltext-dir", "", "Bleve index directory (default: fulltext subdirectory of the index database)")
 	cmd.Flags().String("wacz-index", "auto", "WACZ indexing: auto imports embedded indexes; warc indexes contained WARCs")
 	cmd.Flags().String("index-format", "cdxj", "cdxj, cdxpb or badger")
 	cmd.Flags().String("index-out", "-", "output filename or - for stdout")
@@ -61,12 +61,17 @@ func (f IndexFlags) ToOptions() (*IndexOptions, error) {
 		Nth:               f.WarcIteratorFlags.RecordNum(),
 		Limit:             f.WarcIteratorFlags.Limit(),
 	}
-	o.database = f.CaptureDatabaseFlags.ToOptions()
 	o.format = viper.GetString("index-format")
 	o.output = viper.GetString("index-out")
 	o.tmpDir = viper.GetString("index-tmp-dir")
 	o.sort = viper.GetBool("sort")
 	var e error
+	if o.format == "badger" {
+		o.database, e = f.CaptureDatabaseFlags.ToOptions()
+		if e != nil {
+			return nil, e
+		}
+	}
 	o.Paths, e = flag.ReadSrcFileList(f.FileWalkerFlags.SrcFileListFlags.SrcFileList())
 	if e != nil {
 		return nil, e

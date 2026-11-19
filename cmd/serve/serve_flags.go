@@ -54,11 +54,17 @@ func (f ServeFlags) ToOptions() (*ServeOptions, error) {
 		readOnly:    viper.GetBool("read-only"),
 		hasInputs:   viper.GetString("source-file-list") != "",
 		prefixLimit: viper.GetInt("warcserver-prefix-max-records"),
-		database:    f.IndexFlags.CaptureDatabaseFlags.ToOptions(),
+	}
+	if o.collectionsDir != "" || o.format == zipnumFormat {
+		return o, nil
+	}
+	var err error
+	o.database, err = f.IndexFlags.CaptureDatabaseFlags.ToOptions()
+	if err != nil {
+		return nil, err
 	}
 	o.database.ReadOnly = o.readOnly
-	if o.format != zipnumFormat && !o.readOnly && o.collectionsDir == "" {
-		var err error
+	if !o.readOnly {
 		o.ingestion, err = f.IndexFlags.ToOptions()
 		if err != nil {
 			return nil, err

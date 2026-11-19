@@ -16,8 +16,12 @@ func (f ResetFlags) AddFlags(cmd *cobra.Command) {
 	f.CaptureDatabaseFlags.AddFlags(cmd)
 }
 
-func (f ResetFlags) ToOptions() *ResetOptions {
-	return &ResetOptions{database: f.CaptureDatabaseFlags.ToOptions()}
+func (f ResetFlags) ToOptions() (*ResetOptions, error) {
+	database, err := f.CaptureDatabaseFlags.ToOptions()
+	if err != nil {
+		return nil, err
+	}
+	return &ResetOptions{database: database}, nil
 }
 
 type ResetOptions struct {
@@ -50,7 +54,10 @@ func NewCmdReset() *cobra.Command {
 		Short: "Reset the selected index database",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) (err error) {
-			o := flags.ToOptions()
+			o, err := flags.ToOptions()
+			if err != nil {
+				return err
+			}
 			defer func() { err = errors.Join(err, o.Close()) }()
 			cmd.SilenceUsage = true
 			return o.Run(cmd.Context())
