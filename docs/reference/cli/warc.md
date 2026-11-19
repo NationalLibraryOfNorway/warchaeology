@@ -17,6 +17,7 @@ A tool for handling warc files
 
 ### SEE ALSO
 
+* [warc audit](warc_audit.md)     - Verify revisit references and payloads across a local WARC collection
 * [warc cat](warc_cat.md)     - Concatenate and print warc files
 * [warc console](warc_console.md)     - A shell for working with WARC files
 * [warc convert](warc_convert.md)     - Convert web archive files to WARC files. Use subcommands for the supported formats

@@ -14,6 +14,7 @@ The executable is named `warc`.
 | Validate an archive | `warc validate` | [Validation options](./reference/cli/warc_validate.md) |
 | Convert ARC, NEDLIB, or WARC inputs | `warc convert` | [Conversion options](./reference/cli/warc_convert.md) |
 | Deduplicate payloads | `warc dedup` | [Deduplication options](./reference/cli/warc_dedup.md) |
+| Audit revisit references and recover lost donors | `warc audit` | [Collection audit and recovery](./guides/dedup-audit.md) |
 | Rebuild independently replayable yearly collections | `warc redupe` | [Yearly preservation guide](./guides/redupe.md) |
 | Export CDXJ or populate an index database | `warc index` | [Capture indexing guide](./guides/capture-indexes.md) |
 | Index WACZ packages | `warc index`, `warc serve` | [WACZ packages](./guides/capture-indexes.md#wacz-packages) |

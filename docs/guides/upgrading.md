@@ -70,3 +70,7 @@ Existing WARC files remain unchanged.
 Badger to retain file-processing status with `--keep-index`. That application
 format is unchanged. The deduplication rebuild requirement comes from the
 changed digest-index format, not simply the Badger v3-to-v4 dependency update.
+
+## Dedup donor indexes and historical output
+
+Start a new dedup run with a fresh index directory and a fresh output directory. The donor key now includes the record type and a verified payload digest. Retained indexes created under older rules can contain unsuitable donors, and old processed-file checkpoints can skip the inputs you need to rebuild. Existing WARC output can be audited directly. See the [collection audit and recovery guide](./dedup-audit.md).

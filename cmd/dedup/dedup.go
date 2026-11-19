@@ -258,8 +258,8 @@ func NewCmdDedup() *cobra.Command {
 		Short: "Deduplicate WARC files",
 		Long: `Deduplicate WARC files.
 
-NOTE: The filtering options only decides which records are candidates for deduplication.
-The remaining records are written as is.`,
+Only selected records with verified payload digests are eligible for deduplication.
+Use warc audit COLLECTION to verify revisit targets in existing output.`,
 		RunE: func(cmd *cobra.Command, args []string) (runErr error) {
 			o, err := flags.ToDedupOptions()
 			if err != nil {

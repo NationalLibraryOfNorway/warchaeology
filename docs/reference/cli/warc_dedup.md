@@ -9,8 +9,8 @@ Deduplicate WARC files
 
 Deduplicate WARC files.
 
-NOTE: The filtering options only decides which records are candidates for deduplication.
-The remaining records are written as is.
+Only selected records with verified payload digests are eligible for deduplication.
+Use warc audit COLLECTION to verify revisit targets in existing output.
 
 ```
 warc dedup FILE/DIR ... [flags]

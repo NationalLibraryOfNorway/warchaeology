@@ -13,6 +13,7 @@ module.exports = {
       type: 'category',
       label: 'Guides',
       items: [
+        'guides/dedup-audit',
         'guides/redupe',
         'guides/capture-indexes',
         'guides/search-and-replay',
