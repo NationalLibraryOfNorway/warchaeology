@@ -294,27 +294,27 @@ func (o *DedupOptions) Validate() error {
 	return nil
 }
 
-// Run processes the inputs and waits for workers to finish.
+type fileResult struct {
+	result stat.Result
+	cache  bool
+}
+
+// Run processes the inputs and publishes the output before recording progress.
 // The caller must close the options after Run returns.
-func (o *DedupOptions) Run() (runErr error) {
-	if runErr = o.DigestIndex.BeginOutputRun(); runErr != nil {
-		return runErr
+func (o *DedupOptions) Run() error {
+	if err := o.DigestIndex.BeginOutputRun(); err != nil {
+		return err
 	}
 	o.runStarted = true
 	o.WarcWriterConfig.WarcFileWriterOptions = append(o.WarcWriterConfig.WarcFileWriterOptions, gowarc.WithFlush(true))
-	defer func() { o.runSucceeded = runErr == nil }()
 	done := make(chan struct{})
 	var processingErr error
-
-	defer func() {
-		<-done
-		runErr = errors.Join(runErr, processingErr)
-	}()
+	var processed []stat.Result
 
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
 	defer cancel()
 
-	results := make(chan stat.Result)
+	results := make(chan fileResult)
 	go func() {
 		defer close(done)
 
@@ -323,9 +323,13 @@ func (o *DedupOptions) Run() (runErr error) {
 			slog.Info("Total", "errors", stats.Errors, "files", stats.Files, "records", stats.Records, "duplicates", stats.Duplicates)
 		}()
 
-		for result := range results {
+		for item := range results {
+			result := item.result
 			slog := slog.With("path", result.Name())
 			for _, err := range result.Errors() {
+				if processingErr == nil {
+					processingErr = fmt.Errorf("%s: %w", result.Name(), err)
+				}
 				if recordErr, ok := errors.AsType[warc.RecordError](err); ok {
 					slog.Error("Validation error", "error", recordErr.Error(), "offset", recordErr.Offset())
 				} else {
@@ -334,15 +338,16 @@ func (o *DedupOptions) Run() (runErr error) {
 			}
 			slog.Info("Deduplicated file", "errors", result.ErrorCount(), "records", result.Records(), "duplicates", result.Duplicates())
 			stats.Merge(result)
+			if item.cache && o.FileIndex != nil {
+				processed = append(processed, result)
+			}
 		}
-		if stats.Errors > 0 {
+		if stats.Errors > 0 && processingErr == nil {
 			processingErr = errors.New("processing completed with errors")
 		}
 	}()
-	defer close(results)
 
 	workerPool := workerpool.New(ctx, o.Concurrency)
-	defer workerPool.CloseWait()
 
 	// Warn when file descriptor limit is below recommended value
 	err := util.CheckFileDescriptorLimit(util.BadgerRecommendedMaxFileDescr)
@@ -350,61 +355,85 @@ func (o *DedupOptions) Run() (runErr error) {
 		slog.Warn(err.Error())
 	}
 
+	var walkErr error
 	for _, path := range o.Paths {
-		err := o.FileWalker.Walk(ctx, path, func(fs afero.Fs, path string, err error) error {
+		walkErr = o.FileWalker.Walk(ctx, path, func(fs afero.Fs, path string, err error) error {
 			if err != nil {
 				return err
 			}
 
 			return workerPool.Submit(func() {
-				// Assert WARC disk has enough free space
-				if o.MinWARCDiskFree > 0 {
-					diskFree, err := util.DiskFree(o.WarcWriterConfig.OutDir)
-					if err != nil {
-						cancel()
-						slog.Error("Failed to get free space on device", "path", o.WarcWriterConfig.OutDir, "error", err)
-						return
-					}
-					if diskFree < o.MinWARCDiskFree {
-						cancel()
-						slog.Error("Not enough free space on device", "bytesFree", diskFree, "path", o.WarcWriterConfig.OutDir)
-						return
-					}
-				}
-				// Assert index disk has enough free space
-				if o.MinIndexDiskFree > 0 {
-					diskFree, err := util.DiskFree(o.DigestIndex.GetDir())
-					if err != nil {
-						cancel()
-						slog.Error("Failed to get free space on device", "path", o.DigestIndex.GetDir(), "error", err)
-						return
-					}
-					if diskFree < o.MinIndexDiskFree {
-						cancel()
-						slog.Error("Not enough free space on device", "bytesFree", diskFree, "path", o.DigestIndex.GetDir())
-						return
-					}
-				}
-
-				result, err := filewalker.Preposterous(fs, path, o.OpenInputFileHook, o.CloseInputFileHook, o.FileIndex, o.handleFile)
+				result, err := o.processFile(ctx, fs, path)
 				if errors.Is(err, filewalker.ErrSkipFile) {
 					return
-				} else if err != nil {
+				}
+				if err != nil {
 					if !o.ContinueOnError {
 						cancel()
 					}
-					if result == nil {
-						result = stat.NewResult(path)
+					if result.result == nil {
+						result.result = stat.NewResult(path)
 					}
-					result.AddError(err)
+					result.result.AddError(err)
 				}
 
 				results <- result
 			})
 		})
-		if err != nil {
+		if walkErr != nil {
+			break
+		}
+	}
+	workerPool.CloseWait()
+	close(results)
+	<-done
+	if err := errors.Join(walkErr, processingErr, o.WarcWriterConfig.Publish(), ctx.Err()); err != nil {
+		return err
+	}
+	for _, result := range processed {
+		if err := o.FileIndex.SaveFileStats(result.Name(), result); err != nil {
 			return err
 		}
+	}
+	if len(processed) > 0 {
+		if err := o.FileIndex.Sync(); err != nil {
+			return err
+		}
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	o.runSucceeded = true
+	return nil
+}
+
+func (o *DedupOptions) processFile(ctx context.Context, fs afero.Fs, path string) (fileResult, error) {
+	if o.FileIndex != nil {
+		cached, err := o.FileIndex.GetFileStats(path)
+		if err != nil || cached != nil {
+			return fileResult{result: cached}, err
+		}
+	}
+	if err := checkDiskSpace(o.WarcWriterConfig.OutDir, o.MinWARCDiskFree); err != nil {
+		return fileResult{}, err
+	}
+	if err := checkDiskSpace(o.DigestIndex.GetDir(), o.MinIndexDiskFree); err != nil {
+		return fileResult{}, err
+	}
+	result, err := filewalker.PrePostHookContext(ctx, fs, path, o.OpenInputFileHook, o.CloseInputFileHook, o.handleFile)
+	return fileResult{result: result, cache: err == nil}, err
+}
+
+func checkDiskSpace(path string, minimum int64) error {
+	if minimum <= 0 {
+		return nil
+	}
+	free, err := util.DiskFree(path)
+	if err != nil {
+		return fmt.Errorf("get free space at %q: %w", path, err)
+	}
+	if free < minimum {
+		return fmt.Errorf("not enough free space at %q: %d bytes available, %d required", path, free, minimum)
 	}
 	return nil
 }
@@ -428,7 +457,7 @@ func (o *DedupOptions) handleFile(fs afero.Fs, path string) (result stat.Result,
 	if o.WarcWriterConfig.OneToOneWriter {
 		defer func() {
 			if writer != nil {
-				err = errors.Join(err, writer.Close())
+				err = errors.Join(err, warcwriterconfig.FinalizeWriter(writer))
 			}
 		}()
 	}

@@ -275,12 +275,16 @@ func (w *WarcWriterConfig) GetWarcWriterContext(ctx context.Context, path string
 	var ww *gowarc.WarcFileWriter
 
 	if w.OneToOneWriter {
+		openHook := w.openOutputFileHook.WithSrcFileName(path)
+		closeHook := w.closeOutputFileHook.WithSrcFileName(path)
 		opts := make([]gowarc.WarcFileWriterOption, 0, len(w.WarcFileWriterOptions)+3)
 		opts = append(opts, w.WarcFileWriterOptions...)
 		opts = append(opts,
 			gowarc.WithFileNameGenerator(namer),
-			gowarc.WithBeforeFileCreationHook(w.openOutputFileHook.WithSrcFileName(path).Run),
-			gowarc.WithAfterFileCreationHook(w.closeOutputFileHook.WithSrcFileName(path).Run),
+			gowarc.WithBeforeFileCreationHook(func(name string) error { return w.recordHookError(openHook.RunContext(ctx, name)) }),
+			gowarc.WithAfterFileCreationHook(func(name string, size int64, id string) error {
+				return w.recordHookError(closeHook.RunContext(ctx, name, size, id))
+			}),
 		)
 		ww = gowarc.NewWarcFileWriter(opts...)
 		return ww, nil
@@ -321,6 +325,20 @@ func (w *WarcWriterConfig) Close() error {
 	w.hookErrors = nil
 	w.hookErrorsMu.Unlock()
 	return closeErr
+}
+
+// Publish finalizes output and reports errors from the writers and their hooks.
+func (w *WarcWriterConfig) Publish() error {
+	var err error
+	for _, writer := range w.writers {
+		err = errors.Join(err, writer.Rotate())
+	}
+	return errors.Join(err, w.Close())
+}
+
+// FinalizeWriter collects publication errors before shutting down the writer.
+func FinalizeWriter(writer *gowarc.WarcFileWriter) error {
+	return errors.Join(writer.Rotate(), writer.Close())
 }
 
 // ForDirectory creates an independent writer scope with the same output policy.

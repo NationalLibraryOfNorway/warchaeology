@@ -12,10 +12,12 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
 	cdx "github.com/nationallibraryofnorway/warchaeology/v5/internal/cdx"
+	"github.com/nationallibraryofnorway/warchaeology/v5/internal/index"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/zipnum"
 	"github.com/spf13/viper"
 )
@@ -183,6 +185,43 @@ func TestArchiveOutputsRejectInputAliases(t *testing.T) {
 			data, err := os.ReadFile(source)
 			if err != nil || !bytes.Equal(data, input) {
 				t.Fatalf("source changed: %v", err)
+			}
+		})
+	}
+}
+
+func TestDedupPublicationFailureLeavesIndexesUncommitted(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("fixture checks Unix rename errors")
+	}
+	const source = "../testdata/warc/single-record.warc"
+	for _, mode := range []string{"--one-to-one", "--name-generator=identity"} {
+		t.Run(mode, func(t *testing.T) {
+			out, work := t.TempDir(), t.TempDir()
+			if err := os.Mkdir(filepath.Join(out, "single-record.warc"), 0750); err != nil {
+				t.Fatal(err)
+			}
+			args := []string{"dedup", "--output-dir", out, "--index-dir", work, "--keep-index", "--compress=false",
+				"--min-disk-free=0", "--min-index-disk-free=0", "--concurrent-writers=1", mode, source}
+			if err := executeCaptureCommand(t, args...); err == nil || !strings.Contains(err.Error(), "rename") {
+				t.Fatalf("expected a publication error, got %v", err)
+			}
+			donor, err := index.NewDigestIndex(work, true, false)
+			if donor != nil {
+				t.Cleanup(func() { _ = donor.Close() })
+			}
+			if err == nil || !strings.Contains(err.Error(), "unfinished dedup output") {
+				t.Fatalf("expected the donor index to retain its unfinished marker, got %v", err)
+			}
+			files, err := index.NewFileIndex(work, true, false)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer files.Close()
+			for _, key := range []string{source, filepath.Clean(source)} {
+				if cached, err := files.GetFileStats(key); err != nil || cached != nil {
+					t.Fatalf("file cached after failed publication: %v, %v", cached, err)
+				}
 			}
 		})
 	}
