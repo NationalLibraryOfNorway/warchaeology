@@ -73,7 +73,7 @@ func NewWarcCommand() *cobra.Command {
 	cmd.AddCommand(validate.NewCmdValidate()) // validate
 	cmd.AddCommand(console.NewCmdConsole())   // console
 	cmd.AddCommand(convert.NewCmdConvert())   // convert
-	cmd.AddCommand(redupe.NewCmdRedupe())
+	cmd.AddCommand(redupe.NewCmdRedupe(), redupe.NewCmdAudit())
 	cmd.AddCommand(dedup.NewCmdDedup())     // dedup
 	cmd.AddCommand(version.NewCmdVersion()) // version
 

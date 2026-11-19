@@ -9,7 +9,6 @@ import (
 	"crypto/rand"
 	"errors"
 	"fmt"
-	"github.com/nationallibraryofnorway/warchaeology/v5/internal/publication"
 	"io"
 	"os"
 	"os/signal"
@@ -23,6 +22,7 @@ import (
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/bytesize"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/filewalker"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/hooks"
+	"github.com/nationallibraryofnorway/warchaeology/v5/internal/publication"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/warcwriterconfig"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -53,6 +53,7 @@ func (f *RedupeFlags) AddFlags(cmd *cobra.Command) {
 }
 
 type RedupeOptions struct {
+	collectionAudit                 bool
 	Interval                        string
 	reportWriter                    io.Writer
 	Paths                           []string

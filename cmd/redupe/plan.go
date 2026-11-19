@@ -391,7 +391,7 @@ func (o *RedupeOptions) resolve(ctx context.Context, e *entry, seen map[string]b
 		return nil, nil, err
 	}
 	if len(candidates) == 0 {
-		return nil, nil, errors.New("missing revisit target")
+		return nil, nil, &missingTarget{link: e}
 	}
 	if len(candidates) != 1 {
 		return nil, nil, errors.New("ambiguous revisit target")

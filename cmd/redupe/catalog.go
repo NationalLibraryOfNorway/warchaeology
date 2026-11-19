@@ -28,14 +28,15 @@ import (
 )
 
 type entry struct {
-	Capture       *cdx.Capture `json:"capture"`
-	Fingerprint   string       `json:"fingerprint"`
-	Profile       string       `json:"profile,omitempty"`
-	Segmented     bool         `json:"segmented,omitempty"`
-	Truncated     bool         `json:"truncated,omitempty"`
-	PayloadLength int64        `json:"payloadLength"`
-	Context       []string     `json:"context,omitempty"`
-	Issue         string       `json:"issue,omitempty"`
+	Audit         *auditEvidence `json:"audit,omitempty"`
+	Capture       *cdx.Capture   `json:"capture"`
+	Fingerprint   string         `json:"fingerprint"`
+	Profile       string         `json:"profile,omitempty"`
+	Segmented     bool           `json:"segmented,omitempty"`
+	Truncated     bool           `json:"truncated,omitempty"`
+	PayloadLength int64          `json:"payloadLength"`
+	Context       []string       `json:"context,omitempty"`
+	Issue         string         `json:"issue,omitempty"`
 }
 
 type sourceInfo struct {
@@ -179,6 +180,9 @@ func (o *RedupeOptions) inventoryFile(ctx context.Context, fs afero.Fs, path str
 			return result, errors.Join(readErr, rec.Close())
 		}
 		e, recordErr := inventoryRecord(rec, source, path)
+		if recordErr == nil && o.collectionAudit {
+			e.Audit, recordErr = measureRecord(rec.WarcRecord)
+		}
 		closeErr := rec.Close()
 		if recordErr != nil || closeErr != nil {
 			return result, errors.Join(recordErr, closeErr)
