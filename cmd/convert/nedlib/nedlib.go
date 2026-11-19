@@ -18,7 +18,7 @@ import (
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/hooks"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/index"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/stat"
-	"github.com/nationallibraryofnorway/warchaeology/v5/internal/time"
+	"github.com/nationallibraryofnorway/warchaeology/v5/internal/timestamp"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/util"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/version"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/warc"
@@ -319,7 +319,7 @@ func (o *ConvertNedlibOptions) handleFile(fs afero.Fs, fileName string) (stat.Re
 			return result, warc.ErrorFrom(record, err)
 		}
 
-		syntheticFileName := time.To14(warcDate)
+		syntheticFileName := timestamp.Format14(warcDate)
 
 		writer, err := o.WarcWriterConfig.GetWarcWriter(syntheticFileName, warcDate)
 		if err != nil {

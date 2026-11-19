@@ -12,7 +12,7 @@ import (
 	"strings"
 
 	"github.com/nationallibraryofnorway/gowarc/v3"
-	"github.com/nationallibraryofnorway/warchaeology/v5/internal/time"
+	"github.com/nationallibraryofnorway/warchaeology/v5/internal/timestamp"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/util"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/warc"
 )
@@ -67,13 +67,13 @@ func (recordWriter *JSONWriter) WriteRecord(record gowarc.Record, fileName strin
 			if err != nil {
 				return fmt.Errorf("failed to parse date: %w", err)
 			}
-			metadata.Date = time.To14(date)
+			metadata.Date = timestamp.Format14(date)
 		case 'B':
 			date, err := warc.Date(warcRecord)
 			if err != nil {
 				return fmt.Errorf("failed to parse date: %w", err)
 			}
-			metadata.Date = time.ToW3CDTF(date)
+			metadata.Date = timestamp.FormatRFC3339(date)
 		case 'e':
 			metadata.IpAddress = warc.IPAddress(warcRecord)
 		case 'g':
@@ -265,7 +265,7 @@ func (recordWriter *RecordWriter) createFieldFunc(t *field) {
 			if err != nil {
 				return "              "
 			}
-			return time.To14(t)
+			return timestamp.Format14(t)
 		})
 	case 'B':
 		t.fn = createStringFn(t.align, t.length, func(record gowarc.Record, file string) string {
@@ -273,7 +273,7 @@ func (recordWriter *RecordWriter) createFieldFunc(t *field) {
 			if err != nil {
 				return "                   "
 			}
-			return time.ToW3CDTF(t)
+			return timestamp.FormatRFC3339(t)
 		})
 	case 'e':
 		t.fn = createStringFn(t.align, t.length, func(record gowarc.Record, file string) string {
