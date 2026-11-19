@@ -468,10 +468,14 @@ func (o *DedupOptions) handleFile(fs afero.Fs, path string) (result stat.Result,
 	defer func() { _ = warcReader.Close() }()
 
 	var writer *gowarc.WarcFileWriter
+	var releaseOutput func() error
 	if o.WarcWriterConfig.OneToOneWriter {
 		defer func() {
 			if writer != nil {
 				err = errors.Join(err, warcwriterconfig.FinalizeWriter(writer))
+			}
+			if releaseOutput != nil {
+				err = errors.Join(err, releaseOutput())
 			}
 		}()
 	}
@@ -485,11 +489,18 @@ func (o *DedupOptions) handleFile(fs afero.Fs, path string) (result stat.Result,
 		if writer == nil || !o.WarcWriterConfig.OneToOneWriter {
 			warcDate, err := record.WarcRecord.WarcHeader().GetTime(gowarc.WarcDate)
 			if err != nil {
-				return result, warc.ErrorFrom(record, err)
+				return result, errors.Join(warc.ErrorFrom(record, err), record.Close())
+			}
+			if o.WarcWriterConfig.OneToOneWriter {
+				release, reserveErr := o.WarcWriterConfig.ReserveOutput(path, warcDate)
+				if reserveErr != nil {
+					return result, errors.Join(reserveErr, record.Close())
+				}
+				releaseOutput = release
 			}
 			writer, err = o.WarcWriterConfig.GetWarcWriter(path, warcDate)
 			if err != nil {
-				return result, warc.ErrorFrom(record, err)
+				return result, errors.Join(warc.ErrorFrom(record, err), record.Close())
 			}
 		}
 		err = o.handleRecord(writer, record, result)

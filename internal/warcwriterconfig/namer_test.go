@@ -4,6 +4,9 @@
 package warcwriterconfig
 
 import (
+	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -46,5 +49,41 @@ func TestDefaultNamerKeepsOutputConfiguration(t *testing.T) {
 	secondDir, secondName := second.NewWarcfileName()
 	if firstDir == secondDir || secondDir != dir || !strings.HasPrefix(firstName, "first-") || !strings.HasPrefix(secondName, "second-") {
 		t.Fatalf("names = %q/%q and %q/%q", firstDir, firstName, secondDir, secondName)
+	}
+}
+
+func TestReserveIdentityOutput(t *testing.T) {
+	dir := t.TempDir()
+	cfg, err := New("dedup", WithOutDir(dir), WithOneToOneWriter(true), WithFilePrefix("pre-"), WithSubDirPattern("{YYYY}"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	date := time.Date(2022, 1, 1, 0, 0, 0, 0, time.UTC)
+	release, err := cfg.ReserveOutput("a/item.warc.gz", date)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := cfg.ReserveOutput("b/item.warc", date); !errors.Is(err, os.ErrExist) {
+		t.Fatalf("duplicate reservation %v", err)
+	}
+	other, err := cfg.ReserveOutput("b/item.warc", date.AddDate(1, 0, 0))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := other(); err != nil {
+		t.Fatal(err)
+	}
+	if err := release(); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(dir, "2022", "pre-item.warc.gz")
+	if err := os.WriteFile(path, []byte("published"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := cfg.ReserveOutput("b/item.warc", date); !errors.Is(err, os.ErrExist) {
+		t.Fatalf("existing output %v", err)
+	}
+	if b, err := os.ReadFile(path); err != nil || string(b) != "published" {
+		t.Fatalf("published output %q %v", b, err)
 	}
 }

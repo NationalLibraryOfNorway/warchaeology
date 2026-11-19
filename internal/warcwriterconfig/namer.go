@@ -19,8 +19,8 @@ func NewIdentityNamer(path, filePrefix, dir string) gowarc.WarcFileNameGenerator
 	basename = strings.TrimSuffix(basename, ".warc")
 
 	return &gowarc.PatternNameGenerator{
-		Pattern:   "%{prefix}s" + basename + ".%{ext}s",
-		Prefix:    filePrefix,
+		Pattern:   "%{prefix}s.%{ext}s",
+		Prefix:    filePrefix + basename,
 		Directory: dir,
 	}
 }
