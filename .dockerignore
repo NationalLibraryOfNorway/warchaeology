@@ -1,0 +1,13 @@
+.git
+.github
+.vscode
+.idea
+dist
+completions
+website
+benchmarks
+integration
+testdata
+warc
+warchaeology
+*.test
