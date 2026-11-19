@@ -12,5 +12,5 @@ func Free(path string) (int64, error) {
 	if err := unix.Statfs(path, &stat); err != nil {
 		return 0, err
 	}
-	return int64(max(stat.Bavail, 0)) * int64(stat.Bsize), nil //nolint:unconvert // Statfs_t field types vary by platform.
+	return int64(max(stat.Bavail, 0)) * int64(stat.Bsize), nil // Statfs_t field types vary by platform.
 }
