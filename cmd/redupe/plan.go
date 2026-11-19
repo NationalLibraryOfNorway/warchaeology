@@ -36,50 +36,59 @@ type Finding struct {
 	Blocking bool   `json:"blocking"`
 }
 
-type YearReport struct {
-	Selected   int64     `json:"selectedRecords"`
-	Aliases    int64     `json:"aliases"`
-	Referenced int64     `json:"referencedSourceRecords"`
-	CrossYear  int64     `json:"crossYearPayloadDependencies"`
-	Full       int64     `json:"plannedFullRecords"`
-	Revisits   int64     `json:"plannedRevisits"`
-	Expansion  int64     `json:"estimatedUncompressedPayloadExpansionBytes"`
-	Verified   int64     `json:"verified"`
-	Unchecked  int64     `json:"unchecked"`
-	Failed     int64     `json:"failed"`
-	Findings   []Finding `json:"findings,omitempty"`
-	Completed  bool      `json:"completed"`
+type PeriodReport struct {
+	Selected    int64     `json:"selectedRecords"`
+	Aliases     int64     `json:"aliases"`
+	Referenced  int64     `json:"referencedSourceRecords"`
+	CrossPeriod int64     `json:"crossPeriodPayloadDependencies"`
+	Full        int64     `json:"plannedFullRecords"`
+	Revisits    int64     `json:"plannedRevisits"`
+	Expansion   int64     `json:"estimatedUncompressedPayloadExpansionBytes"`
+	Verified    int64     `json:"verified"`
+	Unchecked   int64     `json:"unchecked"`
+	Failed      int64     `json:"failed"`
+	Findings    []Finding `json:"findings,omitempty"`
+	Completed   bool      `json:"completed"`
 }
 
 type Report struct {
-	FindingsArtifact string                 `json:"findingsArtifact,omitempty"`
-	FindingCount     int64                  `json:"findingCount"`
-	Version          string                 `json:"toolVersion"`
-	Configuration    map[string]any         `json:"configuration"`
-	Fingerprint      string                 `json:"inventoryConfigurationSha256"`
-	Audit            bool                   `json:"audit"`
-	Planning         string                 `json:"planning"`
-	Years            map[string]*YearReport `json:"years"`
-	Findings         []Finding              `json:"findings,omitempty"`
+	FindingsArtifact string                   `json:"findingsArtifact,omitempty"`
+	FindingCount     int64                    `json:"findingCount"`
+	Version          string                   `json:"toolVersion"`
+	Configuration    map[string]any           `json:"configuration"`
+	Fingerprint      string                   `json:"inventoryConfigurationSha256"`
+	Audit            bool                     `json:"audit"`
+	Planning         string                   `json:"planning"`
+	Periods          map[string]*PeriodReport `json:"periods"`
+	Findings         []Finding                `json:"findings,omitempty"`
 }
 
 type planned struct {
 	Ref           string             `json:"sourceRef"`
 	ID            string             `json:"recordId"`
-	Year          string             `json:"year"`
+	Period        string             `json:"period"`
 	Action        string             `json:"action"`
 	Donor         string             `json:"payloadDonor,omitempty"`
 	Target        *gowarc.RevisitRef `json:"target,omitempty"`
 	PayloadSHA256 string             `json:"payloadSha256,omitempty"`
 }
 
-func year(c *cdx.Capture) string { return c.GetSts().AsTime().UTC().Format("2006") }
-
-func (o *RedupeOptions) yearReport(y string) *YearReport {
-	if o.report.Years[y] == nil {
-		o.report.Years[y] = &YearReport{}
+func (o *RedupeOptions) period(c *cdx.Capture) string {
+	layout := "2006"
+	switch o.Interval {
+	case "month":
+		layout = "2006-01"
+	case "day":
+		layout = "2006-01-02"
 	}
-	return o.report.Years[y]
+	return c.GetSts().AsTime().UTC().Format(layout)
+}
+
+func (o *RedupeOptions) periodReport(y string) *PeriodReport {
+	if o.report.Periods[y] == nil {
+		o.report.Periods[y] = &PeriodReport{}
+	}
+	return o.report.Periods[y]
 }
 
 func orderedRecords(path string, visit func(string) error) (err error) {
@@ -115,8 +124,12 @@ func (o *RedupeOptions) Run(ctx context.Context) (err error) {
 	if err = o.Validate(); err != nil {
 		return err
 	}
+	if o.configuration == nil {
+		o.configuration = map[string]any{}
+	}
+	o.configuration["interval"] = o.Interval
 	o.report = Report{Version: version.SoftwareVersion(), Configuration: o.configuration, Audit: o.Audit,
-		Planning: "verified payload identities", Years: map[string]*YearReport{}}
+		Planning: "verified payload identities", Periods: map[string]*PeriodReport{}}
 	if o.Audit && !o.VerifyPayloads {
 		o.report.Planning = "metadata estimates; payload identities and size savings unchecked"
 	}
@@ -174,12 +187,12 @@ func (o *RedupeOptions) Run(ctx context.Context) (err error) {
 		if err != nil {
 			return err
 		}
-		yr := o.yearReport(year(e.Capture))
+		yr := o.periodReport(o.period(e.Capture))
 		yr.Selected++
 		p, err := o.plan(ctx, e)
 		if err != nil {
 			yr.Failed++
-			if e := o.addFinding(year(e.Capture), Finding{ref, err.Error(), true}); e != nil {
+			if e := o.addFinding(o.period(e.Capture), Finding{ref, err.Error(), true}); e != nil {
 				return e
 			}
 			return nil
@@ -196,7 +209,7 @@ func (o *RedupeOptions) Run(ctx context.Context) (err error) {
 			return err
 		}
 	}
-	for _, yr := range o.report.Years {
+	for _, yr := range o.report.Periods {
 		if yr.Failed > 0 {
 			return errors.New("blocking findings prevent complete reconstruction; see report")
 		}
@@ -206,8 +219,8 @@ func (o *RedupeOptions) Run(ctx context.Context) (err error) {
 
 func (o *RedupeOptions) plan(ctx context.Context, e *entry) (_ *planned, resultErr error) {
 	c := e.Capture
-	yr := o.yearReport(year(c))
-	p := &planned{Ref: c.GetRef(), ID: c.GetRid(), Year: year(c), Action: "copy"}
+	yr := o.periodReport(o.period(c))
+	p := &planned{Ref: c.GetRef(), ID: c.GetRid(), Period: o.period(c), Action: "copy"}
 	if e.Issue != "" {
 		return nil, errors.New(e.Issue)
 	}
@@ -239,14 +252,14 @@ func (o *RedupeOptions) plan(ctx context.Context, e *entry) (_ *planned, resultE
 	if err != nil {
 		return nil, err
 	}
-	if err := o.reportDependencies(p.Year, chain); err != nil {
+	if err := o.reportDependencies(p.Period, chain); err != nil {
 		return nil, err
 	}
 
 	if c.GetSrt() == actionRevisit {
 		p.Donor = donor.Capture.GetRef()
 	}
-	if err := o.reportContext(ctx, e, p.Year); err != nil {
+	if err := o.reportContext(ctx, e, p.Period); err != nil {
 		return nil, err
 	}
 
@@ -277,7 +290,7 @@ func (o *RedupeOptions) plan(ctx context.Context, e *entry) (_ *planned, resultE
 	eligible := donor.Capture.GetSrt() == "response" || donor.Capture.GetSrt() == "resource"
 	if eligible {
 		p.Action = actionFull
-		key := "x/target/" + p.Year + "/" + hashString(donor.Capture.GetSrt()+":"+identity)
+		key := "x/target/" + p.Period + "/" + hashString(donor.Capture.GetSrt()+":"+identity)
 		var target gowarc.RevisitRef
 		err = o.get(key, &target)
 		if err != nil && !errors.Is(err, badger.ErrKeyNotFound) {
@@ -541,19 +554,19 @@ func verifyRecord(wr gowarc.WarcRecord) error {
 	return verifyDigest(wr.WarcHeader().Get(gowarc.WarcPayloadDigest), r)
 }
 
-func (o *RedupeOptions) reportContext(ctx context.Context, e *entry, year string) error {
+func (o *RedupeOptions) reportContext(ctx context.Context, e *entry, period string) error {
 	for _, id := range e.Context {
 		found := false
-		sameYear := false
+		samePeriod := false
 		if err := o.catalog.CapturesByID(ctx, id, func(other *cdx.Capture) error {
 			found = true
-			sameYear = sameYear || other.GetSts().AsTime().UTC().Format("2006") == year
+			samePeriod = samePeriod || o.period(other) == period
 			return nil
 		}); err != nil {
 			return err
 		}
-		if !found || !sameYear {
-			if err := o.addFinding(year, Finding{e.Capture.GetRef(), "contextual reference outside this year: " + id, false}); err != nil {
+		if !found || !samePeriod {
+			if err := o.addFinding(period, Finding{e.Capture.GetRef(), "contextual reference outside this period: " + id, false}); err != nil {
 				return err
 			}
 		}
@@ -562,7 +575,7 @@ func (o *RedupeOptions) reportContext(ctx context.Context, e *entry, year string
 }
 
 func (o *RedupeOptions) reportDependencies(y string, chain []*entry) error {
-	yr := o.yearReport(y)
+	yr := o.periodReport(y)
 	for _, dependency := range chain {
 		key := "x/referenced/" + y + "/" + hashString(dependency.Capture.GetRef())
 		var found bool
@@ -577,8 +590,8 @@ func (o *RedupeOptions) reportDependencies(y string, chain []*entry) error {
 			return err
 		}
 		yr.Referenced++
-		if year(dependency.Capture) != y {
-			yr.CrossYear++
+		if o.period(dependency.Capture) != y {
+			yr.CrossPeriod++
 		}
 	}
 	return nil
@@ -590,7 +603,7 @@ func (o *RedupeOptions) addFinding(y string, f Finding) error {
 		if err := json.NewEncoder(o.findings).Encode(struct {
 			Finding
 
-			Year string `json:"year,omitempty"`
+			Period string `json:"period,omitempty"`
 		}{f, y}); err != nil {
 			return err
 		}
@@ -600,7 +613,7 @@ func (o *RedupeOptions) addFinding(y string, f Finding) error {
 			o.report.Findings = append(o.report.Findings, f)
 		}
 	} else {
-		r := o.yearReport(y)
+		r := o.periodReport(y)
 		if len(r.Findings) < 100 {
 			r.Findings = append(r.Findings, f)
 		}

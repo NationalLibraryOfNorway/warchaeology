@@ -64,7 +64,7 @@ with tempfile.TemporaryDirectory() as tmp:
         "--report", str(root / "report.json"), str(source),
     ], check=True)
     report = json.loads((root / "report.json").read_text())
-    assert all(y["completed"] for y in report["years"].values()), report
+    assert all(y["completed"] for y in report["periods"].values()), report
     source.unlink()
 
     for year in (2022, 2023, 2024):

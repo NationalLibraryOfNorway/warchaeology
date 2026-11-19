@@ -150,7 +150,7 @@ func TestThreeYearsIndependentAndDeterministic(t *testing.T) {
 		}
 		var plans []planned
 		for _, y := range []string{"2022", "2023", "2024"} {
-			if !o.report.Years[y].Completed {
+			if !o.report.Periods[y].Completed {
 				t.Fatal("year not complete", y)
 			}
 			manifest := readManifest(t, o.OutputDir, y)
@@ -168,7 +168,7 @@ func TestThreeYearsIndependentAndDeterministic(t *testing.T) {
 			if err := os.CopyFS(isolated, os.DirFS(filepath.Join(o.OutputDir, y))); err != nil {
 				t.Fatal(err)
 			}
-			if err := o.verifyYear(t.Context(), isolated, y); err != nil {
+			if err := o.verifyPeriod(t.Context(), isolated, y); err != nil {
 				t.Fatal(err)
 			}
 			// Capture-specific protocol headers must survive reconstruction.
@@ -273,7 +273,7 @@ func TestAliasesAndRestart(t *testing.T) {
 	if err := o.Run(t.Context()); err != nil {
 		t.Fatal(err)
 	}
-	if o.report.Years["2023"].Aliases != 1 {
+	if o.report.Periods["2023"].Aliases != 1 {
 		t.Fatal("duplicate was not an alias")
 	}
 	manifest := readManifest(t, o.OutputDir, "2023")
@@ -337,7 +337,7 @@ func TestMetadataAuditAndUTCYear(t *testing.T) {
 	if err := o.Run(t.Context()); err != nil {
 		t.Fatal(err)
 	}
-	if yr := o.report.Years["2022"]; yr == nil || yr.Unchecked != 1 || yr.Verified != 0 {
+	if yr := o.report.Periods["2022"]; yr == nil || yr.Unchecked != 1 || yr.Verified != 0 {
 		t.Fatal("audit/year accounting", o.report)
 	}
 	verified := testOptions(t, source)
@@ -407,7 +407,7 @@ func TestRetainContextRecordsAndResources(t *testing.T) {
 	if entries[3].Action != "full" || entries[4].Action != "revisit" {
 		t.Fatal("resource deduplication", entries)
 	}
-	if len(o.report.Years["2023"].Findings) == 0 {
+	if len(o.report.Periods["2023"].Findings) == 0 {
 		t.Fatal("missing contextual-reference finding")
 	}
 }
@@ -494,7 +494,7 @@ func TestArchiveInputAndCrossFileAliases(t *testing.T) {
 	if err := o.Run(t.Context()); err != nil {
 		t.Fatal(err)
 	}
-	if o.report.Years["2023"].Aliases != 1 {
+	if o.report.Periods["2023"].Aliases != 1 {
 		t.Fatal("archive members not cataloged separately")
 	}
 }
@@ -563,7 +563,7 @@ func TestMinimumGainAndConfigurationChange(t *testing.T) {
 	if err := o.Run(t.Context()); err != nil {
 		t.Fatal(err)
 	}
-	if o.report.Years["2023"].Revisits != 0 {
+	if o.report.Periods["2023"].Revisits != 0 {
 		t.Fatal("minimum gain ignored")
 	}
 	if err := o.Close(); err != nil {
@@ -667,6 +667,75 @@ func TestCancellationDuringOutputHook(t *testing.T) {
 	}
 }
 
+func TestIntervals(t *testing.T) {
+	for _, tc := range []struct {
+		interval string
+		periods  []string
+	}{
+		{"year", []string{"2024"}},
+		{"month", []string{"2024-02", "2024-03"}},
+		{"day", []string{"2024-02-29", "2024-03-01", "2024-03-02"}},
+	} {
+		t.Run(tc.interval, func(t *testing.T) {
+			a := full(t, "a", "2024-03-01T00:30:00+01:00")
+			b := revisit(t, "b", "2024-03-01T00:00:00Z", a)
+			c := revisit(t, "c", "2024-03-01T12:00:00Z", b)
+			d := revisit(t, "d", "2024-03-02T00:00:00Z", c)
+			source := fixtureFile(t, d, b, a, c)
+			o := testOptions(t, source)
+			o.Interval = tc.interval
+			if err := o.Run(t.Context()); err != nil {
+				t.Fatal(err)
+			}
+			if len(o.report.Periods) != len(tc.periods) {
+				t.Fatalf("periods: %v", o.report.Periods)
+			}
+			for _, period := range tc.periods {
+				report := o.report.Periods[period]
+				if report == nil || !report.Completed {
+					t.Fatalf("incomplete period %s", period)
+				}
+				entries := readManifest(t, o.OutputDir, period)
+				if entries[0].Action != "full" {
+					t.Fatal("period must start with full payload")
+				}
+				for _, entry := range entries[1:] {
+					if entry.Action != "revisit" || entry.Target.TargetRecordId != entries[0].ID {
+						t.Fatal("revisit must target this period's donor")
+					}
+				}
+				isolated := filepath.Join(t.TempDir(), period)
+				if err := os.CopyFS(isolated, os.DirFS(filepath.Join(o.OutputDir, period))); err != nil {
+					t.Fatal(err)
+				}
+				if err := o.verifyPeriod(t.Context(), isolated, period); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if err := o.Close(); err != nil {
+				t.Fatal(err)
+			}
+			changed := testOptions(t, source)
+			changed.IndexDir, changed.OutputDir = o.IndexDir, o.OutputDir
+			changed.Interval = "day"
+			if tc.interval == "day" {
+				changed.Interval = "month"
+			}
+			if err := changed.Run(t.Context()); err == nil {
+				t.Fatal("changed interval allowed restart")
+			}
+		})
+	}
+}
+
+func TestInvalidInterval(t *testing.T) {
+	o := testOptions(t, "unused.warc")
+	o.Interval = "week"
+	if err := o.Validate(); err == nil {
+		t.Fatal("invalid interval accepted")
+	}
+}
+
 func TestRecoverRecordedInventory(t *testing.T) {
 	o := testOptions(t)
 	o.Audit = true
@@ -703,7 +772,7 @@ func TestRejectSwappedCompletion(t *testing.T) {
 		if err := os.Mkdir(dir, 0700); err != nil {
 			t.Fatal(err)
 		}
-		c := completion{Report: Report{Fingerprint: "same"}, Year: "2024", Checksums: map[string]string{}}
+		c := completion{Report: Report{Fingerprint: "same"}, Period: "2024", Checksums: map[string]string{}}
 		if err := writeJSON(filepath.Join(dir, "completion.json"), c); err != nil {
 			t.Fatal(err)
 		}

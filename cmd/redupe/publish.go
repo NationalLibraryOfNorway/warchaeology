@@ -36,7 +36,7 @@ type manifestEntry struct {
 
 type completion struct {
 	Report    Report            `json:"report"`
-	Year      string            `json:"year"`
+	Period    string            `json:"period"`
 	Checksums map[string]string `json:"sha256"`
 }
 
@@ -76,16 +76,16 @@ func (o *RedupeOptions) publish(ctx context.Context, ordered string) error {
 	if err = o.put("!run", identity); err != nil {
 		return err
 	}
-	years := make([]string, 0, len(o.report.Years))
-	for y := range o.report.Years {
-		years = append(years, y)
+	periods := make([]string, 0, len(o.report.Periods))
+	for y := range o.report.Periods {
+		periods = append(periods, y)
 	}
-	sort.Strings(years)
-	for _, y := range years {
+	sort.Strings(periods)
+	for _, y := range periods {
 		if err = ctx.Err(); err != nil {
 			return err
 		}
-		if o.report.Years[y].Failed > 0 {
+		if o.report.Periods[y].Failed > 0 {
 			continue
 		}
 		final := filepath.Join(output, y)
@@ -93,19 +93,19 @@ func (o *RedupeOptions) publish(ctx context.Context, ordered string) error {
 			if err = verifyCompletion(final, o.report.Fingerprint); err != nil {
 				return err
 			}
-			o.report.Years[y].Completed = true
+			o.report.Periods[y].Completed = true
 			continue
 		} else if !errors.Is(err, os.ErrNotExist) {
 			return err
 		}
-		if err = o.publishYear(ctx, ordered, output, y); err != nil {
+		if err = o.publishPeriod(ctx, ordered, output, y); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func (o *RedupeOptions) publishYear(ctx context.Context, ordered, output, y string) (err error) {
+func (o *RedupeOptions) publishPeriod(ctx context.Context, ordered, output, y string) (err error) {
 	var stale string
 	if err = o.get("!stage/"+y, &stale); err == nil {
 		if filepath.Dir(stale) != output || !strings.HasPrefix(filepath.Base(stale), ".redupe-"+y+"-") {
@@ -127,7 +127,7 @@ func (o *RedupeOptions) publishYear(ctx context.Context, ordered, output, y stri
 	}
 	config := o.WriterConfig.ForDirectory(stage)
 	config.WarcFileWriterOptions = append(config.WarcFileWriterOptions, gowarc.WithWarcInfoFunc(func(b gowarc.WarcRecordBuilder) error {
-		_, err := b.WriteString("software: " + version.SoftwareVersion() + "\r\ndescription: redupe self-contained UTC year " + y + "\r\n")
+		_, err := b.WriteString("software: " + version.SoftwareVersion() + "\r\ndescription: redupe self-contained UTC period " + y + "\r\n")
 		return err
 	}))
 	defer func() { err = errors.Join(err, config.Close()) }()
@@ -152,7 +152,7 @@ func (o *RedupeOptions) publishYear(ctx context.Context, ordered, output, y stri
 		} else if err != nil {
 			return err
 		}
-		if p.Year != y {
+		if p.Period != y {
 			return nil
 		}
 		e, err := o.entry(ref)
@@ -173,7 +173,7 @@ func (o *RedupeOptions) publishYear(ctx context.Context, ordered, output, y stri
 	if err != nil {
 		return err
 	}
-	if err = o.verifyYear(ctx, stage, y); err != nil {
+	if err = o.verifyPeriod(ctx, stage, y); err != nil {
 		return err
 	}
 	if err = o.checkSources(ctx); err != nil {
@@ -186,20 +186,20 @@ func (o *RedupeOptions) publishYear(ctx context.Context, ordered, output, y stri
 	if err != nil {
 		return err
 	}
-	o.report.Years[y].Completed = true
+	o.report.Periods[y].Completed = true
 	if err = writeJSON(filepath.Join(stage, "completion.json"), completion{o.report, y, checksums}); err != nil {
-		o.report.Years[y].Completed = false
+		o.report.Periods[y].Completed = false
 		return err
 	}
 	if err = ctx.Err(); err != nil {
-		o.report.Years[y].Completed = false
+		o.report.Periods[y].Completed = false
 		return err
 	}
 	if err = publication.SyncDir(stage); err != nil {
 		return err
 	}
 	if err = publication.Rename(stage, filepath.Join(output, y), false); err != nil {
-		o.report.Years[y].Completed = false
+		o.report.Periods[y].Completed = false
 		return err
 	}
 	return publication.SyncDir(output)
@@ -243,24 +243,24 @@ func directoryChecksums(dir string) (map[string]string, error) {
 func verifyCompletion(dir, fingerprint string) error {
 	data, err := os.ReadFile(filepath.Join(dir, "completion.json"))
 	if err != nil {
-		return fmt.Errorf("existing year has no completion report: %w", err)
+		return fmt.Errorf("existing period has no completion report: %w", err)
 	}
 	var c completion
 	if err = json.Unmarshal(data, &c); err != nil {
 		return err
 	}
-	if c.Year != filepath.Base(dir) {
+	if c.Period != filepath.Base(dir) {
 		return errors.New("completion report period differs from destination")
 	}
 	if c.Report.Fingerprint != fingerprint {
-		return errors.New("completed year's inventory/configuration differs")
+		return errors.New("completed period's inventory/configuration differs")
 	}
 	sums, err := directoryChecksums(dir)
 	if err != nil {
 		return err
 	}
 	if len(sums) != len(c.Checksums) {
-		return errors.New("completed year's files changed")
+		return errors.New("completed period's files changed")
 	}
 	for path, sum := range sums {
 		if c.Checksums[path] != sum {
@@ -270,7 +270,7 @@ func verifyCompletion(dir, fingerprint string) error {
 	return nil
 }
 
-func (o *RedupeOptions) verifyYear(ctx context.Context, dir, y string) error {
+func (o *RedupeOptions) verifyPeriod(ctx context.Context, dir, y string) error {
 	var count int64
 	verifiedPrefix := "x/verified/" + y + "/"
 	if err := o.scratch.DropPrefix([]byte(verifiedPrefix)); err != nil {
@@ -332,7 +332,7 @@ func (o *RedupeOptions) verifyYear(ctx context.Context, dir, y string) error {
 					targetID := wr.WarcHeader().GetId(gowarc.WarcRefersTo)
 					var target planned
 					if err := o.get("x/output-id/"+y+"/"+hashString(targetID), &target); err != nil {
-						return fmt.Errorf("output revisit target is outside year: %w", err)
+						return fmt.Errorf("output revisit target is outside period: %w", err)
 					}
 					if target.Action != actionFull {
 						return errors.New("output revisit does not target a full record")
@@ -374,7 +374,7 @@ func (o *RedupeOptions) verifyYear(ctx context.Context, dir, y string) error {
 	if err != nil {
 		return err
 	}
-	yr := o.report.Years[y]
+	yr := o.report.Periods[y]
 	if count != yr.Selected-yr.Aliases {
 		return fmt.Errorf("output record count %d does not match inventory %d", count, yr.Selected-yr.Aliases)
 	}

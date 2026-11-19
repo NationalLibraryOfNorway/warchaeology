@@ -1,4 +1,4 @@
-// Package redupe rebuilds yearly WARC collections without discarding captures.
+// Package redupe rebuilds time-partitioned WARC collections without discarding captures.
 package redupe
 
 import (
@@ -38,6 +38,7 @@ func (f *RedupeFlags) AddFlags(cmd *cobra.Command) {
 	f.OutputHookFlags.AddFlags(cmd)
 	f.WriterFlags.AddFlags(cmd)
 	f.ConcurrencyFlags.AddFlags(cmd)
+	cmd.Flags().String("interval", "year", "group records by UTC year, month or day")
 	cmd.Flags().Bool("audit", false, "plan without writing replacement WARCs")
 	cmd.Flags().Bool("verify-payloads", false, "verify payload digests during audit (always enabled for rewriting)")
 	cmd.Flags().String("report", "", "write the audit or transformation report as JSON")
@@ -46,6 +47,7 @@ func (f *RedupeFlags) AddFlags(cmd *cobra.Command) {
 }
 
 type RedupeOptions struct {
+	Interval                        string
 	reportWriter                    io.Writer
 	Paths                           []string
 	Audit, VerifyPayloads           bool
@@ -68,6 +70,7 @@ type RedupeOptions struct {
 
 func (f *RedupeFlags) ToRedupeOptions() (_ *RedupeOptions, err error) {
 	o := &RedupeOptions{
+		Interval:        viper.GetString("interval"),
 		Audit:           viper.GetBool("audit"),
 		VerifyPayloads:  viper.GetBool("verify-payloads"),
 		ReportPath:      viper.GetString("report"),
@@ -81,11 +84,14 @@ func (f *RedupeFlags) ToRedupeOptions() (_ *RedupeOptions, err error) {
 			err = errors.Join(err, o.Close())
 		}
 	}()
+	if err := o.validateInterval(); err != nil {
+		return nil, err
+	}
 	if f.WriterFlags.OneToOne() || f.WriterFlags.NameGenerator() == "identity" {
 		return nil, errors.New("redupe cannot map one input file to one output file")
 	}
 	if f.WriterFlags.NameGenerator() != "default" || f.WriterFlags.SubdirPattern() != "" {
-		return nil, errors.New("redupe uses yearly directories and the default filename generator")
+		return nil, errors.New("redupe uses period directories and the default filename generator")
 	}
 	o.Paths, err = flag.ReadSrcFileList(f.FileWalkerFlags.SrcFileListFlags.SrcFileList())
 	if err != nil {
@@ -113,7 +119,7 @@ func (f *RedupeFlags) ToRedupeOptions() (_ *RedupeOptions, err error) {
 		}
 	}
 	o.configuration = map[string]any{
-		"policy":             "utc-year-preserve-all-v1",
+		"policy":             "utc-period-preserve-all-v1",
 		"min_size_gain":      o.MinimumSizeGain,
 		"compress":           f.WriterFlags.Compress(),
 		"compression_level":  f.WriterFlags.CompressionLevel(),
@@ -131,9 +137,11 @@ func (f *RedupeFlags) ToRedupeOptions() (_ *RedupeOptions, err error) {
 func NewCmdRedupe() *cobra.Command {
 	f := NewRedupeFlags()
 	cmd := &cobra.Command{
-		Use:               "redupe SOURCE...",
-		Short:             "Rebuild self-contained yearly WARC collections",
-		Long:              "Rebuild self-contained UTC yearly WARC collections. Every input record is retained\n(or accounted for as an identical alias). There are no record or date filters.\nUnsupported or unresolved payload dependencies block publication of affected years.",
+		Use:   "redupe SOURCE...",
+		Short: "Reorganize WARC records by year, month or day",
+		Long: `Group records by their WARC-Date, using UTC and --interval (year, month or day).
+Resolve revisits and deduplicate within each period so each collection can be
+replayed independently. Use --audit to check the source collection before rewriting.`,
 		ValidArgsFunction: flag.SuffixCompletionFn,
 		RunE: func(cmd *cobra.Command, args []string) (err error) {
 			o, err := f.ToRedupeOptions()
@@ -164,6 +172,9 @@ func (o *RedupeOptions) Complete(cmd *cobra.Command, args []string) error {
 }
 
 func (o *RedupeOptions) Validate() error {
+	if err := o.validateInterval(); err != nil {
+		return err
+	}
 	if strings.HasSuffix(o.ReportPath, ".warc") || strings.HasSuffix(o.ReportPath, ".warc.gz") {
 		return errors.New("report must not overwrite a WARC source")
 	}
@@ -339,6 +350,18 @@ func (o *RedupeOptions) open(ctx context.Context) (err error) {
 		o.report.FindingsArtifact = auditPath
 	}
 	return err
+}
+
+func (o *RedupeOptions) validateInterval() error {
+	if o.Interval == "" {
+		o.Interval = "year"
+	}
+	switch o.Interval {
+	case "year", "month", "day":
+		return nil
+	default:
+		return errors.New("interval must be year, month or day")
+	}
 }
 
 // Resolve existing ancestors of destinations that will be created by open.

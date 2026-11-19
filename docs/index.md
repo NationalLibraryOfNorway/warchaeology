@@ -20,10 +20,12 @@ The executable is named `warc`.
 | Search archived text | `warc index --fulltext`, `warc serve --fulltext` | [Search console and API](./guides/search-and-replay.md) |
 | Build immutable indexes and serve capture queries | `warc zipnum`, `warc serve` | [Zipnum and serving](./guides/capture-indexes.md#immutable-zipnum-clusters) |
 
-## Rebuild yearly collections
+## Rebuild collections by time interval
+
+A donor is a record that stores the payload referenced by a revisit record.
 
 `redupe` inventories all supplied WARC records, resolves revisit dependencies,
-and groups captures by their own UTC year. It retains request and metadata
+and groups captures by UTC year, month or day (`--interval`). It retains request and metadata
 records, accounts for identical aliases, and reports conflicting IDs or missing
 payload donors.
 
@@ -36,7 +38,7 @@ warc redupe --output-dir yearly --index-dir working-index \
 warc index --index-out yearly/2023.cdxj yearly/2023/
 ```
 
-Supply older donor WARCs as well as the captures you want to reorganize. Each year
+Supply older donor WARCs as well as the captures you want to reorganize. Each period
 is published only after its output files and payload dependencies have been
 verified. Keep `working-index` to restart an interrupted rewrite with the same
 sources and configuration.

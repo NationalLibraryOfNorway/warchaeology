@@ -23,7 +23,7 @@ A tool for handling warc files
 * [warc dedup](warc_dedup.md)     - Deduplicate WARC files
 * [warc index](warc_index.md)     - Index WARC captures
 * [warc ls](warc_ls.md)     - List WARC record fields
-* [warc redupe](warc_redupe.md)     - Rebuild self-contained yearly WARC collections
+* [warc redupe](warc_redupe.md)     - Reorganize WARC records by year, month or day
 * [warc serve](warc_serve.md)     - Serve an index database or immutable zipnum cluster
 * [warc validate](warc_validate.md)     - Validate WARC files
 * [warc version](warc_version.md)     - Show extended version information

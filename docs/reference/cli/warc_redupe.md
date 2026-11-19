@@ -3,13 +3,13 @@ title: "warc redupe"
 ---
 ## warc redupe
 
-Rebuild self-contained yearly WARC collections
+Reorganize WARC records by year, month or day
 
 ### Synopsis
 
-Rebuild self-contained UTC yearly WARC collections. Every input record is retained
-(or accounted for as an identical alias). There are no record or date filters.
-Unsupported or unresolved payload dependencies block publication of affected years.
+Group records by their WARC-Date, using UTC and --interval (year, month or day).
+Resolve revisits and deduplicate within each period so each collection can be
+replayed independently. Use --audit to check the source collection before rewriting.
 
 ```
 warc redupe SOURCE... [flags]
@@ -51,6 +51,7 @@ warc redupe SOURCE... [flags]
                                             ftp://user:password@host:port (endpoint only; optional trailing /)
                                         FTP paths belong in command arguments; URL queries and fragments are not supported.
 
+      --interval string                 group records by UTC year, month or day (default "year")
       --min-size-gain string            minimum payload size saving required to emit a revisit (default "2KB")
       --name-generator string           name generator strategy.
                                         With 'identity', the input filename is reused for output (prefix/suffix may still change),

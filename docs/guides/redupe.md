@@ -1,12 +1,32 @@
 ---
-title: Rebuild self-contained yearly collections
+title: Reorganize archives by year, month or day
 ---
 
-`warc redupe` reorganizes an existing WARC collection by the **UTC calendar year
-of each record's WARC-Date**. It resolves identical-payload revisits, including
-cross-year chains, and deduplicates independently within each output year.
-The first eligible occurrence of a payload is a full record. Subsequent eligible
-occurrences refer directly to that record, subject to `--min-size-gain`.
+`warc redupe` groups records by their WARC-Date in UTC and deduplicates within
+each period. Revisit payloads are resolved so each output period can be replayed
+independently.
+
+| `--interval` | Output directory | Example |
+| --- | --- | --- |
+| `year` (default) | `YYYY` | `2025` |
+| `month` | `YYYY-MM` | `2025-03` |
+| `day` | `YYYY-MM-DD` | `2025-03-14` |
+
+```sh
+warc redupe --interval month --audit --report audit.json --recursive sources/
+warc redupe --interval month --output-dir monthly --index-dir working-index \
+  --report transformation.json --recursive sources/
+```
+
+Use the same interval when restarting a run. Changing it requires a new working
+index and output directory. Reports group results under `periods`; manifest and
+completion records identify their `period`. Cross-period payload references are
+counted as `crossPeriodPayloadDependencies`.
+
+The first eligible occurrence of a payload in each period is a full record.
+Later occurrences refer to that record, subject to `--min-size-gain`.
+
+A donor is a record that stores the payload referenced by a revisit record.
 
 ## Preserve the input collection
 
@@ -40,10 +60,10 @@ estimates and its payload checks are explicitly marked unchecked.
 digest. Rewriting always performs this verification.
 
 Reports give selected records, aliases, distinct referenced source records,
-cross-year payload dependencies, planned full records and revisits, verification
-counts, and findings for each year. Payload expansion estimates count uncompressed
+cross-period payload dependencies, planned full records and revisits, verification
+counts, and findings for each period. Payload expansion estimates count uncompressed
 payload bytes added when source revisits become full records. They are **not**
-predictions of compressed disk usage. Contextual references outside a year are
+predictions of compressed disk usage. Contextual references outside a period are
 reported without blocking; the independence guarantee concerns payload/replay
 dependencies. Without `--report`, JSON is written to standard output.
 
@@ -63,20 +83,20 @@ warc redupe --output-dir yearly --index-dir working-index \
 Local Badger v4 stores a source catalog and separate run state. Metadata sorting
 uses the existing bounded external sorter. Timestamp, source locator, and offset
 determine target selection, independently of inventory worker completion order.
-Use `--concurrency` to control inventory workers; yearly rewriting follows the
+Use `--concurrency` to control inventory workers; period rewriting follows the
 sorted plan. Output uses the existing compression, rollover, prefix, writer count,
 flush, and hook options. One-to-one naming and custom subdirectory layouts are
-rejected because a source file can span years.
+rejected because a source file can span periods.
 
-Every year is written in a hidden staging directory. After closing writers and
+Every period is written in a hidden staging directory. After closing writers and
 checking hook results, `redupe` rereads the files, reconstructs their revisits using
-only that year's output, verifies payloads and record counts, and records SHA-256
-file checksums. Only then is the directory atomically renamed to its final year.
-A failed year is never published as complete. Independently valid years can finish
-even when other years have blocking planning findings. An inventory failure with
+only that period's output, verifies payloads and record counts, and records SHA-256
+file checksums. Only then is the directory atomically renamed to its final period.
+A failed period is never published as complete. Independently valid periods can finish
+even when other periods have blocking planning findings. An inventory failure with
 unknown scope blocks the whole rewrite.
 
-Each completed year contains:
+Each completed period contains:
 
 - WARC files with generated output-file warcinfo records and corresponding links.
 - `manifest.jsonl`: one provenance mapping per input occurrence, with source
@@ -92,8 +112,8 @@ replay or deduplication. Source files are never rewritten.
 
 Repeat the same command with the same `--index-dir` to restart. The entire source
 inventory is rebuilt and must match the effective configuration and recorded
-source size/modification metadata. Completed years are checksum-checked and kept;
-an interrupted year is rebuilt from its beginning. Changed inputs or configuration
+source size/modification metadata. Completed periods are checksum-checked and kept;
+an interrupted period is rebuilt from its beginning. Changed inputs or configuration
 require a new index/output destination. Sources must remain immutable during a run;
 metadata is rechecked before publication. Omitting `--index-dir` uses a temporary
 working index and does not retain interrupted staging state across process death.
@@ -110,9 +130,9 @@ Generate CDXJ with the existing index command:
 warc index --index-out yearly/2023.cdxj yearly/2023/
 ```
 
-Point your replay system at that index and only the corresponding year's WARC
+Point your replay system at that index and only the corresponding period's WARC
 directory. `integration/redupe_replay.py` demonstrates `redupe → index → pywb`
-with three isolated years, same-year and cross-year revisits, and revisit chains:
+with three isolated years, same-period and cross-period revisits, and revisit chains:
 
 ```sh
 WARC_BINARY=/path/to/warc python integration/redupe_replay.py
@@ -120,8 +140,3 @@ WARC_BINARY=/path/to/warc python integration/redupe_replay.py
 
 The script requires pywb 2.11.1 and warcio. It verifies original payloads and
 capture-specific HTTP headers after deleting the source WARC.
-
-The record-ID occurrence key now includes the source offset. The index database
-format version was bumped accordingly: existing v1 index databases must be
-reindexed into a new database. This prevents old indexes from silently concealing
-multiple occurrences of an ID within one file.
