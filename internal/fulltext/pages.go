@@ -12,7 +12,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/nationallibraryofnorway/warchaeology/v5/internal/wacz"
 	"io"
 	"net/url"
 	"strings"
@@ -20,6 +19,7 @@ import (
 
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/cdxstore"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/filewalker"
+	"github.com/nationallibraryofnorway/warchaeology/v5/internal/wacz"
 )
 
 type page struct {
@@ -44,12 +44,11 @@ func idFor(value string) string {
 // Read page descriptions from each leaf package, retaining exact timestamps.
 // Bounds are explicit: malformed or oversized metadata is reported, not ignored.
 func readPackagePages(ctx context.Context, p cdxstore.PackageInfo, meta *packagePages) (resultErr error) {
-	file, mounts, err := filewalker.OpenSource(p.Locator)
+	file, err := filewalker.OpenSource(ctx, p.Locator)
 	if err != nil {
 		return err
 	}
 	defer func() { resultErr = errors.Join(resultErr, file.Close()) }()
-	defer mounts.Close()
 	info, err := file.Stat()
 	if err != nil {
 		return err

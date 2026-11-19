@@ -370,11 +370,11 @@ func RestoreWithFulltext(ctx context.Context, dir string, r io.Reader, textDir s
 		err = db.View(func(tx *badger.Txn) error {
 			item, e := tx.Get([]byte("!format"))
 			if e != nil {
-				return fmt.Errorf("backup lacks format metadata: %w", e)
+				return fmt.Errorf("backup lacks format metadata: %w; %s", e, rebuildInstructions)
 			}
 			return item.Value(func(b []byte) error {
 				if string(b) != formatVersion {
-					return fmt.Errorf("incompatible backup format")
+					return fmt.Errorf("incompatible backup format: %s", rebuildInstructions)
 				}
 				return nil
 			})

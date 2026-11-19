@@ -25,19 +25,19 @@ func (f FileStorageLoader) RecordByStorageRef(ctx context.Context, storageRef st
 	if err != nil {
 		return nil, err
 	}
-	file, mounts, err := filewalker.OpenSource(filename)
+	file, err := filewalker.OpenSource(ctx, filename)
 	if err != nil {
 		return nil, err
 	}
 	wf, err := gowarc.NewWarcFileReaderFromStream(file, offset, gowarc.WithSyntaxErrorPolicy(gowarc.ErrIgnore), gowarc.WithSpecViolationPolicy(gowarc.ErrWarn))
 	if err != nil {
-		return nil, errors.Join(err, file.Close(), mounts.Close())
+		return nil, errors.Join(err, file.Close())
 	}
 	if err = ctx.Err(); err != nil {
-		return nil, errors.Join(err, wf.Close(), mounts.Close())
+		return nil, errors.Join(err, wf.Close())
 	}
 	rec, err := wf.Next()
-	closeErr := errors.Join(wf.Close(), mounts.Close())
+	closeErr := wf.Close()
 	if err != nil || closeErr != nil {
 		_ = rec.Close()
 		return nil, errors.Join(err, closeErr)

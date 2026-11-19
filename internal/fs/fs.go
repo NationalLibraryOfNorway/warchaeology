@@ -5,6 +5,8 @@ package fs
 
 import (
 	"archive/zip"
+	"context"
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"io"
@@ -145,7 +147,11 @@ func ResolveFilesystem(fs afero.Fs, name string, options ...func(*fsOptions)) (a
 func parseFTPURL(name string) (*url.URL, error) {
 	u, err := url.Parse(name)
 	if err != nil {
-		return nil, fmt.Errorf("failed to parse FTP URL: %w", err)
+		var escape url.EscapeError
+		if errors.As(err, &escape) {
+			return nil, errors.New("invalid URL escape in FTP endpoint")
+		}
+		return nil, errors.New("failed to parse FTP URL")
 	}
 	if u.EscapedPath() != "" && u.EscapedPath() != "/" {
 		return nil, errors.New("FTP URL must select only an endpoint; supply file or directory paths as command arguments")
@@ -170,11 +176,13 @@ func ftpEndpoint(u *url.URL) (addr, user, password string, err error) {
 		if parseErr != nil || !ip.Is6() {
 			return "", "", "", errors.New("invalid FTP IPv6 address")
 		}
+		host = ip.String()
 	} else {
 		host, err = idna.Lookup.ToASCII(host)
 		if err != nil {
 			return "", "", "", fmt.Errorf("invalid FTP hostname: %w", err)
 		}
+		host = strings.ToLower(host)
 	}
 	port := 21
 	if u.Port() != "" {
@@ -190,6 +198,53 @@ func ftpEndpoint(u *url.URL) (addr, user, password string, err error) {
 		password, _ = u.User.Password()
 	}
 	return addr, user, password, nil
+}
+
+// FTPSourceRoot produces the persisted endpoint and opaque account identifier.
+func FTPSourceRoot(raw string) (string, error) {
+	u, err := parseFTPURL(raw)
+	if err != nil || !strings.EqualFold(u.Scheme, "ftp") {
+		return "", errors.New("invalid FTP endpoint")
+	}
+	addr, user, _, err := ftpEndpoint(u)
+	if err != nil {
+		return "", err
+	}
+	root := url.URL{Scheme: "ftp", Host: addr}
+	if u.User != nil {
+		root.Scheme = "ftp+account"
+		root.User = url.User(fmt.Sprintf("%x", sha256.Sum256([]byte(user))))
+	}
+	return root.String(), nil
+}
+
+var ErrFTPCredentials = errors.New("authenticated FTP source requires matching ftp-endpoints credentials")
+
+type ftpCredentialsKey struct{}
+
+// WithFTPEndpoints binds credentials to this command and its request contexts.
+func WithFTPEndpoints(ctx context.Context, endpoints []string) (context.Context, error) {
+	credentials := make(map[string]string, len(endpoints))
+	for _, raw := range endpoints {
+		root, err := FTPSourceRoot(raw)
+		if err != nil {
+			return nil, err
+		}
+		credentials[root] = raw
+	}
+	return context.WithValue(ctx, ftpCredentialsKey{}, credentials), nil
+}
+
+func ResolveSourceRoot(ctx context.Context, fs afero.Fs, root string) (afero.Fs, error) {
+	if strings.HasPrefix(root, "ftp+account://") {
+		credentials, _ := ctx.Value(ftpCredentialsKey{}).(map[string]string)
+		endpoint, ok := credentials[root]
+		if !ok {
+			return nil, ErrFTPCredentials
+		}
+		root = endpoint
+	}
+	return ResolveFilesystem(fs, root)
 }
 
 // mountedFS owns the backing reader, which must outlive all queued consumers.

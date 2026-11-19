@@ -21,9 +21,11 @@ import (
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/storagecodec"
 )
 
+const rebuildInstructions = "rebuild native indexes from archives or reimport uploaded collections from CDXJ into a new database"
+
 const countKey = "!count"
 
-const formatVersion = "warchaeology-captures-v3;codec-1;whatwg-url-surt-v0.9.1"
+const formatVersion = "warchaeology-captures-v4;codec-1;whatwg-url-surt-v0.9.1"
 
 var ErrReadOnly = errors.New("database is read-only")
 
@@ -57,13 +59,13 @@ func Open(ctx context.Context, o Options) (*DB, error) {
 			return fail(e)
 		}
 		if nonempty || o.ReadOnly {
-			return fail(fmt.Errorf("unversioned index database; reindex into a new database"))
+			return fail(fmt.Errorf("unversioned index database: %s", rebuildInstructions))
 		}
 		if e = k.Put(ctx, "!format", []byte(formatVersion)); e != nil {
 			return fail(e)
 		}
 	} else if string(v) != formatVersion {
-		return fail(fmt.Errorf("incompatible index database; reindex with this version"))
+		return fail(fmt.Errorf("incompatible index database: %s", rebuildInstructions))
 	}
 	mode, e := k.Get(ctx, "!capabilities")
 	if e != nil {

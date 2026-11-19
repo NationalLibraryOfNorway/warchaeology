@@ -5,6 +5,7 @@ package filewalker
 
 import (
 	"archive/zip"
+	"context"
 	"encoding/json"
 	"errors"
 	"io"
@@ -91,7 +92,7 @@ func localRootPath(root string) string {
 	scheme, local, ok := strings.Cut(root, "://")
 	if ok {
 		switch strings.ToLower(scheme) {
-		case "ftp":
+		case "ftp", "ftp+account":
 			return ""
 		case "zip", "tar", "tgz":
 			return local
@@ -113,7 +114,13 @@ func SourceLocator(fs afero.Fs, path string) (string, error) {
 		}
 	}
 	roots = append([]string(nil), roots...)
-	if len(roots) > 0 && !strings.HasPrefix(roots[0], "ftp://") {
+	if len(roots) > 0 && strings.HasPrefix(strings.ToLower(roots[0]), "ftp://") {
+		root, err := archivefs.FTPSourceRoot(roots[0])
+		if err != nil {
+			return "", err
+		}
+		roots[0] = root
+	} else if len(roots) > 0 && !strings.HasPrefix(roots[0], "ftp+account://") {
 		prefix, local, ok := strings.Cut(roots[0], "://")
 		if !ok {
 			local = roots[0]
@@ -130,19 +137,19 @@ func SourceLocator(fs afero.Fs, path string) (string, error) {
 	return MemberLocator(roots, path), nil
 }
 
-func OpenSource(locator string) (afero.File, io.Closer, error) {
+func OpenSource(ctx context.Context, locator string) (afero.File, error) {
 	s := Source{Path: locator}
 	if strings.HasPrefix(locator, "{") {
 		if e := json.Unmarshal([]byte(locator), &s); e != nil {
-			return nil, nil, e
+			return nil, e
 		}
 	}
 	var fs = afero.NewOsFs()
 	closers := sourceClosers{}
 	for _, root := range s.Roots {
-		mounted, e := archivefs.ResolveFilesystem(fs, root)
+		mounted, e := archivefs.ResolveSourceRoot(ctx, fs, root)
 		if e != nil {
-			return nil, nil, errors.Join(e, closers.Close())
+			return nil, errors.Join(e, closers.Close())
 		}
 		if mounted != fs {
 			if c, ok := mounted.(io.Closer); ok {
@@ -153,10 +160,17 @@ func OpenSource(locator string) (afero.File, io.Closer, error) {
 	}
 	f, e := fs.Open(s.Path)
 	if e != nil {
-		return nil, nil, errors.Join(e, closers.Close())
+		return nil, errors.Join(e, closers.Close())
 	}
-	return f, closers, nil
+	return &sourceFile{File: f, mounts: closers}, nil
 }
+
+type sourceFile struct {
+	afero.File
+	mounts sourceClosers
+}
+
+func (f *sourceFile) Close() error { return errors.Join(f.File.Close(), f.mounts.Close()) }
 
 type sourceClosers []io.Closer
 

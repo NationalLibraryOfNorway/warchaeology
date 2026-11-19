@@ -24,6 +24,7 @@ import (
 	"github.com/nationallibraryofnorway/warchaeology/v5/cmd/validate"
 	"github.com/nationallibraryofnorway/warchaeology/v5/cmd/version"
 	"github.com/nationallibraryofnorway/warchaeology/v5/cmd/zipnum"
+	archivefs "github.com/nationallibraryofnorway/warchaeology/v5/internal/fs"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 	"github.com/spf13/viper"
@@ -42,6 +43,15 @@ func NewWarcCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			endpoints := viper.GetStringSlice("ftp-endpoints")
+			if input := viper.GetString("input-file"); strings.HasPrefix(strings.ToLower(input), "ftp://") {
+				endpoints = append(endpoints, input)
+			}
+			ctx, err := archivefs.WithFTPEndpoints(cmd.Context(), endpoints)
+			if err != nil {
+				return err
+			}
+			cmd.SetContext(ctx)
 			logCloser, err = initLogger(os.Stderr, flag.LogFileName(), flag.LogFormat(), flag.LogLevel())
 			return err
 		},

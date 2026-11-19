@@ -135,12 +135,12 @@ func TestVirtualArchiveRangeAndCDX(t *testing.T) {
 
 func finishMountedArchive(t *testing.T, db *cdxstore.DB, generation context.Context, locator string) filewalker.FileVersion {
 	t.Helper()
-	member, mounts, err := filewalker.OpenSource(locator)
+	member, err := filewalker.OpenSource(t.Context(), locator)
 	if err != nil {
 		t.Fatal(err)
 	}
 	info, err := member.Stat()
-	if err = errors.Join(err, member.Close(), mounts.Close()); err != nil {
+	if err = errors.Join(err, member.Close()); err != nil {
 		t.Fatal(err)
 	}
 	container, present, err := filewalker.ContainerVersion(locator)

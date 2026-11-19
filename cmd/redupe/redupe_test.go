@@ -785,6 +785,15 @@ func TestRejectSwappedCompletion(t *testing.T) {
 	}
 }
 
+func TestFTPSourceHasNoLocalContainer(t *testing.T) {
+	for _, root := range []string{"ftp://archive.example/", "ftp+account://reader@archive.example/"} {
+		container, err := sourceContainer(filewalker.MemberLocator([]string{root}, "/input.warc"))
+		if err != nil || container != nil {
+			t.Fatalf("%s: container %v, error %v", root, container, err)
+		}
+	}
+}
+
 func TestReportCannotModifyPublishedPeriod(t *testing.T) {
 	o := testOptions(t, fixtureFile(t, resource(t, "source", "2023-01-01T00:00:00Z")))
 	if err := o.Run(t.Context()); err != nil {

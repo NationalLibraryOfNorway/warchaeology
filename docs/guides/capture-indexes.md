@@ -61,7 +61,26 @@ warc index reset --index-format badger --index-dir ./captures
 Badger **v4** is the supported database backend and is used throughout
 warchaeology, including processing and deduplication indexes. Index databases have a format/canonicalization marker;
 unversioned or incompatible stores are rejected with reindexing guidance.
-Rebuild existing index databases in a new directory. Existing
+Capture format v4 requires a fresh database. For native indexes, run
+`warc index --index-format badger --index-dir NEW_DIR` with the original
+archives and indexing flags. For uploaded collections, export CDXJ with the
+previous version, create each collection in the new store, and POST its CDXJ
+to `/collections/{name}/cdx`. Older backups require the previous binary to
+restore and export their contents.
+
+For FTP ingestion, pass the endpoint URL to `--input-file` and the remote
+archive path as a positional argument. Locators retain the normalized host,
+port and an opaque account identifier. Reopening an authenticated source in a
+later command requires a matching URL in the command's configuration file.
+
+```yaml
+ftp-endpoints:
+  - "ftp://reader:password@archive.example:21"
+```
+
+Protect this configuration as a credential file. Changing the password for the
+same endpoint and account does not require reindexing.
+
 For retained deduplication indexes from v5, see the
 [migration notes](upgrading.md#retained-deduplication-indexes).
 

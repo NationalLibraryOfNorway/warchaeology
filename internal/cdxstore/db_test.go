@@ -4,9 +4,12 @@
 package cdxstore
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -24,7 +27,7 @@ func TestRejectPreviousCanonicalizationProfile(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	const previous = "warchaeology-captures-v3;codec-1;whatwg-url-surt-v0.9.0"
+	const previous = "warchaeology-captures-v3;codec-1;whatwg-url-surt-v0.9.1"
 	if err := k.Put(ctx, "!format", []byte(previous)); err != nil {
 		_ = k.Close()
 		t.Fatal(err)
@@ -248,6 +251,24 @@ func TestURIRecordIDIsExact(t *testing.T) {
 		return nil
 	}); e != nil || n != 1 {
 		t.Fatal(n, e)
+	}
+}
+
+func TestRejectPreviousBackup(t *testing.T) {
+	db := openTestDB(t)
+	if err := db.kv.Put(t.Context(), "!format", []byte("warchaeology-captures-v3;codec-1;whatwg-url-surt-v0.9.1")); err != nil {
+		t.Fatal(err)
+	}
+	var backup bytes.Buffer
+	if err := db.Backup(t.Context(), &backup); err != nil {
+		t.Fatal(err)
+	}
+	dst := filepath.Join(t.TempDir(), "restored")
+	if err := Restore(t.Context(), dst, &backup); err == nil || !strings.Contains(err.Error(), rebuildInstructions) {
+		t.Fatalf("restore: %v", err)
+	}
+	if _, err := os.Stat(dst); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("partial restore: %v", err)
 	}
 }
 

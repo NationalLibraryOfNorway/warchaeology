@@ -19,6 +19,7 @@ import (
 	cdx "github.com/nationallibraryofnorway/warchaeology/v5/internal/cdx"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/cdxstore"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/filewalker"
+	archivefs "github.com/nationallibraryofnorway/warchaeology/v5/internal/fs"
 )
 
 type source struct{ *cdxstore.DB }
@@ -63,7 +64,11 @@ func New(db *cdxstore.DB, scanLimit, resultLimit int) http.Handler {
 		if !checkContainer(w, info) {
 			return
 		}
-		file, mounts, err := filewalker.OpenSource(info.GetPath())
+		file, err := filewalker.OpenSource(r.Context(), info.GetPath())
+		if errors.Is(err, archivefs.ErrFTPCredentials) {
+			http.Error(w, archivefs.ErrFTPCredentials.Error(), http.StatusServiceUnavailable)
+			return
+		}
 		if err != nil {
 			http.Error(w, "archive source unavailable", http.StatusNotFound)
 			return
@@ -73,7 +78,6 @@ func New(db *cdxstore.DB, scanLimit, resultLimit int) http.Handler {
 				slog.Warn("Failed to close replay source", "error", err)
 			}
 		}()
-		defer mounts.Close()
 		stat, err := file.Stat()
 		if err != nil {
 			http.Error(w, "archive metadata unavailable", http.StatusInternalServerError)

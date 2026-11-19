@@ -277,12 +277,12 @@ func (o *RedupeOptions) checkSources(ctx context.Context) error {
 				return fmt.Errorf("source container changed: %s", source.Container.Locator)
 			}
 		}
-		f, mounts, err := filewalker.OpenSource(source.Locator)
+		f, err := filewalker.OpenSource(ctx, source.Locator)
 		if err != nil {
 			return err
 		}
 		info, err := f.Stat()
-		err = errors.Join(err, f.Close(), mounts.Close())
+		err = errors.Join(err, f.Close())
 		if err != nil {
 			return err
 		}
@@ -294,16 +294,9 @@ func (o *RedupeOptions) checkSources(ctx context.Context) error {
 }
 
 func sourceContainer(locator string) (*sourceInfo, error) {
-	var source filewalker.Source
-	if err := json.Unmarshal([]byte(locator), &source); err != nil {
+	path, err := filewalker.LocalContainer(locator)
+	if err != nil || path == "" {
 		return nil, err
-	}
-	if len(source.Roots) == 0 || strings.HasPrefix(source.Roots[0], "ftp://") {
-		return nil, nil //nolint:nilnil // No local archive container exists for this source.
-	}
-	path := source.Roots[0]
-	if _, local, ok := strings.Cut(path, "://"); ok {
-		path = local
 	}
 	info, err := os.Stat(path)
 	if err != nil {
