@@ -13,7 +13,7 @@ import (
 	"sync"
 	"syscall"
 
-	"github.com/jackc/puddle"
+	"github.com/jackc/puddle/v2"
 	"github.com/jlaffaye/ftp"
 )
 
@@ -21,7 +21,7 @@ type File struct {
 	mu        sync.Mutex
 	resp      io.ReadCloser
 	info      *FileInfo
-	resource  *puddle.Resource
+	resource  *puddle.Resource[connection]
 	pos       int64
 	streamPos int64
 	entries   []*ftp.Entry
@@ -29,9 +29,8 @@ type File struct {
 	listed    bool
 }
 
-func FileOpen(res *puddle.Resource, name string) (*File, error) {
-	c := res.Value().(connection)
-	entry, err := statEntry(c, name)
+func FileOpen(res *puddle.Resource[connection], name string) (*File, error) {
+	entry, err := statEntry(res.Value(), name)
 	if err != nil {
 		res.Release()
 		return nil, err
@@ -83,11 +82,22 @@ func (f *File) closeStream() error {
 	if f.resp == nil {
 		return nil
 	}
-	err := f.resp.Close()
+	err := closeTransfer(f.resp, f.streamPos < f.info.Size())
 	f.resp = nil
 	return err
 }
-func (f *File) ftpClient() connection { return f.resource.Value().(connection) }
+
+// FTP servers can acknowledge an intentional early data-channel close with
+// 426. A complete transfer must still report a successful final status.
+func closeTransfer(r io.Closer, partial bool) error {
+	err := r.Close()
+	var reply *textproto.Error
+	if partial && errors.As(err, &reply) && reply.Code == 426 {
+		return nil
+	}
+	return err
+}
+func (f *File) ftpClient() connection { return f.resource.Value() }
 func (f *File) Name() string          { return f.info.fullName }
 func (f *File) Stat() (os.FileInfo, error) {
 	f.mu.Lock()
@@ -165,7 +175,7 @@ func (f *File) ReadAt(b []byte, off int64) (int, error) {
 		err = io.EOF
 	}
 	// A positional read never changes the sequential cursor.
-	closeErr := r.Close()
+	closeErr := closeTransfer(r, err == nil && int64(n) < f.info.Size()-off)
 	if closeErr != nil {
 		return n, errors.Join(err, closeErr)
 	}

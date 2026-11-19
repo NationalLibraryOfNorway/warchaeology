@@ -73,7 +73,7 @@ func ResolveFilesystem(fs afero.Fs, name string, options ...func(*fsOptions)) (_
 			if opts.ftpPoolSize <= 0 {
 				return nil, errors.New("FTP pool size must be positive")
 			}
-			return ftpfs.New(addr, user, password, opts.ftpPoolSize), nil
+			return ftpfs.New(addr, user, password, opts.ftpPoolSize)
 		case archiveTar, archiveTGZ, archiveZIP:
 			name = locator
 		default:

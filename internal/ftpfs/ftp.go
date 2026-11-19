@@ -10,7 +10,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/jackc/puddle"
+	"github.com/jackc/puddle/v2"
 	"github.com/jlaffaye/ftp"
 	"github.com/spf13/afero"
 )
@@ -20,11 +20,11 @@ import (
 // For detailed information on any method, please refer to the documentation of the ftp
 // package available at github.com/jlaffaye/ftp.
 type Fs struct {
-	pool *puddle.Pool
+	pool *puddle.Pool[connection]
 }
 
-func New(addr, user, passwd string, poolSize int32) afero.Fs {
-	constructor := func(ctx context.Context) (any, error) {
+func New(addr, user, passwd string, poolSize int32) (afero.Fs, error) {
+	constructor := func(ctx context.Context) (connection, error) {
 		return connect(func() (connection, error) {
 			c, err := ftp.Dial(addr, ftp.DialWithContext(ctx))
 			if err != nil {
@@ -34,14 +34,19 @@ func New(addr, user, passwd string, poolSize int32) afero.Fs {
 		}, user, passwd)
 	}
 
-	destructor := func(value any) {
-		_ = value.(connection).Quit()
+	destructor := func(c connection) {
+		_ = c.Quit()
 	}
 
-	pool := puddle.NewPool(constructor, destructor, poolSize)
-	return &Fs{
-		pool: pool,
+	pool, err := puddle.NewPool(&puddle.Config[connection]{
+		Constructor: constructor,
+		Destructor:  destructor,
+		MaxSize:     poolSize,
+	})
+	if err != nil {
+		return nil, err
 	}
+	return &Fs{pool: pool}, nil
 }
 
 func (s Fs) Name() string { return "ftpfs" }
