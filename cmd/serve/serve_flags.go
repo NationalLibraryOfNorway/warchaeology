@@ -35,6 +35,7 @@ func (f ServeFlags) AddFlags(cmd *cobra.Command) {
 	flags.String("address", ":9999", "HTTP listen address")
 	flags.String("path-prefix", "", "prefix for all routes")
 	flags.Bool("read-only", false, "reject ingestion and report mutations")
+	flags.Bool("allow-same-origin-replay", false, "enable raw archived HTTP responses on the management origin")
 	flags.String("zipnum-dir", "", "immutable published zipnum cluster")
 	flags.Int("warcserver-prefix-max-records", 1000, "warcserver prefix result limit")
 }
@@ -53,12 +54,13 @@ func (f ServeFlags) ToOptions() (*ServeOptions, error) {
 			ScanLimit:     viper.GetInt("query-scan-limit"),
 			ResultLimit:   viper.GetInt("query-result-limit"),
 		},
-		prefix:      strings.TrimRight(viper.GetString("path-prefix"), "/"),
-		format:      viper.GetString("index-format"),
-		zipnumDir:   viper.GetString("zipnum-dir"),
-		readOnly:    viper.GetBool("read-only"),
-		hasInputs:   viper.GetString("source-file-list") != "",
-		prefixLimit: viper.GetInt("warcserver-prefix-max-records"),
+		prefix:                strings.TrimRight(viper.GetString("path-prefix"), "/"),
+		format:                viper.GetString("index-format"),
+		zipnumDir:             viper.GetString("zipnum-dir"),
+		readOnly:              viper.GetBool("read-only"),
+		allowSameOriginReplay: viper.GetBool("allow-same-origin-replay"),
+		hasInputs:             viper.GetString("source-file-list") != "",
+		prefixLimit:           viper.GetInt("warcserver-prefix-max-records"),
 	}
 	if o.collectionsDir != "" || o.format == zipnumFormat {
 		return o, nil

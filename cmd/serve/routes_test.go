@@ -20,7 +20,9 @@ import (
 	"testing"
 	"time"
 
+	cdx "github.com/nationallibraryofnorway/warchaeology/v5/internal/cdx"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/cdxstore"
+	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 func TestRemovedCDXRoutes(t *testing.T) {
@@ -34,14 +36,14 @@ func TestRemovedCDXRoutes(t *testing.T) {
 		handler := o.databaseHandler(t.Context(), db)
 		for _, path := range []string{"/warcserver/cdx", "/pywb/cdx"} {
 			response := httptest.NewRecorder()
-			handler.ServeHTTP(response, httptest.NewRequest("GET", "/archive"+path+"?url=https://example.org/", nil))
+			handler.ServeHTTP(response, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/archive"+path+"?url=https://example.org/", nil))
 			if response.Code != 404 {
 				t.Fatalf("indexOnly=%v %s: got %d", indexOnly, path, response.Code)
 			}
 		}
 		for _, path := range []string{"/cdx", "/archives/cdx"} {
 			response := httptest.NewRecorder()
-			handler.ServeHTTP(response, httptest.NewRequest("GET", "/archive"+path+"?url=https://example.org/", nil))
+			handler.ServeHTTP(response, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/archive"+path+"?url=https://example.org/", nil))
 			want := 200
 			if indexOnly && path == "/archives/cdx" {
 				want = 404
@@ -49,6 +51,54 @@ func TestRemovedCDXRoutes(t *testing.T) {
 			if response.Code != want {
 				t.Fatalf("indexOnly=%v %s: got %d want %d", indexOnly, path, response.Code, want)
 			}
+		}
+	}
+}
+
+func TestRawReplayRequiresOptIn(t *testing.T) {
+	ctx := t.Context()
+	dir := t.TempDir()
+	source, err := filepath.Abs("../../testdata/warc/convert.warc")
+	if err != nil {
+		t.Fatal(err)
+	}
+	info, err := os.Stat(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	db, err := cdxstore.Open(ctx, cdxstore.Options{Format: badgerFormat, Dir: dir})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	generation, err := db.BeginFile(ctx, source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	const original = "http://example.test"
+	capture := &cdx.Capture{
+		Uri: original, Ssu: cdx.CanonicalKey(original), Source: source, Filename: filepath.Base(source),
+		Sts: timestamppb.New(time.Date(2025, 3, 12, 16, 26, 52, 0, time.UTC)), Rle: info.Size(),
+		Ref: "warcfile:" + source + "#0", Srt: "response",
+	}
+	if err = db.WriteCapture(generation, capture); err != nil {
+		t.Fatal(err)
+	}
+	if err = db.FinishFile(generation, source, info.Size(), info.ModTime()); err != nil {
+		t.Fatal(err)
+	}
+	for _, enabled := range []bool{false, true} {
+		options := ServeOptions{prefix: "/archive", allowSameOriginReplay: enabled}
+		handler := options.databaseHandler(ctx, db)
+		w := httptest.NewRecorder()
+		r := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/archive/warcserver/web/20250312162652id_/"+original, nil)
+		handler.ServeHTTP(w, r)
+		want := http.StatusNotFound
+		if enabled {
+			want = http.StatusOK
+		}
+		if w.Code != want {
+			t.Fatalf("opted in=%v: got status %d, want %d (%s)", enabled, w.Code, want, w.Body.String())
 		}
 	}
 }
@@ -81,7 +131,7 @@ func TestReplayRedirectToClosestCapture(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	handler := (&ServeOptions{prefix: "/archive"}).databaseHandler(t.Context(), db)
+	handler := (&ServeOptions{prefix: "/archive", allowSameOriginReplay: true}).databaseHandler(t.Context(), db)
 	const base = "http://example.test/archive/warcserver/web/"
 	for _, timestamp := range []string{"20200101000000id_", "2020id_", "20200101000000"} {
 		r := httptest.NewRequestWithContext(t.Context(), http.MethodGet, base+timestamp+"/http://example.org/target?q=1", nil)
@@ -171,7 +221,7 @@ func TestNativeEscapedCaptures(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer db.Close()
-	handler := (&ServeOptions{}).databaseHandler(t.Context(), db)
+	handler := (&ServeOptions{allowSameOriginReplay: true}).databaseHandler(t.Context(), db)
 	get := func(path string) string {
 		w := httptest.NewRecorder()
 		handler.ServeHTTP(w, httptest.NewRequestWithContext(t.Context(), http.MethodGet, path, nil))

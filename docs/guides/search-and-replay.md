@@ -120,7 +120,7 @@ warcserver API exposes CDX lookup and archived HTTP resources for replay clients
 | Core record lookup | `GET /id`, `/id/{urn}`, `/record/{urn}` | List record IDs, resolve storage references and retrieve WARC records |
 | Core metadata | `GET /file`, `/file/{filename}`, `/packages`, `/report`, `/report/{id}` | Inspect indexed files, WACZ membership and reports |
 | Core database operations | `/collections`, `/stats`, `/export`, `/backup`, `POST /cdx`, `POST /delete` | Manage collections and index data; see [writable collections](writable-captures.md) |
-| Warcserver resource retrieval | `GET /warcserver/web/{timestamp}id_/{url}` | Retrieve an archived HTTP response by URL and time |
+| Warcserver resource retrieval | `GET /warcserver/web/{timestamp}id_/{url}` | Retrieve an archived HTTP response by URL and time with `--allow-same-origin-replay` |
 | HTTP archive access | `GET /archives/cdx`, `GET` or `HEAD /archives/{id}/{generation}/{name}` | Resolve virtual WARC filenames and serve WARC byte ranges |
 | Full-text search | `GET /search`, `/search/status` | Search indexed text and inspect indexing progress |
 
@@ -131,6 +131,12 @@ with registered archive sources. Both views use the same query parameters and
 output formats. Full-text search is a separate API backed by Bleve. `/warcserver/web/...` returns an archived HTTP resource; `/archives/...`
 returns WARC bytes. Pywb supplies browser replay rewriting and access control.
 
+Raw `/warcserver/web/…` responses are disabled by default. Use
+`warc serve --allow-same-origin-replay` to opt in. Archived HTML served through
+this route can run scripts with the origin of the Warchaeology server. On a
+writable server, those scripts can reach the management API with the browser's
+access. Use a dedicated replay origin for untrusted archived content.
+
 ```sh
 # Core API: capture lookup
 curl 'http://localhost:9999/cdx?url=https://example.com/'
@@ -138,7 +144,7 @@ curl 'http://localhost:9999/cdx?url=https://example.com/'
 # HTTP archive view: filenames resolved against /archives/
 curl 'http://localhost:9999/archives/cdx?url=https://example.com/'
 
-# Warcserver API: archived HTTP response nearest the requested timestamp
+# Warcserver API with --allow-same-origin-replay
 curl 'http://localhost:9999/warcserver/web/20250101000000id_/https://example.com/'
 ```
 
@@ -322,6 +328,12 @@ Keep the trailing slash on each archive path.
 In both examples, replace `127.0.0.1:9999` with the Warchaeology address reachable
 from pywb. Use the server's container or service name when they run in separate
 containers.
+
+In Kubernetes, pywb can use a cluster-internal Warchaeology Service for CDX
+and WARC byte ranges with raw same-origin replay disabled. The browser sees
+pywb's public ingress URL. Keep Warchaeology's management API cluster-internal
+or expose it on a separate public hostname. Ingress path prefixes and distinct
+Services do not separate browser origins on the same public scheme, host and port.
 
 `/archives/cdx` projects each filename to an opaque, generation-specific virtual WARC
 path. It preserves the member's original offsets and record lengths. Pywb then

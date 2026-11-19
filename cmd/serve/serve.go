@@ -72,6 +72,7 @@ type ServeOptions struct {
 	collectionsDir                     string
 	address, prefix, format, zipnumDir string
 	readOnly, hasInputs                bool
+	allowSameOriginReplay              bool
 	prefixLimit                        int
 	incompatible                       []string
 	database                           cdxstore.Options
@@ -105,6 +106,9 @@ func (o *ServeOptions) Complete(cmd *cobra.Command, args []string) error {
 }
 
 func (o *ServeOptions) Validate() error {
+	if o.allowSameOriginReplay && (o.collectionsDir != "" || o.format != badgerFormat) {
+		return errors.New("same-origin replay requires a single native Badger database")
+	}
 	if o.fulltext && (o.collectionsDir != "" || o.format != badgerFormat) {
 		return errors.New("fulltext requires a single native Badger database")
 	}
@@ -163,135 +167,148 @@ func (o *ServeOptions) Close() error {
 }
 
 func (o *ServeOptions) Run(ctx context.Context) error {
-	ctx, cancel := context.WithCancel(ctx)
-	defer cancel()
-	var handler http.Handler
-	if o.collectionsDir != "" {
+	switch {
+	case o.collectionsDir != "":
 		opts := o.httpOptions
 		opts.Directory = o.collectionsDir
 		opts.Prefix = o.prefix
 		opts.ReadOnly = o.readOnly
-		h, err := captures.New(ctx, opts, nil)
+		handler, err := captures.New(ctx, opts, nil)
 		if err != nil {
 			return err
 		}
-		o.closer = h
-		handler = h
-	} else if o.format == zipnumFormat {
-		reader, err := zipnum.OpenContext(ctx, o.zipnumDir)
-		if err != nil {
-			return err
-		}
-		o.closer = reader
-		mux := http.NewServeMux()
-		for _, path := range []string{"/health", "/ready"} {
-			mux.HandleFunc("GET "+o.prefix+path, func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte(`{"status":"ok"}`)) })
-		}
-		scanLimit, resultLimit := o.httpOptions.ScanLimit, o.httpOptions.ResultLimit
-		if scanLimit == 0 {
-			scanLimit = 10000
-		}
-		if resultLimit == 0 {
-			resultLimit = 10000
-		}
-		mux.HandleFunc("GET "+o.prefix+cdxPath, cdx.CDXHandlerWithLimits(reader, scanLimit, resultLimit))
-		handler = mux
-	} else {
-		o.database.IndexOnly = !o.hasInputs
-		db, err := cdxstore.Open(ctx, o.database)
-		if err != nil {
-			return err
-		}
-		o.closer = db
-		handler = o.databaseHandler(ctx, db)
-		if o.fulltext && db.IndexOnly() {
-			return errors.New("fulltext requires registered native archive sources")
-		}
-		var textIndex *fulltext.Index
-		var syncer *fulltext.Synchronizer
-		if o.fulltext {
-			dir := o.textDir
-			if dir == "" {
-				dir = filepath.Join(o.database.Dir, "fulltext")
-			}
-			if o.readOnly {
-				textIndex, err = fulltext.OpenReadOnly(dir)
-			} else {
-				textIndex, err = fulltext.Open(dir)
-			}
-			if err != nil {
-				return err
-			}
-			defer textIndex.Close()
-			syncer = &fulltext.Synchronizer{Index: textIndex, DB: db}
-			if !o.readOnly {
-				workerCtx, stop := context.WithCancel(ctx)
-				done := make(chan struct{})
-				go func() {
-					defer close(done)
-					force := o.textRebuild
-					for {
-						if e := syncer.Sync(workerCtx, force); e != nil && workerCtx.Err() == nil {
-							slog.Error("Text indexing failed", "error", e)
-						}
-						force = false
-						select {
-						case <-workerCtx.Done():
-							return
-						case <-time.After(2 * time.Second):
-						}
-					}
-				}()
-				defer func() { stop(); <-done }()
-			}
-		}
-		console := searchui.New(textIndex, syncer)
-		if o.fulltext {
-			previous := handler
-			handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				p := strings.TrimPrefix(r.URL.Path, o.prefix)
-				if p == "/search" || p == "/search/status" {
-					http.StripPrefix(o.prefix, console).ServeHTTP(w, r)
-				} else if strings.HasPrefix(p, "/console/") {
-					http.StripPrefix(o.prefix+"/console", console).ServeHTTP(w, r)
-				} else {
-					previous.ServeHTTP(w, r)
-				}
-			})
-		}
-		// Browser-origin writes must not cross from archived pages into management.
-		previous := handler
-		handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if r.Method != "GET" && r.Method != "HEAD" && r.Method != "OPTIONS" {
-				origin := r.Header.Get("Origin")
-				if origin != "" {
-					scheme := "http"
-					if r.TLS != nil {
-						scheme = "https"
-					}
-					if origin != scheme+"://"+r.Host {
-						http.Error(w, "cross-origin mutation rejected", 403)
-						return
-					}
-				}
-				if r.Header.Get("Sec-Fetch-Site") == "cross-site" {
-					http.Error(w, "cross-site mutation rejected", 403)
-					return
-				}
-			}
-			previous.ServeHTTP(w, r)
-		})
-		if o.hasInputs {
-			o.ingestion.Sink = db
-			o.ingestion.Fulltext = false
-			o.ingestion.TextRebuild = false
-		}
+		o.closer = handler
+		return run(ctx, o.address, guardBrowserWrites(handler), nil)
+	case o.format == zipnumFormat:
+		return o.runZipnum(ctx)
+	default:
+		return o.runNative(ctx)
 	}
+}
+
+func (o *ServeOptions) runZipnum(ctx context.Context) error {
+	reader, err := zipnum.OpenContext(ctx, o.zipnumDir)
+	if err != nil {
+		return err
+	}
+	o.closer = reader
+	mux := http.NewServeMux()
+	for _, path := range []string{"/health", "/ready"} {
+		mux.HandleFunc("GET "+o.prefix+path, func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte(`{"status":"ok"}`)) })
+	}
+	scanLimit, resultLimit := o.httpOptions.ScanLimit, o.httpOptions.ResultLimit
+	if scanLimit == 0 {
+		scanLimit = 10000
+	}
+	if resultLimit == 0 {
+		resultLimit = 10000
+	}
+	mux.HandleFunc("GET "+o.prefix+cdxPath, cdx.CDXHandlerWithLimits(reader, scanLimit, resultLimit))
+	return run(ctx, o.address, mux, nil)
+}
+
+func (o *ServeOptions) runNative(ctx context.Context) (err error) {
+	o.database.IndexOnly = !o.hasInputs
+	db, err := cdxstore.Open(ctx, o.database)
+	if err != nil {
+		return err
+	}
+	o.closer = db
+	if o.allowSameOriginReplay && db.IndexOnly() {
+		return errors.New("same-origin replay requires registered native archive sources")
+	}
+	if o.fulltext && db.IndexOnly() {
+		return errors.New("fulltext requires registered native archive sources")
+	}
+
 	var ingestion *indexcmd.IndexOptions
 	if o.hasInputs {
 		ingestion = o.ingestion
+		ingestion.Sink = db
+		ingestion.Fulltext = false
+		ingestion.TextRebuild = false
 	}
-	return run(ctx, o.address, handler, ingestion)
+
+	handler := o.databaseHandler(ctx, db)
+	if o.fulltext {
+		dir := o.textDir
+		if dir == "" {
+			dir = filepath.Join(o.database.Dir, "fulltext")
+		}
+		open := fulltext.Open
+		if o.readOnly {
+			open = fulltext.OpenReadOnly
+		}
+		textIndex, openErr := open(dir)
+		if openErr != nil {
+			return openErr
+		}
+		defer func() { err = errors.Join(err, textIndex.Close()) }()
+		syncer := &fulltext.Synchronizer{Index: textIndex, DB: db}
+		if !o.readOnly {
+			workerCtx, stop := context.WithCancel(ctx)
+			done := make(chan struct{})
+			go func() {
+				defer close(done)
+				syncText(workerCtx, syncer, o.textRebuild)
+			}()
+			defer func() { stop(); <-done }()
+		}
+		handler = o.withSearch(handler, searchui.New(textIndex, syncer))
+	}
+	return run(ctx, o.address, guardBrowserWrites(handler), ingestion)
+}
+
+func syncText(ctx context.Context, syncer *fulltext.Synchronizer, force bool) {
+	for {
+		if err := syncer.Sync(ctx, force); err != nil && ctx.Err() == nil {
+			slog.Error("Text indexing failed", "error", err)
+		}
+		force = false
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(2 * time.Second):
+		}
+	}
+}
+
+func (o *ServeOptions) withSearch(next, console http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		p := strings.TrimPrefix(r.URL.Path, o.prefix)
+		switch {
+		case p == "/search" || p == "/search/status":
+			http.StripPrefix(o.prefix, console).ServeHTTP(w, r)
+		case strings.HasPrefix(p, "/console/"):
+			http.StripPrefix(o.prefix+"/console", console).ServeHTTP(w, r)
+		default:
+			next.ServeHTTP(w, r)
+		}
+	})
+}
+
+// guardBrowserWrites rejects cross-origin browser writes to the management API.
+func guardBrowserWrites(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet && r.Method != http.MethodHead && r.Method != http.MethodOptions {
+			origin := r.Header.Get("Origin")
+			if origin != "" {
+				scheme := "http"
+				if r.TLS != nil {
+					scheme = "https"
+				}
+				if origin != scheme+"://"+r.Host {
+					http.Error(w, "cross-origin mutation rejected", http.StatusForbidden)
+					return
+				}
+			}
+			if r.Header.Get("Sec-Fetch-Site") == "cross-site" {
+				http.Error(w, "cross-site mutation rejected", http.StatusForbidden)
+				return
+			}
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 func (o *ServeOptions) databaseHandler(ctx context.Context, db *cdxstore.DB) http.Handler {
@@ -305,11 +322,12 @@ func (o *ServeOptions) databaseHandler(ctx context.Context, db *cdxstore.DB) htt
 		}
 		router.Handler(route.Method, o.prefix+route.Path, route.Handler)
 	}
-	for _, route := range ws.Routes() {
-		if route.Path == cdxPath {
-			continue
+	if o.allowSameOriginReplay {
+		for _, route := range ws.Routes() {
+			if route.Path != cdxPath {
+				router.Handler(route.Method, o.prefix+"/warcserver"+route.Path, route.Handler)
+			}
 		}
-		router.Handler(route.Method, o.prefix+"/warcserver"+route.Path, route.Handler)
 	}
 	opts := o.httpOptions
 	opts.Prefix = o.prefix
