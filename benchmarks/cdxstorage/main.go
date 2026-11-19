@@ -1,3 +1,6 @@
+// Copyright 2026 National Library of Norway.
+// SPDX-License-Identifier: Apache-2.0
+
 // cdxstorage runs one engine/encoding/workload per isolated process.
 package main
 

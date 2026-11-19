@@ -1,3 +1,6 @@
+# Copyright 2026 National Library of Norway.
+# SPDX-License-Identifier: Apache-2.0
+
 """Stock pywb -> remote CDX -> HTTP byte ranges, with no WACZ awareness.
 
 WARC_BINARY=/path/to/warc python integration/pywb_wacz.py

@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+# Copyright 2026 National Library of Norway.
+# SPDX-License-Identifier: Apache-2.0
+
 """Run each engine in a fresh process; retain only measurements, not databases."""
 import argparse, json, os, pathlib, platform, subprocess, time
 p=argparse.ArgumentParser();p.add_argument('--n',type=int,default=1000000);p.add_argument('--output',default='results.jsonl');p.add_argument('--seeds',default='11,29,47');p.add_argument('--workloads',default='capture,dedup,inventory');p.add_argument('--order',choices=['ingestion','sorted'],default='ingestion');p.add_argument('--wal-off',action='store_true');a=p.parse_args()

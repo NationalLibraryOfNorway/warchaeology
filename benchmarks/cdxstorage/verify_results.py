@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+# Copyright 2026 National Library of Norway.
+# SPDX-License-Identifier: Apache-2.0
+
 """Check independent engine checksums, expected live counts and order equivalence."""
 import json,sys
 seen={}

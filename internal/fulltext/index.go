@@ -1,3 +1,6 @@
+// Copyright 2026 National Library of Norway.
+// SPDX-License-Identifier: Apache-2.0
+
 // Package fulltext owns the rebuildable text index. Capture locations and their
 // visibility remain the responsibility of the capture catalogue.
 package fulltext

@@ -1,3 +1,6 @@
+# Copyright 2026 National Library of Norway.
+# SPDX-License-Identifier: Apache-2.0
+
 """Verify redupe -> index -> pywb replay with one output year at a time.
 
 Run: WARC_BINARY=/path/to/warc python integration/redupe_replay.py

@@ -1,3 +1,6 @@
+// Copyright 2024 National Library of Norway.
+// SPDX-License-Identifier: Apache-2.0
+
 package version
 
 import (

@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+# Copyright 2026 National Library of Norway.
+# SPDX-License-Identifier: Apache-2.0
+
 import json,sys
 rows=[]
 for path in sys.argv[1:]:

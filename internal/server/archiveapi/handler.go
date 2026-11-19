@@ -1,3 +1,6 @@
+// Copyright 2026 National Library of Norway.
+// SPDX-License-Identifier: Apache-2.0
+
 // Package archiveapi presents registered archive members as ordinary HTTP WARC
 // files. Replay clients never need to know whether a file lives inside a WACZ.
 package archiveapi

@@ -1,3 +1,6 @@
+# Copyright 2026 National Library of Norway.
+# SPDX-License-Identifier: Apache-2.0
+
 """WARC -> CDXJ -> zipnum -> remote CDX -> pywb replay.
 Run with: WARC_BINARY=/path/to/warc python integration/pywb_replay.py
 Requires pywb 2.11.1. No pywb plugin or database conversion is used.
