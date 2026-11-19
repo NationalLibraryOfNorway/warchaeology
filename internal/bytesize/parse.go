@@ -1,36 +1,17 @@
 // Copyright 2023 National Library of Norway.
 // SPDX-License-Identifier: Apache-2.0
 
-package util
+package bytesize
 
 import (
-	"fmt"
-	"os"
 	"strings"
 	"unicode"
 
 	"github.com/spf13/cast"
 )
 
-const BadgerRecommendedMaxFileDescr = 65535
-
-// CropString crops a given string if it is bigger than size
-func CropString(s string, size int) string {
-	if len(s) > size {
-		s = s[:size-1] + "\u2026"
-	}
-	return s
-}
-
-// AbsInt64 takes an int64 and returns the absolute value
-// Source: http://cavaliercoder.com/blog/optimized-abs-for-int64-in-go.html
-func AbsInt64(n int64) int64 {
-	y := n >> 63
-	return (n ^ y) - y
-}
-
-// ParseSizeInBytes converts strings like 1GB or 12 mb into an unsigned integer number of bytes
-func ParseSizeInBytes(sizeStr string) int64 {
+// Parse converts size strings such as "1GB" and "12 mb" to a byte count.
+func Parse(sizeStr string) int64 {
 	sizeStr = strings.TrimSpace(sizeStr)
 	lastChar := len(sizeStr) - 1
 	multiplier := int64(1)
@@ -73,23 +54,4 @@ func safeMul(a, b int64) int64 {
 		return 0
 	}
 	return c
-}
-
-type OutOfSpaceError string
-
-func NewOutOfSpaceError(format string, a ...any) OutOfSpaceError {
-	return OutOfSpaceError(fmt.Sprintf(format, a...))
-}
-
-func (o OutOfSpaceError) Error() string {
-	return string(o)
-}
-
-func StdoutIsTerminal() bool {
-	o, _ := os.Stdout.Stat()
-	if (o.Mode() & os.ModeCharDevice) == os.ModeCharDevice {
-		return true
-	} else { //It is not the terminal
-		return false
-	}
 }

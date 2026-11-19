@@ -3,15 +3,15 @@
 
 //go:build linux
 
-package util
+package dedup
 
 import (
 	"fmt"
 	"syscall"
 )
 
-// CheckFileDescriptorLimit checks if the OS limit for open file descriptors is high enough and if not, tries to increase it.
-func CheckFileDescriptorLimit(limit uint64) error {
+// checkFileDescriptorLimit checks if the OS limit for open file descriptors is high enough and if not, tries to increase it.
+func checkFileDescriptorLimit(limit uint64) error {
 	var rLimit syscall.Rlimit
 	err := syscall.Getrlimit(syscall.RLIMIT_NOFILE, &rLimit)
 	if err != nil {

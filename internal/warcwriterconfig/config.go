@@ -13,8 +13,8 @@ import (
 	"time"
 
 	"github.com/nationallibraryofnorway/gowarc/v3"
+	"github.com/nationallibraryofnorway/warchaeology/v5/internal/bytesize"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/hooks"
-	"github.com/nationallibraryofnorway/warchaeology/v5/internal/util"
 )
 
 const DefaultDateFormat = "2006-1-2"
@@ -222,7 +222,7 @@ func New(cmd string, options ...func(*WarcWriterOptions)) (*WarcWriterConfig, er
 		gowarc.WithMaxConcurrentWriters(o.ConcurrentWriters),
 		gowarc.WithCompression(o.Compress),
 		gowarc.WithCompressionLevel(o.CompressionLevel),
-		gowarc.WithMaxFileSize(util.ParseSizeInBytes(o.MaxFileSize)),
+		gowarc.WithMaxFileSize(bytesize.Parse(o.MaxFileSize)),
 		gowarc.WithFlush(o.Flush),
 		gowarc.WithWarcInfoFunc(o.WarcInfoFunc),
 		gowarc.WithRecordOptions(gowarc.WithVersion(version), gowarc.WithBufferTmpDir(o.TmpDir)),

@@ -4,7 +4,7 @@
 package flag
 
 import (
-	"github.com/nationallibraryofnorway/warchaeology/v5/internal/util"
+	"github.com/nationallibraryofnorway/warchaeology/v5/internal/bytesize"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 )
@@ -23,5 +23,5 @@ func (u UtilFlags) AddFlags(cmd *cobra.Command) {
 
 func (u UtilFlags) MinFreeDisk() int64 {
 	minFreeDisk := viper.GetString(MinDiskFree)
-	return util.ParseSizeInBytes(minFreeDisk)
+	return bytesize.Parse(minFreeDisk)
 }

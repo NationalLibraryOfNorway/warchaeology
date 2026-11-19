@@ -1,11 +1,11 @@
 // Copyright 2026 National Library of Norway.
 // SPDX-License-Identifier: Apache-2.0
 
-package util
+package diskspace
 
 import "golang.org/x/sys/windows"
 
-func DiskFree(path string) (int64, error) {
+func Free(path string) (int64, error) {
 	dir, err := windows.UTF16PtrFromString(path)
 	if err != nil {
 		return 0, err
