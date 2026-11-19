@@ -9,6 +9,7 @@ import (
 	"os"
 	"testing"
 
+	archivefs "github.com/nationallibraryofnorway/warchaeology/v5/internal/fs"
 	"github.com/spf13/afero"
 )
 
@@ -103,3 +104,30 @@ func TestMountErrorsReachCallback(t *testing.T) {
 }
 
 var _ io.Closer = (*FileWalker)(nil)
+
+func TestExplicitArchiveMember(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	if err := afero.WriteFile(fs, "/sample.wacz", zipData(t, "archive/record.warc", []byte("record")), 0600); err != nil {
+		t.Fatal(err)
+	}
+	mounted, err := archivefs.ResolveFilesystem(fs, "/sample.wacz")
+	if err != nil {
+		t.Fatal(err)
+	}
+	walker := New(WithFs(mounted), WithSuffixes([]string{".warc"}))
+	defer walker.Close()
+	count := 0
+	err = walker.Walk(t.Context(), "/archive/record.warc", func(_ afero.Fs, path string, err error) error {
+		if err != nil {
+			return err
+		}
+		if path != "/archive/record.warc" {
+			t.Fatalf("unexpected member: %s", path)
+		}
+		count++
+		return nil
+	})
+	if err != nil || count != 1 {
+		t.Fatalf("count=%d error=%v", count, err)
+	}
+}

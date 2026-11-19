@@ -20,7 +20,7 @@ func readTar(r io.Reader) (afero.Fs, error) {
 	for {
 		hdr, err := tr.Next()
 		if errors.Is(err, io.EOF) {
-			return afero.NewReadOnlyFs(fs), nil
+			return &tarMount{Fs: afero.NewReadOnlyFs(fs)}, nil
 		}
 		if err != nil {
 			return nil, fmt.Errorf("read tar header: %w", err)
@@ -58,3 +58,9 @@ func readTar(r io.Reader) (afero.Fs, error) {
 		}
 	}
 }
+
+type tarMount struct {
+	afero.Fs
+}
+
+func (*tarMount) Name() string { return "tarfs" }

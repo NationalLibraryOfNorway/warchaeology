@@ -99,10 +99,10 @@ func TestFilewalker_Walk_ResolvesWACZAsFilesystem(t *testing.T) {
 
 	fw := filewalker.New(
 		filewalker.WithFs(memfs),
-		filewalker.WithRecursive(true),
 		filewalker.WithSuffixes([]string{".txt"}),
 	)
 
+	t.Cleanup(func() { _ = fw.Close() })
 	var got []string
 	err = fw.Walk(context.Background(), "/sample.wacz", func(wfs afero.Fs, path string, err error) error {
 		if err != nil {

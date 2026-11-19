@@ -140,7 +140,9 @@ func (fw *FileWalker) walkDir(ctx context.Context, currentFs afero.Fs, root stri
 				return nil
 			}
 			// skip directories when recursive option is not set
-			if !fw.Recursive {
+			// An archive is one input: visit all of its members. Recursive only
+			// controls directory traversal outside mounted archives.
+			if !fw.Recursive && mountPrefix == "" && currentFs.Name() != "zipfs" && currentFs.Name() != "tarfs" {
 				return filepath.SkipDir
 			}
 			return nil
