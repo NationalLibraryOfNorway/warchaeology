@@ -36,9 +36,7 @@ type Widget interface {
 	Layout(gui *gocui.Gui, x0, y0, x1, y1 int) error
 }
 
-// Modal is implemented by overlay dialogs that need setup/teardown when
-// shown/hidden.
+// Modal is implemented by overlay dialogs that need setup when shown.
 type Modal interface {
 	Init(gui *gocui.Gui) error
-	Dispose(gui *gocui.Gui) error
 }

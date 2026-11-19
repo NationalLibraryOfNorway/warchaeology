@@ -78,7 +78,10 @@ func (w *ChromeWidget) Layout(gui *gocui.Gui, x0, y0, x1, y1 int) error {
 
 func (w *ChromeWidget) onMouseToggle(gui *gocui.Gui, view *gocui.View) error {
 	x, y := view.Cursor()
-	str, _ := view.Line(y)
+	str, err := view.Line(y)
+	if err != nil || x < 0 || x >= len(str) {
+		return nil
+	}
 
 	nl := strings.LastIndexFunc(str[:x], indexFunc)
 	if nl == -1 {
