@@ -220,10 +220,7 @@ func TestDedupPublicationFailureLeavesIndexesUncommitted(t *testing.T) {
 			}
 			args := []string{"dedup", "--output-dir", out, "--index-dir", work, "--keep-index", "--compress=false",
 				"--min-disk-free=0", "--min-index-disk-free=0", "--concurrent-writers=1", mode, source}
-			want := "rename"
-			if mode == "--one-to-one" {
-				want = "reserve"
-			}
+			want := "reserve"
 			if err := executeCaptureCommand(t, args...); err == nil || !strings.Contains(err.Error(), want) {
 				t.Fatalf("expected a publication error, got %v", err)
 			}
@@ -568,6 +565,36 @@ func TestIndexLimitWithPairedRequest(t *testing.T) {
 				t.Fatalf("emitted %s", rows)
 			}
 		})
+	}
+}
+
+func TestConversionIdentityUsesFirstRecordDate(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "item.warc")
+	later := bytes.ReplaceAll(resourceBytes(2), []byte("2022-01"), []byte("2023-01"))
+	if err := os.WriteFile(path, append(resourceBytes(1), later...), 0600); err != nil {
+		t.Fatal(err)
+	}
+	for _, mode := range []string{"--name-generator=identity", "--one-to-one"} {
+		out := t.TempDir()
+		args := []string{"convert", "warc", mode, "--output-dir", out, "--compress=false", "--subdir-pattern={YYYY}", "--min-disk-free=0", path}
+		if err := executeCaptureCommand(t, args...); err != nil {
+			t.Fatal(err)
+		}
+		dest := filepath.Join(out, "2022", "item.warc")
+		before, err := os.ReadFile(dest)
+		if err != nil || !bytes.Contains(before, []byte("example.org/1")) || !bytes.Contains(before, []byte("example.org/2")) {
+			t.Fatalf("identity output %s: %v", dest, err)
+		}
+		if err := executeCaptureCommand(t, args...); err == nil {
+			t.Fatal("overwrote published WARC")
+		}
+		after, err := os.ReadFile(dest)
+		if err != nil || !bytes.Equal(before, after) {
+			t.Fatal("published WARC changed")
+		}
+		if files, err := os.ReadDir(filepath.Dir(dest)); err != nil || len(files) != 1 {
+			t.Fatalf("publication left files %v, %v", files, err)
+		}
 	}
 }
 

@@ -20,6 +20,7 @@ import (
 const DefaultDateFormat = "2006-1-2"
 
 type WarcWriterConfig struct {
+	reservations          sync.Map
 	compressed            bool
 	hookErrorsMu          sync.Mutex
 	hookErrors            error
@@ -212,7 +213,8 @@ func New(cmd string, options ...func(*WarcWriterOptions)) (*WarcWriterConfig, er
 		return nil, err
 	}
 
-	if o.OneToOneWriter {
+	if o.OneToOneWriter || o.WarcFileNameGenerator == "identity" {
+		o.OneToOneWriter = true
 		// Only one writer with unrestricted size to allow for one to one mapping
 		o.ConcurrentWriters = 1
 		o.MaxFileSize = "0"
@@ -306,6 +308,10 @@ func (w *WarcWriterConfig) GetWarcWriterContext(ctx context.Context, path string
 	var ww *gowarc.WarcFileWriter
 
 	if w.OneToOneWriter {
+		release, err := w.ReserveOutput(path, warcDate)
+		if err != nil {
+			return nil, err
+		}
 		openHook := w.openOutputFileHook.WithSrcFileName(path)
 		closeHook := w.closeOutputFileHook.WithSrcFileName(path)
 		opts := make([]gowarc.WarcFileWriterOption, 0, len(w.WarcFileWriterOptions)+3)
@@ -318,6 +324,7 @@ func (w *WarcWriterConfig) GetWarcWriterContext(ctx context.Context, path string
 			}),
 		)
 		ww = gowarc.NewWarcFileWriter(opts...)
+		w.reservations.Store(ww, release)
 		return ww, nil
 	}
 
@@ -398,6 +405,14 @@ func (w *WarcWriterConfig) recordHookError(err error) error {
 		w.hookErrorsMu.Lock()
 		w.hookErrors = errors.Join(w.hookErrors, err)
 		w.hookErrorsMu.Unlock()
+	}
+	return err
+}
+
+func (w *WarcWriterConfig) FinishIdentity(writer *gowarc.WarcFileWriter) error {
+	err := FinalizeWriter(writer)
+	if release, ok := w.reservations.LoadAndDelete(writer); ok {
+		err = errors.Join(err, release.(func() error)())
 	}
 	return err
 }
