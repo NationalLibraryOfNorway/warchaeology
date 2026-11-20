@@ -129,10 +129,10 @@ func (fw *FileWalker) Walk(ctx context.Context, path string, walkFn func(fs afer
 	if fw.SourceRoot != "" {
 		roots = []string{fw.SourceRoot}
 	}
-	return fw.walkDir(ctx, fw.Fs, path, path, "", roots, walkFn)
+	return fw.walkDir(ctx, fw.Fs, path, path, false, roots, walkFn)
 }
 
-func (fw *FileWalker) walkDir(ctx context.Context, currentFs afero.Fs, root string, dirName string, mountPrefix string, roots []string, walkFn func(fs afero.Fs, path string, err error) error) error {
+func (fw *FileWalker) walkDir(ctx context.Context, currentFs afero.Fs, root string, dirName string, mounted bool, roots []string, walkFn func(fs afero.Fs, path string, err error) error) error {
 	walkImpl := func(walkFn filepath.WalkFunc) error {
 		// Use the custom walk with path.Join (forward slashes) for virtual
 		// filesystems (zip, tar, ftp) where entry names use forward slashes.
@@ -151,9 +151,9 @@ func (fw *FileWalker) walkDir(ctx context.Context, currentFs afero.Fs, root stri
 			return walkFn(currentFs, path, err)
 		}
 
-		logicalPath := path
-		if mountPrefix != "" {
-			logicalPath = mountPrefix + "!" + path
+		logicalPath, err := SourceLocator(&sourceFS{Fs: currentFs, roots: roots}, path)
+		if err != nil {
+			return walkFn(currentFs, path, err)
 		}
 
 		if info.IsDir() {
@@ -170,7 +170,7 @@ func (fw *FileWalker) walkDir(ctx context.Context, currentFs afero.Fs, root stri
 			// skip directories when recursive option is not set
 			// An archive is one input: visit all of its members. Recursive only
 			// controls directory traversal outside mounted archives.
-			if !fw.Recursive && mountPrefix == "" && currentFs.Name() != "zipfs" && currentFs.Name() != "tarfs" {
+			if !fw.Recursive && !mounted && currentFs.Name() != "zipfs" && currentFs.Name() != "tarfs" {
 				return filepath.SkipDir
 			}
 			return nil
@@ -192,7 +192,7 @@ func (fw *FileWalker) walkDir(ctx context.Context, currentFs afero.Fs, root stri
 			if !filepath.IsAbs(linkPath) {
 				linkPath = filepath.Join(filepath.Dir(path), linkPath)
 			}
-			return fw.walkDir(ctx, currentFs, root, linkPath, mountPrefix, roots, walkFn)
+			return fw.walkDir(ctx, currentFs, root, linkPath, mounted, roots, walkFn)
 		}
 
 		if fw.ArchiveHandler != nil {
@@ -216,7 +216,7 @@ func (fw *FileWalker) walkDir(ctx context.Context, currentFs afero.Fs, root stri
 			if c, ok := mountedFs.(io.Closer); ok {
 				fw.closers = append(fw.closers, c)
 			}
-			return fw.walkDir(ctx, mountedFs, "/", "/", logicalPath, append(append([]string(nil), roots...), path), walkFn)
+			return fw.walkDir(ctx, mountedFs, "/", "/", true, append(append([]string(nil), roots...), path), walkFn)
 		}
 
 		// filter files by suffix

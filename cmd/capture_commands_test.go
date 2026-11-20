@@ -1373,6 +1373,33 @@ func zipWithMembers(t *testing.T, members map[string][]byte) []byte {
 	testcheck.Close(t, w)
 	return data.Bytes()
 }
+func TestLiteralMountSeparatorInputs(t *testing.T) {
+	dir := t.TempDir()
+	outer := filepath.Join(dir, "a.zip")
+	sibling := outer + "!"
+	if err := os.Mkdir(sibling, 0700); err != nil {
+		t.Fatal(err)
+	}
+	sibling = filepath.Join(sibling, "p.wacz")
+	pack := func(id int) []byte {
+		return zipWithMembers(t, map[string][]byte{"archive/a.warc": resourceBytes(id)})
+	}
+	for path, raw := range map[string][]byte{outer: zipWithMembers(t, map[string][]byte{"p.wacz": pack(1)}), sibling: pack(2)} {
+		if err := os.WriteFile(path, raw, 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, paths := range [][]string{{outer, sibling, outer}, {sibling, outer, sibling}} {
+		out := filepath.Join(t.TempDir(), "rows")
+		if err := executeCaptureCommand(t, append([]string{"index", "--index-file", out}, paths...)...); err != nil {
+			t.Fatal(err)
+		}
+		data, err := os.ReadFile(out)
+		if err != nil || bytes.Count(data, []byte("\n")) != 2 {
+			t.Fatal(string(data), err)
+		}
+	}
+}
 func TestWACZStagingDuplicates(t *testing.T) {
 	dir := t.TempDir()
 	file := filepath.Join(dir, "p.wacz")
