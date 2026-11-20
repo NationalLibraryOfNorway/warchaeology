@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/nationallibraryofnorway/gowarc/v3"
+	"github.com/nationallibraryofnorway/warchaeology/v5/cmd/convert/internal/conversion"
 	"github.com/nationallibraryofnorway/warchaeology/v5/cmd/internal/flag"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/testcheck"
 	"github.com/spf13/afero"
@@ -37,7 +38,7 @@ func TestARCWarcinfoVersion(t *testing.T) {
 	}
 	defer testcheck.Close(t, opts)
 	input := filepath.Join(testDataDir, "arc", "ARC-SAMPLE-20060928223931-00000-gojoblack.arc.gz")
-	if _, err := opts.handleFile(afero.NewOsFs(), input); err != nil {
+	if _, err := (conversion.RunOptions{Writer: opts.WarcWriterConfig}).ConvertFile(t.Context(), afero.NewOsFs(), input, opts.handleFile); err != nil {
 		t.Fatal(err)
 	}
 	names, err := filepath.Glob(filepath.Join(out, "*.warc"))

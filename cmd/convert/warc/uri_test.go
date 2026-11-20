@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/nationallibraryofnorway/gowarc/v3"
+	"github.com/nationallibraryofnorway/warchaeology/v5/cmd/convert/internal/conversion"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/testcheck"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/warcwriterconfig"
 	"github.com/spf13/afero"
@@ -54,7 +55,7 @@ func TestURITextPreserved(t *testing.T) {
 	o := &ConvertWarcOptions{WarcWriterConfig: cfg}
 	func() {
 		defer testcheck.Close(t, o)
-		result, err := o.handleFile(afero.NewOsFs(), input)
+		result, err := (conversion.RunOptions{Writer: o.WarcWriterConfig}).ConvertFile(t.Context(), afero.NewOsFs(), input, o.handleFile)
 		if err != nil {
 			t.Fatal(err)
 		}

@@ -224,7 +224,7 @@ func (o *ConvertArcOptions) Run() error {
 	return runner.Run(o.Paths, o.handleFile)
 }
 
-func (o *ConvertArcOptions) handleFile(fs afero.Fs, fileName string) (result stat.Result, resultErr error) {
+func (o *ConvertArcOptions) handleFile(fs afero.Fs, fileName string, getWriter conversion.GetWriter) (result stat.Result, resultErr error) {
 	result = stat.NewResult(fileName)
 
 	arcFileReader, err := arcreader.NewArcFileReader(fs, fileName, 0, o.WarcRecordOptions...)
@@ -234,13 +234,6 @@ func (o *ConvertArcOptions) handleFile(fs afero.Fs, fileName string) (result sta
 	defer func() { _ = arcFileReader.Close() }()
 
 	var writer *gowarc.WarcFileWriter
-	if o.WarcWriterConfig.OneToOneWriter {
-		defer func() {
-			if writer != nil {
-				resultErr = errors.Join(resultErr, o.WarcWriterConfig.FinishIdentity(writer))
-			}
-		}()
-	}
 
 	records := warc.Compose(arcFileReader.Records(), nil, 0, 0)
 	for record, err := range records {
@@ -252,7 +245,7 @@ func (o *ConvertArcOptions) handleFile(fs afero.Fs, fileName string) (result sta
 			if err != nil {
 				return result, errors.Join(warc.ErrorFrom(record, err), record.Close())
 			}
-			writer, err = o.WarcWriterConfig.GetWarcWriter(fileName, warcDate)
+			writer, err = getWriter(fileName, warcDate)
 			if err != nil {
 				return result, errors.Join(warc.ErrorFrom(record, err), record.Close())
 			}

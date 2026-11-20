@@ -815,9 +815,19 @@ func TestFullFileCoverageAndRetry(t *testing.T) {
 					t.Fatal("filtered scan accepted truncated input")
 				}
 			}
+			out := t.TempDir()
+			if command == "convert" {
+				args = append(args, "--one-to-one", "--compress=false", "--output-dir", out)
+			}
 			args = append(args, "--keep-index", "--index-dir", work, source)
 			if err := executeCaptureCommand(t, args...); err == nil {
 				t.Fatal("accepted truncated input")
+			}
+			if command == "convert" {
+				entries, err := os.ReadDir(out)
+				if err != nil || len(entries) != 0 {
+					t.Fatalf("partial output: %v, %v", entries, err)
+				}
 			}
 			repaired := append(resourceBytes(1), resourceBytes(2)...)
 			if err := os.WriteFile(source, append(repaired, "\r\n"...), 0600); err != nil {
@@ -825,6 +835,12 @@ func TestFullFileCoverageAndRetry(t *testing.T) {
 			}
 			if err := executeCaptureCommand(t, args...); err != nil {
 				t.Fatal(err)
+			}
+			if command == "convert" {
+				data, err := os.ReadFile(filepath.Join(out, "input.warc"))
+				if err != nil || !bytes.Contains(data, []byte("example.org/1")) || !bytes.Contains(data, []byte("example.org/2")) {
+					t.Fatalf("incomplete retry output: %v", err)
+				}
 			}
 			files, err := index.NewFileIndex(work, true, false)
 			if err != nil {
@@ -978,6 +994,26 @@ func TestIdentityCheckpointIsolatesHookFailure(t *testing.T) {
 	}
 }
 
+func TestRepairedConversionResumes(t *testing.T) {
+	out := t.TempDir()
+	args := []string{"convert", "warc", "--repair", "--one-to-one", "--keep-index", "--compress=false", "--min-disk-free=0", "--output-dir", out, "--index-dir", t.TempDir(), "../testdata/warc/convert.warc"}
+	if err := executeCaptureCommand(t, args...); err == nil {
+		t.Fatal("expected repair diagnostics")
+	}
+	path := filepath.Join(out, "convert.warc")
+	before, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = executeCaptureCommand(t, args...); err == nil || !strings.Contains(err.Error(), "5 errors") {
+		t.Fatalf("cached diagnostics: %v", err)
+	}
+	after, err := os.Stat(path)
+	if err != nil || !os.SameFile(before, after) || before.ModTime() != after.ModTime() {
+		t.Fatalf("output changed on retry: %v", err)
+	}
+}
+
 func TestNativeCloseHookControlsPublication(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("uses shell hook")
@@ -1038,6 +1074,33 @@ func TestNativeCloseHookControlsPublication(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestDedupDiscardsIncompleteIdentity(t *testing.T) {
+	out := t.TempDir()
+	src := filepath.Join(t.TempDir(), "input.warc")
+	run := func() error {
+		return executeCaptureCommand(t, "dedup", "--one-to-one", "--compress=false", "--min-disk-free=0", "--min-index-disk-free=0", "--index-dir", t.TempDir(), "--output-dir", out, src)
+	}
+	if err := os.WriteFile(src, append(resourceBytes(1), "broken suffix"...), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := run(); err == nil {
+		t.Fatal("accepted incomplete input")
+	}
+	files, err := os.ReadDir(out)
+	if err != nil || len(files) != 0 {
+		t.Fatalf("partial publication %v, %v", files, err)
+	}
+	if err = os.WriteFile(src, append(resourceBytes(1), resourceBytes(2)...), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err = run(); err != nil {
+		t.Fatal(err)
+	}
+	if err = executeCaptureCommand(t, "audit", out); err != nil {
+		t.Fatal(err)
 	}
 }
 

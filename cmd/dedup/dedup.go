@@ -7,13 +7,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/nationallibraryofnorway/warchaeology/v5/internal/warcdigest"
 	"log/slog"
 	"os/signal"
 	"slices"
 	"sort"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/nationallibraryofnorway/gowarc/v3"
 	"github.com/nationallibraryofnorway/warchaeology/v5/cmd/internal/flag"
@@ -24,6 +24,7 @@ import (
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/index"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/stat"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/warc"
+	"github.com/nationallibraryofnorway/warchaeology/v5/internal/warcdigest"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/warcwriterconfig"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/workerpool"
 	"github.com/spf13/afero"
@@ -361,7 +362,10 @@ func (o *DedupOptions) Run() error {
 		}
 	}()
 
-	workerPool := workerpool.New(ctx, o.Concurrency)
+	// Stop scheduling on an input failure while already-started inputs finish.
+	walkCtx, stopWalk := context.WithCancel(ctx)
+	defer stopWalk()
+	workerPool := workerpool.New(walkCtx, o.Concurrency)
 
 	// Warn when file descriptor limit is below recommended value
 	err := checkFileDescriptorLimit(badgerRecommendedMaxFileDescr)
@@ -369,7 +373,7 @@ func (o *DedupOptions) Run() error {
 		slog.Warn(err.Error())
 	}
 
-	walkErr := o.FileWalker.WalkInputs(ctx, o.Paths, o.ContinueOnError, func(fs afero.Fs, path string) error {
+	walkErr := o.FileWalker.WalkInputs(walkCtx, o.Paths, o.ContinueOnError, func(fs afero.Fs, path string) error {
 		return workerPool.Submit(func() {
 			result, err := o.processFile(ctx, fs, path)
 			if errors.Is(err, filewalker.ErrSkipFile) {
@@ -377,7 +381,7 @@ func (o *DedupOptions) Run() error {
 			}
 			if err != nil {
 				if !o.ContinueOnError {
-					cancel()
+					stopWalk()
 				}
 				if result.result == nil {
 					result.result = stat.NewResult(path)
@@ -431,7 +435,7 @@ func (o *DedupOptions) processFile(ctx context.Context, fs afero.Fs, path string
 	if err := checkDiskSpace(o.DigestIndex.GetDir(), o.MinIndexDiskFree); err != nil {
 		return fileResult{}, err
 	}
-	result, err := filewalker.PrePostHookContext(ctx, fs, path, o.OpenInputFileHook, o.CloseInputFileHook, o.handleFile)
+	result, err := o.processInput(ctx, fs, path)
 	return fileResult{result: result, source: source}, err
 }
 
@@ -450,29 +454,52 @@ func checkDiskSpace(path string, minimum int64) error {
 }
 
 func (o *DedupOptions) handleFile(fs afero.Fs, path string) (result stat.Result, err error) {
+	return o.processInput(context.Background(), fs, path)
+}
+
+type donors interface {
+	WriteWithDonor(string, *gowarc.RevisitRef, func(*gowarc.RevisitRef) error) error
+}
+
+func (o *DedupOptions) processInput(ctx context.Context, fs afero.Fs, path string) (stat.Result, error) {
+	var finish func(bool) error
+	var registry donors = o.DigestIndex
+	var staged *index.FileDonors
+	if o.WarcWriterConfig.OneToOneWriter {
+		staged = o.DigestIndex.NewFileDonors()
+		registry = staged
+	}
+	result, err := filewalker.PrePostHookContext(ctx, fs, path, o.OpenInputFileHook, o.CloseInputFileHook, func(fs afero.Fs, path string) (stat.Result, error) {
+		return o.readFile(ctx, fs, path, registry, func(date time.Time) (*gowarc.WarcFileWriter, error) {
+			writer, done, e := o.WarcWriterConfig.WriterForInput(ctx, path, date)
+			finish = done
+			return writer, e
+		})
+	})
+	err = errors.Join(err, ctx.Err())
+	if finish != nil {
+		err = errors.Join(err, finish(err == nil))
+	}
+	if staged != nil {
+		err = errors.Join(err, staged.Finish(err == nil))
+	}
+	return result, err
+}
+func (o *DedupOptions) readFile(ctx context.Context, fs afero.Fs, path string, registry donors, getWriter func(time.Time) (*gowarc.WarcFileWriter, error)) (result stat.Result, err error) {
 	result = stat.NewResult(path)
 
 	file, err := fs.Open(path)
 	if err != nil {
 		return nil, err
 	}
-	defer func() { _ = file.Close() }()
 
 	warcReader, err := gowarc.NewWarcFileReaderFromStream(file, 0, o.WarcRecordOptions...)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create warc file reader: %w", err)
+		return nil, fmt.Errorf("failed to create warc file reader: %w", errors.Join(err, file.Close()))
 	}
-	defer func() { _ = warcReader.Close() }()
+	defer func() { err = errors.Join(err, warcReader.Close()) }()
 
 	var writer *gowarc.WarcFileWriter
-
-	if o.WarcWriterConfig.OneToOneWriter {
-		defer func() {
-			if writer != nil {
-				err = errors.Join(err, o.WarcWriterConfig.FinishIdentity(writer))
-			}
-		}()
-	}
 
 	info, err := file.Stat()
 	if err != nil {
@@ -485,6 +512,9 @@ func (o *DedupOptions) handleFile(fs afero.Fs, path string) (result stat.Result,
 			return result, warc.ErrorFrom(record, err)
 		}
 
+		if e := ctx.Err(); e != nil {
+			return result, errors.Join(e, record.Close())
+		}
 		if e := coverage.Add(file, record); e != nil {
 			return result, errors.Join(e, record.Close())
 		}
@@ -493,12 +523,12 @@ func (o *DedupOptions) handleFile(fs afero.Fs, path string) (result stat.Result,
 			if err != nil {
 				return result, errors.Join(warc.ErrorFrom(record, err), record.Close())
 			}
-			writer, err = o.WarcWriterConfig.GetWarcWriter(path, warcDate)
+			writer, err = getWriter(warcDate)
 			if err != nil {
 				return result, errors.Join(warc.ErrorFrom(record, err), record.Close())
 			}
 		}
-		err = o.handleRecord(writer, record, result)
+		err = o.handleRecord(registry, writer, record, result)
 		if err != nil {
 			return result, warc.ErrorFrom(record, err)
 		}
@@ -507,7 +537,7 @@ func (o *DedupOptions) handleFile(fs afero.Fs, path string) (result stat.Result,
 	return result, coverage.Finish(file, info.Size())
 }
 
-func (o *DedupOptions) handleRecord(writer *gowarc.WarcFileWriter, record gowarc.Record, result stat.Result) (resultErr error) {
+func (o *DedupOptions) handleRecord(registry donors, writer *gowarc.WarcFileWriter, record gowarc.Record, result stat.Result) (resultErr error) {
 	defer func() { resultErr = errors.Join(resultErr, record.Close()) }()
 
 	result.IncrRecords()
@@ -555,7 +585,7 @@ func (o *DedupOptions) handleRecord(writer *gowarc.WarcFileWriter, record gowarc
 	if err != nil {
 		return writeRecord(writer, warcRecord)
 	}
-	return o.DigestIndex.WriteWithDonor(digest, revisitRef, func(revisitReference *gowarc.RevisitRef) error {
+	return registry.WriteWithDonor(digest, revisitRef, func(revisitReference *gowarc.RevisitRef) error {
 		if revisitReference == nil || int64(revisitRefSize(revisitReference)) >= payloadLength(warcRecord)-o.MinimumSizeGain {
 			return writeRecord(writer, warcRecord)
 		}
