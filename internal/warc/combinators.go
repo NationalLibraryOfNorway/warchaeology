@@ -5,6 +5,7 @@ package warc
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"io"
 	"iter"
@@ -189,6 +190,26 @@ func Or(predicates ...func(gowarc.Record) bool) func(gowarc.Record) bool {
 func Not(predicate func(gowarc.Record) bool) func(gowarc.Record) bool {
 	return func(record gowarc.Record) bool {
 		return !predicate(record)
+	}
+}
+
+// CheckCoverage verifies physical framing as records pass through, before filtering.
+func CheckCoverage(seq iter.Seq2[gowarc.Record, error], file io.ReaderAt, size int64) iter.Seq2[gowarc.Record, error] {
+	return func(yield func(gowarc.Record, error) bool) {
+		var coverage Coverage
+		for rec, err := range seq {
+			if err == nil {
+				if e := coverage.Add(file, rec); e != nil {
+					err = errors.Join(e, rec.Close())
+				}
+			}
+			if !yield(rec, err) || err != nil {
+				return
+			}
+		}
+		if err := coverage.Finish(file, size); err != nil {
+			yield(gowarc.Record{Offset: int64(coverage)}, err)
+		}
 	}
 }
 

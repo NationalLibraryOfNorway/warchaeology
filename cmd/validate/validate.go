@@ -301,7 +301,15 @@ func (o *ValidateOptions) handleFile(fs afero.Fs, path string) (stat.Result, err
 
 	var lastOffset int64 = -1
 
-	records := warc.Compose(warcFileReader.Records(), o.filter, o.recordNum, o.recordCount)
+	raw := warcFileReader.Records()
+	if !o.force && o.offset == 0 && o.recordNum <= 0 && o.recordCount <= 0 {
+		info, err := file.Stat()
+		if err != nil {
+			return result, err
+		}
+		raw = warc.CheckCoverage(raw, file, info.Size())
+	}
+	records := warc.Compose(raw, o.filter, o.recordNum, o.recordCount)
 	for record, err := range records {
 		if err != nil {
 			// When forcing, avoid infinite loop by ensuring the iterator moves forward
