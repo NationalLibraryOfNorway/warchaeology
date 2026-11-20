@@ -587,7 +587,11 @@ func (o *DedupOptions) handleRecord(registry donors, writer *gowarc.WarcFileWrit
 		return writeRecord(writer, warcRecord)
 	}
 	return registry.WriteWithDonor(digest, revisitRef, func(revisitReference *gowarc.RevisitRef) error {
-		if revisitReference == nil || int64(revisitRefSize(revisitReference)) >= payloadLength(warcRecord)-o.MinimumSizeGain {
+		// Overlapping input files can contain copies of the same record.
+		if revisitReference == nil || (revisitRef.TargetRecordId != "" && revisitReference.TargetRecordId == revisitRef.TargetRecordId) {
+			return writeRecord(writer, warcRecord)
+		}
+		if int64(revisitRefSize(revisitReference)) >= payloadLength(warcRecord)-o.MinimumSizeGain {
 			return writeRecord(writer, warcRecord)
 		}
 		revisit, err := warcRecord.ToRevisitRecord(revisitReference)
