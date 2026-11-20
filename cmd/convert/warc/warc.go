@@ -242,7 +242,15 @@ func (o *ConvertWarcOptions) handleFile(fs afero.Fs, path string) (result stat.R
 
 	var lastOffset int64 = -1
 
-	records := warc.Compose(warcFileReader.Records(), nil, o.RecordNum, o.RecordCount)
+	raw := warcFileReader.Records()
+	if !o.Force && o.Offset == 0 && o.RecordNum <= 0 && o.RecordCount <= 0 {
+		info, err := file.Stat()
+		if err != nil {
+			return result, err
+		}
+		raw = warc.CheckCoverage(raw, file, info.Size())
+	}
+	records := warc.Compose(raw, nil, o.RecordNum, o.RecordCount)
 	for record, err := range records {
 		if err != nil {
 			// When forcing, avoid infinite loop by ensuring the iterator moves forward

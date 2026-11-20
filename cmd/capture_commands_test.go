@@ -792,6 +792,50 @@ func TestDedupIncompleteSourceRemainsUncheckpointed(t *testing.T) {
 	}
 }
 
+func TestFullFileCoverageAndRetry(t *testing.T) {
+	for _, command := range []string{"validate", "convert"} {
+		t.Run(command, func(t *testing.T) {
+			source := filepath.Join(t.TempDir(), "input.warc")
+			work := t.TempDir()
+			args := []string{command}
+			if command == "convert" {
+				args = append(args, "warc", "--output-dir", t.TempDir(), "--min-disk-free=0")
+			}
+			if err := os.WriteFile(source, append(resourceBytes(1), "WARC/1.1"...), 0600); err != nil {
+				t.Fatal(err)
+			}
+			if err := executeCaptureCommand(t, append(args, "--limit=1", source)...); err != nil {
+				t.Fatal(err)
+			}
+			if command == "validate" {
+				if err := executeCaptureCommand(t, append(args, "--record-type=response", source)...); err == nil {
+					t.Fatal("filtered scan accepted truncated input")
+				}
+			}
+			args = append(args, "--keep-index", "--index-dir", work, source)
+			if err := executeCaptureCommand(t, args...); err == nil {
+				t.Fatal("accepted truncated input")
+			}
+			repaired := append(resourceBytes(1), resourceBytes(2)...)
+			if err := os.WriteFile(source, append(repaired, "\r\n"...), 0600); err != nil {
+				t.Fatal(err)
+			}
+			if err := executeCaptureCommand(t, args...); err != nil {
+				t.Fatal(err)
+			}
+			files, err := index.NewFileIndex(work, true, false)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer testcheck.Close(t, files)
+			result, err := files.GetFileStats(source)
+			if err != nil || result == nil || result.Records() != 2 {
+				t.Fatalf("checkpoint = %v, %v", result, err)
+			}
+		})
+	}
+}
+
 func TestServeReturnsQueuedIngestionFailure(t *testing.T) {
 	dir := t.TempDir()
 	for i := range 5 {
