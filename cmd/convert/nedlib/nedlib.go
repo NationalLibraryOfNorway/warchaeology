@@ -209,7 +209,7 @@ func (o *ConvertNedlibOptions) Run() error {
 	return runner.Run(o.Paths, o.handleFile)
 }
 
-func (o *ConvertNedlibOptions) handleFile(fs afero.Fs, fileName string) (result stat.Result, resultErr error) {
+func (o *ConvertNedlibOptions) handleFile(fs afero.Fs, fileName string, getWriter conversion.GetWriter) (result stat.Result, resultErr error) {
 	result = stat.NewResult(fileName)
 
 	nedlibReader, err := nedlibreader.NewNedlibReader(fs, fileName, o.WarcWriterConfig.DefaultTime, o.WarcRecordOptions...)
@@ -219,13 +219,6 @@ func (o *ConvertNedlibOptions) handleFile(fs afero.Fs, fileName string) (result 
 	defer func() { _ = nedlibReader.Close() }()
 
 	var writer *gowarc.WarcFileWriter
-	if o.WarcWriterConfig.OneToOneWriter {
-		defer func() {
-			if writer != nil {
-				resultErr = errors.Join(resultErr, o.WarcWriterConfig.FinishIdentity(writer))
-			}
-		}()
-	}
 
 	records := warc.Compose(nedlibReader.Records(), nil, 0, 0)
 	for record, err := range records {
@@ -244,7 +237,7 @@ func (o *ConvertNedlibOptions) handleFile(fs afero.Fs, fileName string) (result 
 			syntheticFileName = fileName
 		}
 		if writer == nil || !o.WarcWriterConfig.OneToOneWriter {
-			writer, err = o.WarcWriterConfig.GetWarcWriter(syntheticFileName, warcDate)
+			writer, err = getWriter(syntheticFileName, warcDate)
 		}
 		if err != nil {
 			return result, errors.Join(warc.ErrorFrom(record, err), record.Close())

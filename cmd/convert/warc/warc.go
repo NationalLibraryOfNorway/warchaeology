@@ -111,6 +111,7 @@ func (f ConvertWarcFlags) ToConvertWarcOptions() (_ *ConvertWarcOptions, err err
 	}
 
 	o := &ConvertWarcOptions{
+		Repair:             f.RepairFlags.Repair(),
 		Concurrency:        f.ConcurrencyFlags.Concurrency(),
 		MinWARCDiskFree:    f.UtilFlags.MinFreeDisk(),
 		Paths:              fileList,
@@ -204,6 +205,7 @@ func (o *ConvertWarcOptions) Validate() error {
 // The caller must close the options after Run returns.
 func (o *ConvertWarcOptions) Run() error {
 	runner := conversion.RunOptions{
+		Repair:      o.Repair,
 		Walker:      o.FileWalker,
 		Index:       o.FileIndex,
 		Writer:      o.WarcWriterConfig,
@@ -216,7 +218,7 @@ func (o *ConvertWarcOptions) Run() error {
 	return runner.Run(o.Paths, o.handleFile)
 }
 
-func (o *ConvertWarcOptions) handleFile(fs afero.Fs, path string) (result stat.Result, resultErr error) {
+func (o *ConvertWarcOptions) handleFile(fs afero.Fs, path string, getWriter conversion.GetWriter) (result stat.Result, resultErr error) {
 	file, err := fs.Open(path)
 	if err != nil {
 		return nil, err
@@ -230,13 +232,6 @@ func (o *ConvertWarcOptions) handleFile(fs afero.Fs, path string) (result stat.R
 	defer func() { _ = warcFileReader.Close() }()
 
 	var writer *gowarc.WarcFileWriter
-	if o.WarcWriterConfig.OneToOneWriter {
-		defer func() {
-			if writer != nil {
-				resultErr = errors.Join(resultErr, o.WarcWriterConfig.FinishIdentity(writer))
-			}
-		}()
-	}
 
 	result = stat.NewResult(path)
 
@@ -267,7 +262,7 @@ func (o *ConvertWarcOptions) handleFile(fs afero.Fs, path string) (result stat.R
 			if err != nil {
 				return result, errors.Join(warc.ErrorFrom(record, err), record.Close())
 			}
-			writer, err = o.WarcWriterConfig.GetWarcWriter(path, warcDate)
+			writer, err = getWriter(path, warcDate)
 			if err != nil {
 				return result, errors.Join(warc.ErrorFrom(record, err), record.Close())
 			}

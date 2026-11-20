@@ -9,12 +9,14 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sync"
 	"time"
 
 	"github.com/nationallibraryofnorway/gowarc/v3"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/bytesize"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/hooks"
+	"github.com/nationallibraryofnorway/warchaeology/v5/internal/publication"
 )
 
 const DefaultDateFormat = "2006-1-2"
@@ -432,6 +434,91 @@ func (w *WarcWriterConfig) FinishIdentity(writer *gowarc.WarcFileWriter) error {
 		state.mu.Lock()
 		err = errors.Join(err, state.err, state.release())
 		state.mu.Unlock()
+	}
+	return err
+}
+
+// WriterForInput stages one-to-one output until its input has been processed.
+// For a shared writer the run owns publication and finish is nil.
+func (w *WarcWriterConfig) WriterForInput(ctx context.Context, path string, date time.Time) (*gowarc.WarcFileWriter, func(bool) error, error) {
+	if !w.OneToOneWriter {
+		writer, err := w.GetWarcWriterContext(ctx, path, date)
+		return writer, nil, err
+	}
+	release, err := w.ReserveOutput(path, date)
+	if err != nil {
+		return nil, nil, err
+	}
+	dir := filepath.Join(w.OutDir, parseSubdirPattern(w.SubDirPattern, date))
+	stage, err := os.MkdirTemp(dir, ".conversion-")
+	if err != nil {
+		return nil, nil, errors.Join(err, release())
+	}
+	openHook := w.openOutputFileHook.WithSrcFileName(path)
+	closeHook := w.closeOutputFileHook.WithSrcFileName(path)
+	var hookErr error
+	var staged, infoID string
+	var size int64
+	opts := append([]gowarc.WarcFileWriterOption(nil), w.WarcFileWriterOptions...)
+	opts = append(opts, gowarc.WithFileNameGenerator(NewIdentityNamer(path, w.FilePrefix, stage)),
+		gowarc.WithBeforeFileCreationHook(func(name string) error {
+			hookErr = openHook.RunContext(ctx, filepath.Join(dir, filepath.Base(name)))
+			return hookErr
+		}), gowarc.WithAfterFileCreationHook(func(name string, n int64, id string) error {
+			staged, size, infoID = name, n, id
+			return nil
+		}))
+	writer := gowarc.NewWarcFileWriter(opts...)
+	finish := func(success bool) (err error) {
+		defer func() { err = errors.Join(err, os.RemoveAll(stage), release()) }()
+		err = FinalizeWriter(writer)
+		err = errors.Join(err, hookErr)
+		if err != nil || !success {
+			return err
+		}
+		if staged == "" {
+			return errors.New("conversion writer closed without an output file")
+		}
+		dest := filepath.Join(dir, filepath.Base(staged))
+		return publishStaged(staged, dest, w.OutDir, publication.SyncDir, func() error { return closeHook.RunContext(ctx, dest, size, infoID) })
+	}
+	return writer, finish, nil
+}
+
+// publishStaged makes a completed file durable before reporting its final name to the hook.
+func publishStaged(staged, dest, root string, syncDir func(string) error, afterPublish func() error) (err error) {
+	dir := filepath.Dir(dest)
+	file, e := os.OpenFile(staged, os.O_RDWR, 0)
+	if e != nil {
+		return e
+	}
+	original, e := file.Stat()
+	err = errors.Join(e, file.Sync(), file.Close())
+	if err != nil {
+		return err
+	}
+	if runtime.GOOS == "windows" {
+		err = publication.Rename(staged, dest, false)
+	} else {
+		err = os.Link(staged, dest)
+	}
+	if err != nil {
+		return err
+	}
+	for parent := dir; ; parent = filepath.Dir(parent) {
+		err = syncDir(parent)
+		if err != nil || filepath.Clean(parent) == filepath.Clean(root) || filepath.Dir(parent) == parent {
+			break
+		}
+	}
+	if err == nil {
+		err = afterPublish()
+	}
+	if err != nil {
+		published, destErr := os.Lstat(dest)
+		if destErr == nil && os.SameFile(original, published) {
+			err = errors.Join(err, os.Remove(dest), syncDir(dir))
+		}
 	}
 	return err
 }

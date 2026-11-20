@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/nationallibraryofnorway/gowarc/v3"
+	"github.com/nationallibraryofnorway/warchaeology/v5/cmd/convert/internal/conversion"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/testcheck"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/warcwriterconfig"
 	"github.com/spf13/afero"
@@ -62,7 +63,7 @@ func TestConvertWarcFile(t *testing.T) {
 			}
 			defer testcheck.Close(t, o)
 
-			result, err := o.handleFile(afero.NewOsFs(), filename)
+			result, err := (conversion.RunOptions{Writer: o.WarcWriterConfig}).ConvertFile(t.Context(), afero.NewOsFs(), filename, o.handleFile)
 			if err != nil {
 				if !tt.wantError {
 					t.Fatal(err)
@@ -131,7 +132,7 @@ func TestRepairWarcFile(t *testing.T) {
 			defer testcheck.Close(t, o)
 
 			// Convert the WARC file
-			result, err := o.handleFile(afero.NewOsFs(), filename)
+			result, err := (conversion.RunOptions{Writer: o.WarcWriterConfig, Repair: repair}).ConvertFile(t.Context(), afero.NewOsFs(), filename, o.handleFile)
 			if err != nil {
 				t.Fatal(err)
 			}
