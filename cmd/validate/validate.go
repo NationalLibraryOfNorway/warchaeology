@@ -207,16 +207,15 @@ func (o *ValidateOptions) Validate() error {
 // Run processes the inputs and waits for workers to finish.
 // The caller must close the options after Run returns.
 func (o *ValidateOptions) Run() (runErr error) {
+	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
+	defer cancel()
 	done := make(chan struct{})
 	var processingErr error
 
 	defer func() {
 		<-done
-		runErr = errors.Join(runErr, processingErr)
+		runErr = errors.Join(runErr, processingErr, ctx.Err())
 	}()
-
-	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
-	defer cancel()
 
 	results := make(chan stat.Result)
 	go func() {
