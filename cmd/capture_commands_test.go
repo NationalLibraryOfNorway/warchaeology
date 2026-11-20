@@ -7,6 +7,7 @@ import (
 	"archive/tar"
 	"archive/zip"
 	"bytes"
+	"compress/gzip"
 	"context"
 	"crypto/sha1"
 	"encoding/base32"
@@ -651,6 +652,78 @@ func TestMountedConversionCheckpoints(t *testing.T) {
 	}
 }
 
+func TestIncompleteHeaderPreservesPublishedIndex(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "input.warc")
+	out := filepath.Join(t.TempDir(), "index.cdxj")
+	baseline := []byte("previous generation")
+	if err := os.WriteFile(out, baseline, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, append(resourceBytes(0), "WARC/1.1"...), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := executeCaptureCommand(t, "index", "--index-file", out, path); err == nil {
+		t.Fatal("accepted truncated record")
+	}
+	data, err := os.ReadFile(out)
+	if err != nil || !bytes.Equal(data, baseline) {
+		t.Fatalf("previous generation changed: %v", err)
+	}
+}
+
+func TestTruncationPreservesBadgerGeneration(t *testing.T) {
+	for _, compressed := range []bool{false, true} {
+		t.Run(fmt.Sprintf("gzip=%t", compressed), func(t *testing.T) {
+			dir := t.TempDir()
+			source := filepath.Join(t.TempDir(), "archive.warc")
+			member := func(data []byte) []byte {
+				if !compressed {
+					return data
+				}
+				var b bytes.Buffer
+				w := gzip.NewWriter(&b)
+				if _, err := w.Write(data); err != nil {
+					t.Fatal(err)
+				}
+				if err := w.Close(); err != nil {
+					t.Fatal(err)
+				}
+				return b.Bytes()
+			}
+			if compressed {
+				source += ".gz"
+			}
+			args := []string{"index", "--index-format=badger", "--index-dir", dir, source}
+			write := func(data []byte) {
+				t.Helper()
+				if err := os.WriteFile(source, data, 0600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			write(member(resourceBytes(0)))
+			if err := executeCaptureCommand(t, args...); err != nil {
+				t.Fatal(err)
+			}
+			write(append(member(resourceBytes(1)), member([]byte("WARC/1.1"))...))
+			if err := executeCaptureCommand(t, args...); err == nil {
+				t.Fatal("published incomplete source")
+			}
+			db, err := cdxstore.Open(t.Context(), cdxstore.Options{Format: "badger", Dir: dir, ReadOnly: true})
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer testcheck.Close(t, db)
+			var urls []string
+			if err := db.Scan(t.Context(), "", "", func(c *cdx.Capture) error { urls = append(urls, c.GetUri()); return nil }); err != nil {
+				t.Fatal(err)
+			}
+			if len(urls) != 1 || urls[0] != "https://example.org/0" {
+				t.Fatalf("visible captures: %v", urls)
+			}
+		})
+	}
+}
+
 func TestConversionIdentityUsesFirstRecordDate(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "item.warc")
 	later := bytes.ReplaceAll(resourceBytes(2), []byte("2022-01"), []byte("2023-01"))
@@ -678,6 +751,61 @@ func TestConversionIdentityUsesFirstRecordDate(t *testing.T) {
 		if files, err := os.ReadDir(filepath.Dir(dest)); err != nil || len(files) != 1 {
 			t.Fatalf("publication left files %v, %v", files, err)
 		}
+	}
+}
+
+func TestDedupIncompleteSourceRemainsUncheckpointed(t *testing.T) {
+	source := filepath.Join(t.TempDir(), "input.warc")
+	work := t.TempDir()
+	run := func(work, out string) error {
+		return executeCaptureCommand(t, "dedup", "--keep-index", "--index-dir", work, "--output-dir", out, "--one-to-one", "--compress=false", "--min-disk-free=0", "--min-index-disk-free=0", source)
+	}
+	if err := os.WriteFile(source, append(resourceBytes(0), "WARC/1.1"...), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := run(work, t.TempDir()); err == nil {
+		t.Fatal("accepted incomplete source")
+	}
+	files, err := index.NewFileIndex(work, true, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer testcheck.Close(t, files)
+	key, err := filewalker.SourceLocator(afero.NewOsFs(), source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := files.GetFileStats(key)
+	if err != nil || result != nil {
+		t.Fatalf("checkpoint %v: %v", result, err)
+	}
+	if err := os.WriteFile(source, append(resourceBytes(0), resourceBytes(1)...), 0600); err != nil {
+		t.Fatal(err)
+	}
+	out := t.TempDir()
+	if err := run(t.TempDir(), out); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(filepath.Join(out, "input.warc"))
+	if err != nil || !bytes.Contains(data, []byte("example.org/1")) {
+		t.Fatalf("repaired capture missing: %v", err)
+	}
+}
+
+func TestServeReturnsQueuedIngestionFailure(t *testing.T) {
+	dir := t.TempDir()
+	for i := range 5 {
+		raw := resourceBytes(i)
+		if i == 0 {
+			raw = append(raw, "WARC/1.1"...)
+		}
+		if err := os.WriteFile(filepath.Join(dir, fmt.Sprintf("%d.warc", i)), raw, 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	err := executeCaptureCommand(t, "serve", "--address=127.0.0.1:0", "--concurrency=1", "--index-dir", t.TempDir(), dir)
+	if err == nil || !strings.Contains(err.Error(), "incomplete archive") {
+		t.Fatalf("serve = %v", err)
 	}
 }
 
