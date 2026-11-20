@@ -864,7 +864,11 @@ func TestTruncatedCaptureCannotDonate(t *testing.T) {
 
 func TestFTPSourceHasNoLocalContainer(t *testing.T) {
 	for _, root := range []string{"ftp://archive.example/", "ftp+account://reader@archive.example/"} {
-		container, err := sourceContainer(filewalker.MemberLocator([]string{root}, "/input.warc"))
+		locator, err := filewalker.MemberLocator([]string{root}, "/input.warc")
+		if err != nil {
+			t.Fatal(err)
+		}
+		container, err := sourceContainer(locator)
 		if err != nil || container != nil {
 			t.Fatalf("%s: container %v, error %v", root, container, err)
 		}

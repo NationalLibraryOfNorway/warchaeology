@@ -5,7 +5,8 @@ package fulltext
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"io"
 	"os"
@@ -98,13 +99,13 @@ func (s *Synchronizer) Sync(ctx context.Context, force bool) (err error) {
 		return err
 	}
 	defer func() { err = errors.Join(err, stage.Close()) }()
-	enc := json.NewEncoder(spool)
+	enc := jsontext.NewEncoder(spool)
 	err = s.DB.Scan(ctx, "", "", func(c *cdx.Capture) error {
 		if plainText(c.GetMct()) && c.GetRef() != "" {
 			if members[c.GetSource()] {
 				return stage.WriteCapture(ctx, c)
 			}
-			return enc.Encode(c)
+			return json.MarshalEncode(enc, c)
 		}
 		return nil
 	})
@@ -118,7 +119,7 @@ func (s *Synchronizer) Sync(ctx context.Context, force bool) (err error) {
 		return err
 	}
 	run := uuid.NewV7().String()
-	dec := json.NewDecoder(spool)
+	dec := jsontext.NewDecoder(spool)
 	batch := make([]Document, 0, 64)
 	flush := func() error {
 		if len(batch) == 0 {
@@ -179,7 +180,7 @@ func (s *Synchronizer) Sync(ctx context.Context, force bool) (err error) {
 	}
 	for {
 		var c cdx.Capture
-		err = dec.Decode(&c)
+		err = json.UnmarshalDecode(dec, &c)
 		if errors.Is(err, io.EOF) {
 			break
 		}

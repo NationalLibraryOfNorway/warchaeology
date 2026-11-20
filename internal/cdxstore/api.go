@@ -5,7 +5,7 @@ package cdxstore
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"uuid"

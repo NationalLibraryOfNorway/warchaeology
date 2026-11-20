@@ -5,7 +5,7 @@ package cdxstore
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"path/filepath"
 	"strconv"
@@ -76,17 +76,6 @@ func (g *generation) write(ctx context.Context, d *DB, c *index.Capture) error {
 	}
 	return ctx.Err()
 }
-func (d *DB) DiscardFile(ctx context.Context) error {
-	g, ok := ctx.Value(generationKey{}).(*generation)
-	if !ok {
-		return fmt.Errorf("missing file generation")
-	}
-	if g.published {
-		return nil
-	}
-	return d.cleanGeneration(context.WithoutCancel(ctx), generationMarker(g.source, g.id))
-}
-
 func (d *DB) BeginFile(ctx context.Context, source string) (context.Context, error) {
 	if d.readOnly {
 		return nil, ErrReadOnly
@@ -96,6 +85,18 @@ func (d *DB) BeginFile(ctx context.Context, source string) (context.Context, err
 		return nil, err
 	}
 	return context.WithValue(ctx, generationKey{}, g), nil
+}
+
+// DiscardFile removes an unpublished generation after input processing ends.
+func (d *DB) DiscardFile(ctx context.Context) error {
+	g, ok := ctx.Value(generationKey{}).(*generation)
+	if !ok {
+		return fmt.Errorf("missing file generation")
+	}
+	if g.published {
+		return nil
+	}
+	return d.cleanGeneration(context.WithoutCancel(ctx), generationMarker(g.source, g.id))
 }
 
 // FinishFile publishes bounded durable batches with a single source checkpoint.

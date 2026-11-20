@@ -9,7 +9,8 @@ import (
 	"compress/gzip"
 	"context"
 	"crypto/sha256"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"hash"
@@ -41,11 +42,11 @@ type waczPackage struct {
 	names, children   []string
 	indexes           []*zip.File
 	aliases           map[string]string
-	manifest          json.RawMessage
+	manifest          jsontext.Value
 	sourceFingerprint string
 }
 
-func (p *waczPackage) sourceFor(member string) string {
+func (p *waczPackage) sourceFor(member string) (string, error) {
 	return filewalker.MemberLocator(p.roots, "/"+member)
 }
 
@@ -148,13 +149,17 @@ func (o *IndexOptions) indexWACZ(ctx context.Context, fs afero.Fs, name string, 
 			return err
 		}
 	}
-	if err = checkArchiveVersion(f, version, pkg.sourceFor(""), outer); err != nil {
+	root, err := pkg.sourceFor("")
+	if err != nil {
+		return err
+	}
+	if err = checkArchiveVersion(f, version, root, outer); err != nil {
 		return err
 	}
 	if err = o.stageWACZTree(ctx, pkg, mounted, stage, update, locator, fingerprint, outer); err != nil {
 		return err
 	}
-	return checkArchiveVersion(f, version, pkg.sourceFor(""), outer)
+	return checkArchiveVersion(f, version, root, outer)
 }
 
 func inspectWACZ(zr *zip.Reader, roots []string, digest hash.Hash) (*waczPackage, error) {
@@ -298,7 +303,10 @@ func (p *waczPackage) stageCDX(ctx context.Context, index *zip.File, stage *cdxs
 		if err != nil {
 			return err
 		}
-		capture.Source = p.sourceFor(member)
+		capture.Source, err = p.sourceFor(member)
+		if err != nil {
+			return err
+		}
 		capture.Ref = fmt.Sprintf("warcfile:%s#%d", capture.GetSource(), capture.GetOffset())
 		if err := stage.WriteCapture(ctx, capture); err != nil {
 			return err
@@ -333,7 +341,10 @@ func (p *waczPackage) warcMember(c *cdx.Capture) (string, error) {
 func (o *IndexOptions) stageWACZTree(ctx context.Context, pkg *waczPackage, mounted afero.Fs, stage *cdxstore.CaptureStage, update *cdxstore.PackageUpdate, locator, fingerprint string, outer *filewalker.FileVersion) error {
 	info := cdxstore.PackageInfo{Locator: locator, Fingerprint: fingerprint, SourceFingerprint: pkg.sourceFingerprint, Manifest: pkg.manifest}
 	for _, name := range pkg.names {
-		source := pkg.sourceFor(name)
+		source, err := pkg.sourceFor(name)
+		if err != nil {
+			return err
+		}
 		info.Sources = append(info.Sources, source)
 		if update != nil {
 			version := filewalker.VersionOf(pkg.members[name].FileInfo())
@@ -347,7 +358,11 @@ func (o *IndexOptions) stageWACZTree(ctx context.Context, pkg *waczPackage, moun
 		}
 	}
 	for _, child := range pkg.children {
-		info.Children = append(info.Children, pkg.sourceFor(child))
+		source, err := pkg.sourceFor(child)
+		if err != nil {
+			return err
+		}
+		info.Children = append(info.Children, source)
 		if err := o.indexWACZ(ctx, mounted, "/"+child, outer, update); err != nil {
 			return fmt.Errorf("%s: %w", child, err)
 		}

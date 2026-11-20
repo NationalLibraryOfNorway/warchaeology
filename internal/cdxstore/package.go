@@ -5,7 +5,8 @@ package cdxstore
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 
@@ -16,13 +17,13 @@ import (
 
 // PackageInfo describes a package and preserves its original manifest metadata.
 type PackageInfo struct {
-	Locator           string          `json:"source"`
-	Manifest          json.RawMessage `json:"manifest,omitempty"`
-	Children          []string        `json:"children,omitempty"`
-	Version           int             `json:"version"`
-	Fingerprint       string          `json:"fingerprint"`
-	SourceFingerprint string          `json:"sourceFingerprint,omitempty"`
-	Sources           []string        `json:"sources"`
+	Locator           string         `json:"source"`
+	Manifest          jsontext.Value `json:"manifest,omitzero"`
+	Children          []string       `json:"children,omitempty"`
+	Version           int            `json:"version"`
+	Fingerprint       string         `json:"fingerprint"`
+	SourceFingerprint string         `json:"sourceFingerprint,omitempty"`
+	Sources           []string       `json:"sources"`
 }
 
 func (d *DB) packageState(ctx context.Context, locator string) (PackageInfo, error) {

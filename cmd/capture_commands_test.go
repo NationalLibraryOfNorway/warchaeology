@@ -11,7 +11,7 @@ import (
 	"context"
 	"crypto/sha1"
 	"encoding/base32"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"io"
 	"net/http"
@@ -643,7 +643,10 @@ func TestMountedConversionCheckpoints(t *testing.T) {
 		}
 		defer testcheck.Close(t, db)
 		for _, input := range inputs {
-			key := filewalker.MemberLocator([]string{input}, "/archive/shared.warc")
+			key, err := filewalker.MemberLocator([]string{input}, "/archive/shared.warc")
+			if err != nil {
+				t.Fatal(err)
+			}
 			result, err := db.GetFileStats(key)
 			if err != nil || result == nil {
 				t.Fatalf("missing checkpoint for %s: %v", key, err)

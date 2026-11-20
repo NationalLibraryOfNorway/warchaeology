@@ -9,7 +9,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"io"
@@ -77,11 +77,14 @@ func readPackagePages(ctx context.Context, p cdxstore.PackageInfo, meta *package
 			return fmt.Errorf("page metadata exceeds 64 MiB in %s", p.Locator)
 		}
 		total += int64(member.UncompressedSize64)
+		locator, e := filewalker.MemberLocator(roots, "/"+member.Name)
+		if e != nil {
+			return e
+		}
 		r, e := member.Open()
 		if e != nil {
 			return e
 		}
-		locator, _ := json.Marshal(filewalker.Source{Roots: roots, Path: "/" + member.Name})
 		scanner := bufio.NewScanner(io.LimitReader(r, 64<<20+1))
 		scanner.Buffer(make([]byte, 64<<10), 16<<20)
 		line := 0
@@ -101,7 +104,7 @@ func readPackagePages(ctx context.Context, p cdxstore.PackageInfo, meta *package
 			if e != nil {
 				break
 			}
-			item.source = string(locator)
+			item.source = locator
 			item.ref = fmt.Sprintf("page:%s#%d", locator, line)
 			meta.pages[item.URL] = append(meta.pages[item.URL], &item)
 		}

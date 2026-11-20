@@ -7,7 +7,7 @@ import (
 	"archive/zip"
 	"bytes"
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"net/http"
@@ -48,7 +48,10 @@ func TestVirtualArchiveRangeAndCDX(t *testing.T) {
 			if e := os.WriteFile(root, pack("child.wacz", pack("archive/same.warc.gz", payload)), 0600); e != nil {
 				t.Fatal(e)
 			}
-			locator := filewalker.MemberLocator([]string{root, "/child.wacz"}, "/archive/same.warc.gz")
+			locator, err := filewalker.MemberLocator([]string{root, "/child.wacz"}, "/archive/same.warc.gz")
+			if err != nil {
+				t.Fatal(err)
+			}
 			ctx := t.Context()
 			db, e := cdxstore.Open(ctx, cdxstore.Options{Format: "badger", Dir: t.TempDir()})
 			if e != nil {

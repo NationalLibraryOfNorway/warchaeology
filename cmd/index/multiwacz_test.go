@@ -6,7 +6,8 @@ package index
 import (
 	"archive/zip"
 	"bytes"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -135,11 +136,11 @@ func TestMultiWACZReopenManifestAndReplacement(t *testing.T) {
 	if response.Code != 200 {
 		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
 	}
-	decoder := json.NewDecoder(response.Body)
+	decoder := jsontext.NewDecoder(response.Body)
 	packages := 0
 	for {
 		var p cdxstore.PackageInfo
-		e = decoder.Decode(&p)
+		e = json.UnmarshalDecode(decoder, &p)
 		if e == io.EOF {
 			break
 		}

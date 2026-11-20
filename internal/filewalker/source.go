@@ -6,7 +6,7 @@ package filewalker
 import (
 	"archive/zip"
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"io"
 	"io/fs"
@@ -83,9 +83,9 @@ type sourceFS struct {
 	roots []string
 }
 
-func MemberLocator(roots []string, member string) string {
-	data, _ := json.Marshal(Source{Roots: roots, Path: member}) // Source contains only strings.
-	return string(data)
+func MemberLocator(roots []string, member string) (string, error) {
+	data, err := json.Marshal(Source{Roots: roots, Path: member})
+	return string(data), err
 }
 
 func localRootPath(root string) string {
@@ -134,7 +134,7 @@ func SourceLocator(fs afero.Fs, path string) (string, error) {
 		}
 		roots[0] = prefix + abs
 	}
-	return MemberLocator(roots, path), nil
+	return MemberLocator(roots, path)
 }
 
 func OpenSource(ctx context.Context, locator string) (afero.File, error) {
