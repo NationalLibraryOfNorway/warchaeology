@@ -6,6 +6,7 @@ package filewalker
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"io/fs"
 	"os"
@@ -94,6 +95,30 @@ func (fw *FileWalker) HasSuffix(path string) bool {
 		}
 	}
 	return false
+}
+
+// WalkInputs collects recoverable traversal failures while visiting remaining inputs.
+func (fw *FileWalker) WalkInputs(ctx context.Context, paths []string, keepGoing bool, submit func(afero.Fs, string) error) error {
+	var failures []error
+	for _, root := range paths {
+		err := fw.Walk(ctx, root, func(fs afero.Fs, path string, err error) error {
+			if err == nil {
+				return submit(fs, path)
+			}
+			if !keepGoing || ctx.Err() != nil {
+				return err
+			}
+			failures = append(failures, fmt.Errorf("%s: %w", path, err))
+			return nil
+		})
+		if err != nil {
+			failures = append(failures, fmt.Errorf("%s: %w", root, err))
+		}
+		if ctx.Err() != nil || (err != nil && !keepGoing) {
+			break
+		}
+	}
+	return errors.Join(failures...)
 }
 
 func (fw *FileWalker) Walk(ctx context.Context, path string, walkFn func(fs afero.Fs, path string, err error) error) error {

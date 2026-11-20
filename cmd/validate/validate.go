@@ -248,34 +248,24 @@ func (o *ValidateOptions) Run() (runErr error) {
 	workerPool := workerpool.New(ctx, o.concurrency)
 	defer workerPool.CloseWait()
 
-	for _, path := range o.paths {
-		err := o.FileWalker.Walk(ctx, path, func(fs afero.Fs, path string, err error) error {
-			if err != nil {
-				return err
+	return o.FileWalker.WalkInputs(ctx, o.paths, o.continueOnError, func(fs afero.Fs, path string) error {
+		return workerPool.Submit(func() {
+			result, err := filewalker.Preposterous(fs, path, o.openInputFileHook, o.closeInputFileHook, o.FileIndex, o.handleFile)
+			if errors.Is(err, filewalker.ErrSkipFile) {
+				return
+			} else if err != nil {
+				if !o.continueOnError {
+					cancel()
+				}
+				if result == nil {
+					result = stat.NewResult(path)
+				}
+				result.AddError(err)
 			}
 
-			return workerPool.Submit(func() {
-				result, err := filewalker.Preposterous(fs, path, o.openInputFileHook, o.closeInputFileHook, o.FileIndex, o.handleFile)
-				if errors.Is(err, filewalker.ErrSkipFile) {
-					return
-				} else if err != nil {
-					if !o.continueOnError {
-						cancel()
-					}
-					if result == nil {
-						result = stat.NewResult(path)
-					}
-					result.AddError(err)
-				}
-
-				results <- result
-			})
+			results <- result
 		})
-		if err != nil {
-			return err
-		}
-	}
-	return nil
+	})
 }
 
 func (o *ValidateOptions) handleFile(fs afero.Fs, path string) (stat.Result, error) {

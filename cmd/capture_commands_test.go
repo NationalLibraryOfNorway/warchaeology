@@ -13,7 +13,6 @@ import (
 	"encoding/base32"
 	"encoding/json"
 	"fmt"
-	"github.com/nationallibraryofnorway/warchaeology/v5/internal/fulltext"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -26,6 +25,7 @@ import (
 	cdx "github.com/nationallibraryofnorway/warchaeology/v5/internal/cdx"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/cdxstore"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/filewalker"
+	"github.com/nationallibraryofnorway/warchaeology/v5/internal/fulltext"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/index"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/server/archiveapi"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/testcheck"
@@ -859,6 +859,51 @@ func TestIdentityRetryAfterMissingInput(t *testing.T) {
 	}
 }
 
+func TestContinuePastBadArchives(t *testing.T) {
+	for _, name := range []string{"validate", "convert", "dedup"} {
+		t.Run(name, func(t *testing.T) {
+			dir, work, out := t.TempDir(), t.TempDir(), t.TempDir()
+			bad := filepath.Join(dir, "bad.zip")
+			other := filepath.Join(t.TempDir(), "other.zip")
+			good := filepath.Join(dir, "good.warc")
+			for _, p := range []string{bad, other} {
+				if err := os.WriteFile(p, []byte("broken"), 0600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if err := os.WriteFile(good, resourceBytes(1), 0600); err != nil {
+				t.Fatal(err)
+			}
+			args := []string{name}
+			if name == "convert" {
+				args = append(args, "warc")
+			}
+			if name != "validate" {
+				args = append(args, "--min-disk-free=0", "--output-dir", out, "--one-to-one", "--compress=false")
+			}
+			err := executeCaptureCommand(t, append(args, "--keep-index", "--index-dir", work, "--continue-on-error", other, dir)...)
+			if err == nil || !strings.Contains(err.Error(), bad) || !strings.Contains(err.Error(), other) {
+				t.Fatalf("walk error = %v", err)
+			}
+			if name != "validate" {
+				if _, err := os.Stat(filepath.Join(out, "good.warc")); err != nil {
+					t.Fatal(err)
+				}
+				return
+			}
+			files, err := index.NewFileIndex(work, true, false)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer testcheck.Close(t, files)
+			r, err := files.GetFileStats(good)
+			if err != nil || r == nil || r.Records() != 1 {
+				t.Fatalf("good input = %v, %v", r, err)
+			}
+		})
+	}
+}
+
 func TestServeReturnsQueuedIngestionFailure(t *testing.T) {
 	dir := t.TempDir()
 	for i := range 5 {
@@ -873,6 +918,28 @@ func TestServeReturnsQueuedIngestionFailure(t *testing.T) {
 	err := executeCaptureCommand(t, "serve", "--address=127.0.0.1:0", "--concurrency=1", "--index-dir", t.TempDir(), dir)
 	if err == nil || !strings.Contains(err.Error(), "incomplete archive") {
 		t.Fatalf("serve = %v", err)
+	}
+}
+
+func TestFulltextIndexesMixedCaseResources(t *testing.T) {
+	dir := t.TempDir()
+	source := filepath.Join(dir, "resources.warc")
+	second := bytes.Replace(resourceWithBody(2, "northern lights"), []byte("text/plain"), []byte("Text/Plain; charset=UTF-8"), 1)
+	if err := os.WriteFile(source, append(resourceWithBody(1, "northern summer"), second...), 0600); err != nil {
+		t.Fatal(err)
+	}
+	textDir := filepath.Join(dir, "text")
+	if err := executeCaptureCommand(t, "index", "--index-format=badger", "--index-dir", dir, "--fulltext", "--fulltext-dir", textDir, source); err != nil {
+		t.Fatal(err)
+	}
+	idx, err := fulltext.Open(textDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer testcheck.Close(t, idx)
+	hits, err := idx.Search(t.Context(), fulltext.Request{Query: "northern"})
+	if err != nil || hits.Total != 2 {
+		t.Fatalf("search = %+v, %v", hits, err)
 	}
 }
 
@@ -905,28 +972,6 @@ func TestIdentityCheckpointIsolatesHookFailure(t *testing.T) {
 		if err != nil || (r != nil) != (path == good) {
 			t.Fatalf("%s checkpoint = %v, %v", path, r, err)
 		}
-	}
-}
-
-func TestFulltextIndexesMixedCaseResources(t *testing.T) {
-	dir := t.TempDir()
-	source := filepath.Join(dir, "resources.warc")
-	second := bytes.Replace(resourceWithBody(2, "northern lights"), []byte("text/plain"), []byte("Text/Plain; charset=UTF-8"), 1)
-	if err := os.WriteFile(source, append(resourceWithBody(1, "northern summer"), second...), 0600); err != nil {
-		t.Fatal(err)
-	}
-	textDir := filepath.Join(dir, "text")
-	if err := executeCaptureCommand(t, "index", "--index-format=badger", "--index-dir", dir, "--fulltext", "--fulltext-dir", textDir, source); err != nil {
-		t.Fatal(err)
-	}
-	idx, err := fulltext.Open(textDir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer testcheck.Close(t, idx)
-	hits, err := idx.Search(t.Context(), fulltext.Request{Query: "northern"})
-	if err != nil || hits.Total != 2 {
-		t.Fatalf("search = %+v, %v", hits, err)
 	}
 }
 
