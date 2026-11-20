@@ -994,6 +994,40 @@ func TestIdentityCheckpointIsolatesHookFailure(t *testing.T) {
 	}
 }
 
+func TestIndexRejectsAmbiguousTarBeforePublication(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "batch.tar")
+	var data bytes.Buffer
+	tw := tar.NewWriter(&data)
+	for id := range 2 {
+		body := resourceBytes(id)
+		if err := tw.WriteHeader(&tar.Header{Name: "capture.warc", Mode: 0600, Size: int64(len(body))}); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := tw.Write(body); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := tw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, data.Bytes(), 0600); err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	err := executeCaptureCommand(t, "index", "--index-format", "badger", "--index-dir", dir, path)
+	if err == nil || !strings.Contains(err.Error(), "capture.warc") {
+		t.Fatalf("index: %v", err)
+	}
+	db, err := cdxstore.Open(t.Context(), cdxstore.Options{Format: "badger", Dir: dir, ReadOnly: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer testcheck.Close(t, db)
+	if err = db.Scan(t.Context(), "", "", func(*cdx.Capture) error { return fmt.Errorf("capture published") }); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestRepairedConversionResumes(t *testing.T) {
 	out := t.TempDir()
 	args := []string{"convert", "warc", "--repair", "--one-to-one", "--keep-index", "--compress=false", "--min-disk-free=0", "--output-dir", out, "--index-dir", t.TempDir(), "../testdata/warc/convert.warc"}

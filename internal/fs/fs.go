@@ -125,6 +125,11 @@ func ResolveFilesystem(fs afero.Fs, name string, options ...func(*fsOptions)) (_
 		return &mountedFS{Fs: mounted, closer: f}, nil
 	}
 	defer func() { resultErr = errors.Join(resultErr, f.Close()) }()
+	defer func() {
+		if resultErr != nil {
+			resultErr = fmt.Errorf("archive %q: %w", name, resultErr)
+		}
+	}()
 	if kind == archiveTGZ {
 		r, err := gzip.NewReader(f)
 		if err != nil {

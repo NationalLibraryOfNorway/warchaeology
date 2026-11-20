@@ -19,6 +19,11 @@ import (
 // Archive names use slash separators regardless of the host OS.
 func readTar(r io.Reader) (afero.Fs, error) {
 	fs := afero.NewMemMapFs()
+	type member struct {
+		original  string
+		directory bool
+	}
+	members := map[string]member{"/": {original: "/", directory: true}}
 	tr := tar.NewReader(r)
 	for {
 		hdr, err := tr.Next()
@@ -28,7 +33,21 @@ func readTar(r io.Reader) (afero.Fs, error) {
 		if err != nil {
 			return nil, fmt.Errorf("read tar header: %w", err)
 		}
+		// Do not let platform-specific separators alias distinct archive entries.
+		if strings.Contains(hdr.Name, "\\") {
+			return nil, fmt.Errorf("unsupported backslash in tar entry %q", hdr.Name)
+		}
 		name := path.Clean("/" + hdr.Name)
+		for current := name; ; current = path.Dir(current) {
+			directory := current != name || hdr.Typeflag == tar.TypeDir
+			if previous, ok := members[current]; ok {
+				if !directory || !previous.directory {
+					return nil, fmt.Errorf("tar entries %q and %q conflict at %q", previous.original, hdr.Name, current)
+				}
+				break
+			}
+			members[current] = member{hdr.Name, directory}
+		}
 		switch hdr.Typeflag {
 		case tar.TypeDir:
 			if err := fs.MkdirAll(name, hdr.FileInfo().Mode().Perm()); err != nil {
@@ -54,10 +73,6 @@ func readTar(r io.Reader) (afero.Fs, error) {
 			}
 		default:
 			return nil, fmt.Errorf("unsupported tar entry %q (type %d)", hdr.Name, hdr.Typeflag)
-		}
-		// Do not let platform-specific separators alias distinct archive entries.
-		if strings.Contains(hdr.Name, "\\") {
-			return nil, fmt.Errorf("unsupported backslash in tar entry %q", hdr.Name)
 		}
 	}
 }

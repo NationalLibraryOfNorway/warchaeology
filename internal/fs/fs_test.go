@@ -309,3 +309,61 @@ func TestFTPEndpointOnly(t *testing.T) {
 		})
 	}
 }
+
+func TestTarPathConflicts(t *testing.T) {
+	for _, tc := range []struct{ first, second, conflict string }{
+		{"a.warc", "a.warc", "/a.warc"}, {"a.warc", "./a.warc", "/a.warc"},
+		{"a", "a/b", "/a"}, {"a/b", "a", "/a"}, {"a/", "a", "/a"}, {"a", "a/", "/a"},
+		{"a/", "./a/", ""}, {"a/b", "a/", ""}, {"a/c.warc", "b/c.warc", ""},
+	} {
+		for _, suffix := range []string{".tar", ".tar.gz"} {
+			t.Run(tc.first+"+"+tc.second+suffix, func(t *testing.T) {
+				var data bytes.Buffer
+				var dst io.Writer = &data
+				var gz *gzip.Writer
+				if suffix == ".tar.gz" {
+					gz = gzip.NewWriter(dst)
+					dst = gz
+				}
+				writer := tar.NewWriter(dst)
+				for _, name := range []string{tc.first, tc.second} {
+					kind := byte(tar.TypeReg)
+					if strings.HasSuffix(name, "/") {
+						kind = tar.TypeDir
+					}
+					if err := writer.WriteHeader(&tar.Header{Name: name, Typeflag: kind, Mode: 0755}); err != nil {
+						t.Fatal(err)
+					}
+				}
+				if err := writer.Close(); err != nil {
+					t.Fatal(err)
+				}
+				if gz != nil {
+					if err := gz.Close(); err != nil {
+						t.Fatal(err)
+					}
+				}
+				fs := afero.NewMemMapFs()
+				archive := "batch" + suffix
+				if err := afero.WriteFile(fs, archive, data.Bytes(), 0600); err != nil {
+					t.Fatal(err)
+				}
+				mounted, err := ResolveFilesystem(fs, archive)
+				if tc.conflict == "" {
+					if err != nil {
+						t.Fatal(err)
+					}
+					return
+				}
+				if mounted != nil || err == nil {
+					t.Fatal("accepted conflicting archive")
+				}
+				for _, want := range []string{archive, tc.first, tc.second, tc.conflict} {
+					if !strings.Contains(err.Error(), want) {
+						t.Fatalf("missing %q in %v", want, err)
+					}
+				}
+			})
+		}
+	}
+}

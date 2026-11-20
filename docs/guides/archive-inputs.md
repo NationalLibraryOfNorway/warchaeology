@@ -19,6 +19,8 @@ The archive's extension selects the format: `.zip` and `.wacz` use ZIP;
 Archive contents are traversed recursively, including nested archives. Use
 `--recursive` to descend into ordinary input directories.
 
+TAR member paths must be unique after path normalization. A duplicate file or a file/directory conflict rejects the entire TAR before its members are processed. Repeated directory headers are allowed. To recover captures from an already indexed TAR with repeated file paths, give each occurrence a unique path and rebuild the affected index.
+
 ## Validate every WARC file in a WACZ
 
 Validate all WARC members:
