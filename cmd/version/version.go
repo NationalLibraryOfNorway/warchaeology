@@ -4,7 +4,7 @@
 package version
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/version"

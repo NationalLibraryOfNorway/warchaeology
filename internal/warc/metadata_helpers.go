@@ -19,10 +19,10 @@ type Metadata struct {
 	RecordId   string `json:"recordId,omitempty"`
 	Checksum   string `json:"checksum,omitempty"`
 	MimeType   string `json:"mimeType,omitempty"`
-	StatusCode int    `json:"statusCode,omitempty"`
-	Size       int64  `json:"size,omitempty"`
+	StatusCode int    `json:"statusCode,omitzero"`
+	Size       int64  `json:"size,omitzero"`
 	Type       string `json:"type,omitempty"`
-	Offset     int64  `json:"offset,omitempty"`
+	Offset     int64  `json:"offset,omitzero"`
 }
 
 func URL(wr gowarc.WarcRecord) string {
