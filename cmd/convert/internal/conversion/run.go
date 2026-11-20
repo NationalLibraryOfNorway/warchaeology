@@ -124,5 +124,14 @@ func (o RunOptions) process(ctx context.Context, fs afero.Fs, path string, handl
 		}
 	}
 	result, err := filewalker.PrePostHookContext(ctx, fs, path, o.Open, o.Close, handle)
+	if key != "" && o.Writer.OneToOneWriter {
+		if err == nil && result != nil && result.ErrorCount() == 0 {
+			err = o.Index.SaveFileStats(key, result)
+			if err == nil {
+				err = o.Index.Sync()
+			}
+		}
+		return "", result, err
+	}
 	return key, result, err
 }
