@@ -568,6 +568,89 @@ func TestIndexLimitWithPairedRequest(t *testing.T) {
 	}
 }
 
+func TestConversionCheckpointsFollowPublication(t *testing.T) {
+	for _, mode := range []string{"disk", "shared-hook", "identity-hook"} {
+		t.Run(mode, func(t *testing.T) {
+			source := filepath.Join(t.TempDir(), "input.warc")
+			if err := os.WriteFile(source, resourceBytes(1), 0600); err != nil {
+				t.Fatal(err)
+			}
+			work := t.TempDir()
+			args := []string{"convert", "warc", "--keep-index", "--index-dir", work, "--output-dir", t.TempDir(), "--min-disk-free=0", source}
+			if mode == "identity-hook" {
+				args = append(args, "--name-generator=identity")
+			}
+			failed := append([]string(nil), args...)
+			if mode == "disk" {
+				failed = append(failed, "--min-disk-free=200TB")
+			} else {
+				if runtime.GOOS == "windows" {
+					t.Skip("uses Unix false command")
+				}
+				failed = append(failed, "--close-output-file-hook=/bin/false")
+			}
+			if err := executeCaptureCommand(t, failed...); err == nil {
+				t.Fatal("failed conversion returned success")
+			}
+			retry := t.TempDir()
+			if err := executeCaptureCommand(t, append(args, "--output-dir", retry)...); err != nil {
+				t.Fatal(err)
+			}
+			entries, err := os.ReadDir(retry)
+			if err != nil || len(entries) != 1 {
+				t.Fatalf("retry outputs %v: %v", entries, err)
+			}
+		})
+	}
+}
+
+func TestMountedConversionCheckpoints(t *testing.T) {
+	inputs := make([]string, 2)
+	for i := range inputs {
+		inputs[i] = filepath.Join(t.TempDir(), "collection.wacz")
+		var buf bytes.Buffer
+		z := zip.NewWriter(&buf)
+		member, err := z.Create("archive/shared.warc")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := member.Write(resourceBytes(i)); err != nil {
+			t.Fatal(err)
+		}
+		if err := z.Close(); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(inputs[i], buf.Bytes(), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, command := range [][]string{{"convert", "warc"}, {"validate"}} {
+		work := t.TempDir()
+		args := append(command, "--keep-index", "--index-dir", work, "--concurrency=1")
+		if command[0] == "convert" {
+			args = append(args, "--output-dir", t.TempDir(), "--min-disk-free=0")
+		}
+		args = append(args, inputs...)
+		for range 2 {
+			if err := executeCaptureCommand(t, args...); err != nil {
+				t.Fatal(err)
+			}
+		}
+		db, err := index.NewFileIndex(work, true, false)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer testcheck.Close(t, db)
+		for _, input := range inputs {
+			key := filewalker.MemberLocator([]string{input}, "/archive/shared.warc")
+			result, err := db.GetFileStats(key)
+			if err != nil || result == nil {
+				t.Fatalf("missing checkpoint for %s: %v", key, err)
+			}
+		}
+	}
+}
+
 func TestConversionIdentityUsesFirstRecordDate(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "item.warc")
 	later := bytes.ReplaceAll(resourceBytes(2), []byte("2022-01"), []byte("2023-01"))

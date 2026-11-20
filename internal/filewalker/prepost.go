@@ -21,8 +21,14 @@ type FileHandler func(fs afero.Fs, path string) (stat.Result, error)
 
 // Preposterous wraps the PrePostHook function with result caching.
 func Preposterous(fs afero.Fs, path string, preHook hooks.OpenInputFileHook, postHook hooks.CloseInputFileHook, fileIndex *index.FileIndex, fn FileHandler) (stat.Result, error) {
+	var key string
 	if fileIndex != nil {
-		result, err := fileIndex.GetFileStats(path)
+		var err error
+		key, err = CheckpointKey(fs, path)
+		if err != nil {
+			return nil, err
+		}
+		result, err := fileIndex.GetFileStats(key)
 		if err != nil {
 			return nil, fmt.Errorf("failed to get file stats: %w", err)
 		}
@@ -35,7 +41,7 @@ func Preposterous(fs afero.Fs, path string, preHook hooks.OpenInputFileHook, pos
 	result, resultErr := PrePostHook(fs, path, preHook, postHook, fn)
 
 	if fileIndex != nil && resultErr == nil {
-		if err := fileIndex.SaveFileStats(path, result); err != nil {
+		if err := fileIndex.SaveFileStats(key, result); err != nil {
 			return nil, fmt.Errorf("failed to save file stats: %w", err)
 		}
 	}
@@ -63,4 +69,11 @@ func PrePostHookContext(ctx context.Context, fs afero.Fs, path string, preHook h
 	}
 
 	return result, resultErr
+}
+
+func CheckpointKey(fs afero.Fs, path string) (string, error) {
+	if f, ok := fs.(*sourceFS); ok && len(f.roots) > 0 {
+		return SourceLocator(fs, path)
+	}
+	return path, nil
 }
