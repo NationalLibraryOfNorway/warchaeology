@@ -5,9 +5,10 @@ package index
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
+	"errors"
 	"fmt"
-	"io"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -55,8 +56,15 @@ func CaptureURLKey(raw, method, body string) (string, error) {
 	return c.GetSsu(), nil
 }
 
+var exactNumbers = json.WithUnmarshalers(json.UnmarshalFromFunc(func(d *jsontext.Decoder, value *any) error {
+	if d.PeekKind() == '0' {
+		*value = jsontext.Value(nil)
+	}
+	return errors.ErrUnsupported
+}))
+
 // ParseIngestLine deliberately ignores the supplied key. Extension numbers are
-// kept as json.Number until their original decimal representation is marshaled.
+// kept as jsontext.Value until their original decimal representation is marshaled.
 func ParseIngestLine(line []byte) (*Capture, error) {
 	return parseCaptureLine(line, false)
 }
@@ -76,13 +84,11 @@ func parseCaptureLine(line []byte, retainKey bool) (*Capture, error) {
 		return nil, fmt.Errorf("invalid timestamp: %w", err)
 	}
 	var m map[string]any
-	d := json.NewDecoder(bytes.NewReader(parts[2]))
-	d.UseNumber()
-	if err = d.Decode(&m); err != nil || m == nil {
-		return nil, fmt.Errorf("invalid CDXJ JSON object")
+	if err = json.Unmarshal(parts[2], &m, exactNumbers); err != nil {
+		return nil, fmt.Errorf("invalid CDXJ JSON object: %w", err)
 	}
-	if d.Decode(new(any)) != io.EOF {
-		return nil, fmt.Errorf("trailing JSON data")
+	if m == nil {
+		return nil, fmt.Errorf("invalid CDXJ JSON object")
 	}
 	text := func(k string, required bool) (string, error) {
 		v, ok := m[k]
@@ -118,8 +124,8 @@ func parseCaptureLine(line []byte, retainKey bool) (*Capture, error) {
 		switch n := v.(type) {
 		case string:
 			s = n
-		case json.Number:
-			s = n.String()
+		case jsontext.Value:
+			s = string(n)
 		default:
 			return 0, fmt.Errorf("%s must be an integer", k)
 		}
@@ -157,7 +163,7 @@ func parseCaptureLine(line []byte, retainKey bool) (*Capture, error) {
 		return nil, fmt.Errorf("invalid filename")
 	}
 	if len(m) > 0 {
-		c.ExtraJson, err = json.Marshal(m)
+		c.ExtraJson, err = json.Marshal(m, json.Deterministic(true))
 	}
 	return c, err
 }

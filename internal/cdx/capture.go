@@ -5,11 +5,10 @@ package index
 
 import (
 	"bufio"
-	"bytes"
 	"context"
 	"crypto/sha1"
 	"encoding/base32"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"io"
 	"net/http"
@@ -117,9 +116,7 @@ func NewCapture(rec gowarc.Record, source, filename string) (*Capture, error) {
 func Properties(c *Capture) (map[string]any, error) {
 	m := make(map[string]any)
 	if len(c.GetExtraJson()) > 0 {
-		decoder := json.NewDecoder(bytes.NewReader(c.GetExtraJson()))
-		decoder.UseNumber()
-		if err := decoder.Decode(&m); err != nil {
+		if err := json.Unmarshal(c.GetExtraJson(), &m, exactNumbers); err != nil {
 			return nil, err
 		}
 		if _, complete := m["url"]; complete {
@@ -153,7 +150,7 @@ func Line(c *Capture) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	b, err := json.Marshal(m)
+	b, err := json.Marshal(m, json.Deterministic(true))
 	if err != nil {
 		return nil, err
 	}
@@ -170,7 +167,7 @@ func ParseLine(line []byte) (*Capture, error) {
 		return nil, err
 	}
 	m := map[string]any{}
-	if err = json.Unmarshal([]byte(fields[2]), &m); err != nil {
+	if err = json.Unmarshal([]byte(fields[2]), &m, exactNumbers); err != nil {
 		return nil, err
 	}
 	str := func(k string) string { v, _ := m[k].(string); return v }

@@ -7,7 +7,8 @@ import (
 	"bufio"
 	"context"
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"io"
@@ -500,7 +501,7 @@ func CDXHandlerWithTransform(src QuerySource, scanLimit, resultLimit int, transf
 				}
 				m = selected
 			}
-			b, e := json.Marshal(m)
+			b, e := json.Marshal(m, json.Deterministic(true))
 			if e != nil {
 				return e
 			}
@@ -519,7 +520,7 @@ func CDXHandlerWithTransform(src QuerySource, scanLimit, resultLimit int, transf
 			return
 		}
 		if q.ShowPages {
-			_ = json.NewEncoder(w).Encode(map[string]int{"pages": pages, paramPageSize: q.PageSize})
+			_ = json.MarshalEncode(jsontext.NewEncoder(w), map[string]int{"pages": pages, paramPageSize: q.PageSize})
 		}
 	}
 }

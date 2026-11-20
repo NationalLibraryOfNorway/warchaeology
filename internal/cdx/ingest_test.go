@@ -65,6 +65,15 @@ func TestIngestValidationAndPostKeys(t *testing.T) {
 	}
 }
 
+func TestIngestRejectsAmbiguousMetadata(t *testing.T) {
+	for _, extra := range []string{`"offset":20`, "\"extra\":\"\xff\""} {
+		row := `key 20200102030405 {"url":"https://example.org/","filename":"a","length":1,"offset":10,` + extra + "}"
+		if _, err := ParseIngestLine([]byte(row)); err == nil {
+			t.Errorf("accepted %q", row)
+		}
+	}
+}
+
 func TestBinaryRequestPrefix(t *testing.T) {
 	for _, n := range []int{0, 1, 2, 3, 3059, 3060, 3061, 3062, 3063, 3064, 1 << 20} {
 		body := strings.Repeat("x", n)

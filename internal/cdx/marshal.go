@@ -4,7 +4,7 @@
 package index
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/cdx/schema"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/timestamp"
@@ -21,5 +21,5 @@ func (p Pywb) MarshalJSON() ([]byte, error) {
 	}
 	m["urlkey"] = p.Ssu
 	m["timestamp"] = timestamp.Format14(p.Sts.AsTime())
-	return json.Marshal(m)
+	return json.Marshal(m, json.Deterministic(true))
 }
