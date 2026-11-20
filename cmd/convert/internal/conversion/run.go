@@ -42,44 +42,36 @@ func (o RunOptions) Run(paths []string, handle filewalker.FileHandler) error {
 	var mu sync.Mutex
 	var processingErr, walkErr error
 	stats := stat.NewStats()
-	for _, path := range paths {
-		walkErr = o.Walker.Walk(ctx, path, func(fs afero.Fs, path string, err error) error {
-			if err != nil {
-				return err
+	walkErr = o.Walker.WalkInputs(ctx, paths, o.Continue, func(fs afero.Fs, path string) error {
+		return pool.Submit(func() {
+			key, result, err := o.process(ctx, fs, path, handle)
+			if errors.Is(err, filewalker.ErrSkipFile) {
+				return
 			}
-			return pool.Submit(func() {
-				key, result, err := o.process(ctx, fs, path, handle)
-				if errors.Is(err, filewalker.ErrSkipFile) {
-					return
+			mu.Lock()
+			defer mu.Unlock()
+			if err != nil {
+				if result == nil {
+					result = stat.NewResult(path)
 				}
-				mu.Lock()
-				defer mu.Unlock()
-				if err != nil {
-					if result == nil {
-						result = stat.NewResult(path)
-					}
-					result.AddError(err)
+				result.AddError(err)
+			}
+			for _, issue := range result.Errors() {
+				slog.Error("Conversion error", "path", path, "error", issue)
+				if processingErr == nil {
+					processingErr = fmt.Errorf("%s: %w", path, issue)
 				}
-				for _, issue := range result.Errors() {
-					slog.Error("Conversion error", "path", path, "error", issue)
-					if processingErr == nil {
-						processingErr = fmt.Errorf("%s: %w", path, issue)
-					}
-				}
-				if err != nil && (!o.Continue || errors.Is(err, errDisk)) {
-					cancel()
-				}
-				stats.Merge(result)
-				slog.Info("Converted file", "path", path, "records", result.Records(), "errors", result.ErrorCount())
-				if key != "" {
-					pending[key] = result
-				}
-			})
+			}
+			if err != nil && (!o.Continue || errors.Is(err, errDisk)) {
+				cancel()
+			}
+			stats.Merge(result)
+			slog.Info("Converted file", "path", path, "records", result.Records(), "errors", result.ErrorCount())
+			if key != "" {
+				pending[key] = result
+			}
 		})
-		if walkErr != nil {
-			break
-		}
-	}
+	})
 	pool.CloseWait()
 	slog.Info("Total", "files", stats.Files, "records", stats.Records, "errors", stats.Errors)
 	if stats.Errors > 0 && processingErr == nil {

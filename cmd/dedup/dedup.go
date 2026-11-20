@@ -370,36 +370,26 @@ func (o *DedupOptions) Run() error {
 		slog.Warn(err.Error())
 	}
 
-	var walkErr error
-	for _, path := range o.Paths {
-		walkErr = o.FileWalker.Walk(ctx, path, func(fs afero.Fs, path string, err error) error {
+	walkErr := o.FileWalker.WalkInputs(ctx, o.Paths, o.ContinueOnError, func(fs afero.Fs, path string) error {
+		return workerPool.Submit(func() {
+			result, err := o.processFile(ctx, fs, path)
+			if errors.Is(err, filewalker.ErrSkipFile) {
+				return
+			}
 			if err != nil {
-				return err
+				if !o.ContinueOnError {
+					cancel()
+				}
+				if result.result == nil {
+					result.result = stat.NewResult(path)
+				}
+				result.result.AddError(err)
 			}
 
-			return workerPool.Submit(func() {
-				result, err := o.processFile(ctx, fs, path)
-				if errors.Is(err, filewalker.ErrSkipFile) {
-					return
-				}
-				if err != nil {
-					if !o.ContinueOnError {
-						cancel()
-					}
-					if result.result == nil {
-						result.result = stat.NewResult(path)
-					}
-					result.result.AddError(err)
-				}
-
-				result.path = path
-				results <- result
-			})
+			result.path = path
+			results <- result
 		})
-		if walkErr != nil {
-			break
-		}
-	}
+	})
 	workerPool.CloseWait()
 	close(results)
 	<-done
