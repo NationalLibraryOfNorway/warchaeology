@@ -4,18 +4,14 @@
 package arc
 
 import (
-	"context"
 	"errors"
 	"fmt"
-	"log/slog"
 	"os"
-	"os/signal"
-	"syscall"
 
 	"github.com/nationallibraryofnorway/gowarc/v3"
 	"github.com/nationallibraryofnorway/warchaeology/v5/arcreader"
+	"github.com/nationallibraryofnorway/warchaeology/v5/cmd/convert/internal/conversion"
 	"github.com/nationallibraryofnorway/warchaeology/v5/cmd/internal/flag"
-	"github.com/nationallibraryofnorway/warchaeology/v5/internal/diskspace"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/filewalker"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/hooks"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/index"
@@ -23,7 +19,6 @@ import (
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/version"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/warc"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/warcwriterconfig"
-	"github.com/nationallibraryofnorway/warchaeology/v5/internal/workerpool"
 	"github.com/spf13/afero"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -174,15 +169,13 @@ func NewCmdConvertArc() *cobra.Command {
 		Use:   "arc FILE/DIR ...",
 		Short: "Convert ARC to WARC",
 		Long:  ``,
-		RunE: func(cmd *cobra.Command, args []string) error {
+		RunE: func(cmd *cobra.Command, args []string) (runErr error) {
 			o, err := flags.ToConvertArcOptions()
 			if err != nil {
 				return err
 			}
 			defer func() {
-				if err := o.Close(); err != nil {
-					slog.Error("Close options", "error", err)
-				}
+				runErr = errors.Join(runErr, o.Close())
 			}()
 			err = o.Complete(cmd, args)
 			if err != nil {
@@ -217,91 +210,18 @@ func (o *ConvertArcOptions) Validate() error {
 
 // Run processes the inputs and waits for workers to finish.
 // The caller must close the options after Run returns.
-func (o *ConvertArcOptions) Run() (runErr error) {
-	done := make(chan struct{})
-	var processingErr error
-
-	defer func() {
-		<-done
-		runErr = errors.Join(runErr, processingErr)
-	}()
-
-	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
-	defer cancel()
-
-	results := make(chan stat.Result)
-	go func() {
-		defer close(done)
-
-		stats := stat.NewStats()
-		defer func() {
-			slog.Info("Total", "files", stats.Files, "errors", stats.Errors, "records", stats.Records)
-		}()
-
-		for result := range results {
-			slog := slog.With("path", result.Name())
-			for _, err := range result.Errors() {
-				if recordErr, ok := errors.AsType[warc.RecordError](err); ok {
-					slog.Error("Validation error", "error", recordErr.Error(), "offset", recordErr.Offset())
-				} else {
-					slog.Error("Validation error", "error", err.Error())
-				}
-			}
-			slog.Info("Converted file", "errors", result.ErrorCount(), "records", result.Records())
-			stats.Merge(result)
-		}
-		if stats.Errors > 0 {
-			processingErr = errors.New("processing completed with errors")
-		}
-	}()
-	defer close(results)
-
-	workerPool := workerpool.New(ctx, o.Concurrency)
-	o.FileWalker.WaitForReaders = workerPool.Wait
-	defer workerPool.CloseWait()
-
-	for _, path := range o.Paths {
-		err := o.FileWalker.Walk(ctx, path, func(fs afero.Fs, path string, err error) error {
-			if err != nil {
-				return err
-			}
-
-			return workerPool.Submit(func() {
-				// Assert WARC disk has enough free space
-				if o.MinWARCDiskFree > 0 {
-					diskFree, err := diskspace.Free(o.WarcWriterConfig.OutDir)
-					if err != nil {
-						cancel()
-						slog.Error("Failed to get free space on device", "path", o.WarcWriterConfig.OutDir, "error", err)
-						return
-					}
-					if diskFree < o.MinWARCDiskFree {
-						cancel()
-						slog.Error("Not enough free space on device", "bytesFree", diskFree, "path", o.WarcWriterConfig.OutDir)
-						return
-					}
-				}
-				result, err := filewalker.Preposterous(fs, path, o.OpenInputFileHook, o.CloseInputFileHook, o.FileIndex, o.handleFile)
-				if errors.Is(err, filewalker.ErrSkipFile) {
-					return
-				} else if err != nil {
-					if !o.ContinueOnError {
-						cancel()
-					}
-					if result == nil {
-						result = stat.NewResult(path)
-					}
-					result.AddError(err)
-				}
-
-				results <- result
-			})
-		})
-		if err != nil {
-			return err
-		}
+func (o *ConvertArcOptions) Run() error {
+	runner := conversion.RunOptions{
+		Walker:      o.FileWalker,
+		Index:       o.FileIndex,
+		Writer:      o.WarcWriterConfig,
+		Open:        o.OpenInputFileHook,
+		Close:       o.CloseInputFileHook,
+		Concurrency: o.Concurrency,
+		MinimumFree: o.MinWARCDiskFree,
+		Continue:    o.ContinueOnError,
 	}
-	return nil
+	return runner.Run(o.Paths, o.handleFile)
 }
 
 func (o *ConvertArcOptions) handleFile(fs afero.Fs, fileName string) (result stat.Result, resultErr error) {
