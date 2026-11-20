@@ -42,7 +42,15 @@ func testArchive(t *testing.T, corrupt bool) afero.Fs {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return New(r)
+	return testMount(t, r)
+}
+func testMount(t *testing.T, r *zip.Reader) afero.Fs {
+	t.Helper()
+	fs, err := New(r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return fs
 }
 func TestReadAtBoundsAndChecksum(t *testing.T) {
 	for _, corrupt := range []bool{false, true} {
@@ -131,7 +139,7 @@ func TestEmptyArchiveHasRoot(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	root, err := New(r).Open("/")
+	root, err := testMount(t, r).Open("/")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -174,7 +182,7 @@ func TestStoredMemberLateReadIsBounded(t *testing.T) {
 		t.Fatal(e)
 	}
 	backing.bytesRead = 0
-	f, e := New(zr).Open("large.warc")
+	f, e := testMount(t, zr).Open("large.warc")
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -207,9 +215,12 @@ func TestBrowsertrixChildCRCPlaceholder(t *testing.T) {
 			if e != nil {
 				t.Fatal(e)
 			}
-			fs := New(zr)
+			fs := testMount(t, zr)
 			if wacz {
-				fs = NewWACZ(zr)
+				fs, e = NewWACZ(zr)
+				if e != nil {
+					t.Fatal(e)
+				}
 			}
 			f, e := fs.Open(name)
 			if e != nil {
@@ -228,5 +239,25 @@ func TestBrowsertrixChildCRCPlaceholder(t *testing.T) {
 				t.Fatalf("name=%s wacz=%v error=%v", name, wacz, e)
 			}
 		}
+	}
+}
+
+func TestMemberNameCollisions(t *testing.T) {
+	for _, tc := range []struct {
+		first, second string
+		valid         bool
+	}{
+		{"a", "./a", false}, {"a", "a/b", false}, {"a/b", "a", false}, {"a/b", "a/", true}, {"a/", "a/b", true},
+	} {
+		t.Run(tc.first+"-"+tc.second, func(t *testing.T) {
+			r := &zip.Reader{}
+			for _, name := range []string{tc.first, tc.second} {
+				r.File = append(r.File, &zip.File{FileHeader: zip.FileHeader{Name: name}})
+			}
+			_, err := New(r)
+			if (err == nil) != tc.valid {
+				t.Fatalf("mount: %v", err)
+			}
+		})
 	}
 }

@@ -120,6 +120,10 @@ func (o *IndexOptions) indexWACZ(ctx context.Context, fs afero.Fs, name string, 
 	if err != nil {
 		return err
 	}
+	archiveFS, err := zipfs.NewWACZ(zr)
+	if err != nil {
+		return err
+	}
 	pkg.sourceFingerprint = wacz.Fingerprint(info, zr)
 	fingerprint := fmt.Sprintf("%x", digest.Sum(nil))
 	db, _ := o.Sink.(*cdxstore.DB)
@@ -132,7 +136,7 @@ func (o *IndexOptions) indexWACZ(ctx context.Context, fs afero.Fs, name string, 
 		}
 	}
 
-	mounted := filewalker.WithSourceRoots(zipfs.NewWACZ(zr), pkg.roots)
+	mounted := filewalker.WithSourceRoots(archiveFS, pkg.roots)
 	var stage *cdxstore.CaptureStage
 	if len(pkg.names) > 0 {
 		dir, err := os.MkdirTemp(o.tmpDir, "wacz-index-")

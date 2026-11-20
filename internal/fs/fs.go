@@ -118,9 +118,13 @@ func ResolveFilesystem(fs afero.Fs, name string, options ...func(*fsOptions)) (_
 		if err != nil {
 			return nil, errors.Join(err, f.Close())
 		}
-		mounted := zipfs.New(r)
+		mount := zipfs.New
 		if strings.EqualFold(filepath.Ext(name), ".wacz") {
-			mounted = zipfs.NewWACZ(r)
+			mount = zipfs.NewWACZ
+		}
+		mounted, err := mount(r)
+		if err != nil {
+			return nil, errors.Join(err, f.Close())
 		}
 		return &mountedFS{Fs: mounted, closer: f}, nil
 	}

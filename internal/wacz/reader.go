@@ -72,7 +72,11 @@ func Open(ctx context.Context, filename string) (_ *Reader, err error) {
 	if err != nil {
 		return nil, err
 	}
-	r := &Reader{file: file, info: info, fs: zipfs.NewWACZ(z), members: map[string]*zip.File{},
+	mounted, err := zipfs.NewWACZ(z)
+	if err != nil {
+		return nil, err
+	}
+	r := &Reader{file: file, info: info, fs: mounted, members: map[string]*zip.File{},
 		ids: map[string]*zip.File{}, aliases: map[string]string{}}
 	if err := r.catalogue(ctx, z); err != nil {
 		return nil, err

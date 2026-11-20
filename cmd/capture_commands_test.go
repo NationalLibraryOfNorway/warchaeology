@@ -22,13 +22,16 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/julienschmidt/httprouter"
 	"github.com/nationallibraryofnorway/warchaeology/v5/cmd/validate"
 	cdx "github.com/nationallibraryofnorway/warchaeology/v5/internal/cdx"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/cdxstore"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/filewalker"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/fulltext"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/index"
+	"github.com/nationallibraryofnorway/warchaeology/v5/internal/loader"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/server/archiveapi"
+	"github.com/nationallibraryofnorway/warchaeology/v5/internal/server/coreserver"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/testcheck"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/zipnum"
 	"github.com/spf13/afero"
@@ -1219,6 +1222,88 @@ func TestIndexFiltersResourceFields(t *testing.T) {
 	}
 }
 
+func TestRepeatedDonorID(t *testing.T) {
+	dir, out, work := t.TempDir(), t.TempDir(), t.TempDir()
+	args := []string{"dedup", "--deterministic", "--compress=false", "--one-to-one", "--min-disk-free=0", "--min-size-gain=0", "--keep-index", "--index-dir", work, "--output-dir", out}
+	for i, id := range []int{1, 1, 2} {
+		name := filepath.Join(dir, fmt.Sprintf("%d.warc", i))
+		if err := os.WriteFile(name, resourceBytes(id), 0600); err != nil {
+			t.Fatal(err)
+		}
+		args = append(args, name)
+	}
+	if err := executeCaptureCommand(t, args...); err != nil {
+		t.Fatal(err)
+	}
+	files := openCommandCheckpoints(t, "dedup", work)
+	var duplicates int64
+	for i := range 3 {
+		key, err := filewalker.SourceLocator(afero.NewOsFs(), filepath.Join(dir, fmt.Sprintf("%d.warc", i)))
+		if err != nil {
+			t.Fatal(err)
+		}
+		stats, err := files.GetFileStats(key)
+		if err != nil || stats == nil {
+			t.Fatalf("checkpoint: %v", err)
+		}
+		duplicates += stats.Duplicates()
+		data, err := os.ReadFile(filepath.Join(out, fmt.Sprintf("%d.warc", i)))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if i < 2 {
+			if !bytes.Contains(data, []byte("WARC-Type: resource")) || !bytes.Contains(data, []byte(strings.Repeat("payload", 500))) {
+				t.Fatal("missing full donor copy")
+			}
+		} else if !bytes.Contains(data, []byte("WARC-Refers-To: <urn:uuid:20add669-b781-4c66-977c-000000000001>")) || !bytes.Contains(data, []byte("WARC-Record-ID: <urn:uuid:20add669-b781-4c66-977c-000000000002>")) {
+			t.Fatal("incorrect revisit IDs")
+		}
+	}
+	if duplicates != 1 {
+		t.Fatalf("duplicate count = %d", duplicates)
+	}
+	if err := executeCaptureCommand(t, "audit", out); err != nil {
+		t.Fatal(err)
+	}
+	database := t.TempDir()
+	for _, conflict := range []bool{false, true} {
+		if conflict {
+			path := filepath.Join(out, "1.warc")
+			raw, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			raw = bytes.Replace(raw, []byte("WARC-Type:"), []byte("X-Additional: different\r\nWARC-Type:"), 1)
+			if err = os.WriteFile(path, raw, 0600); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if err := executeCaptureCommand(t, "index", "--index-format=badger", "--index-dir", database, out); err != nil {
+			t.Fatal(err)
+		}
+		db, err := cdxstore.Open(t.Context(), cdxstore.Options{Format: "badger", Dir: database, ReadOnly: true})
+		if err != nil {
+			t.Fatal(err)
+		}
+		core := coreserver.Handler{Index: db, Loader: &loader.Loader{StorageRefResolver: db, RecordLoader: loader.FileStorageLoader{ValidateSource: db.ValidateArchiveSource}}}
+		router := httprouter.New()
+		for _, route := range core.Routes() {
+			router.Handler(route.Method, route.Path, route.Handler)
+		}
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, httptest.NewRequestWithContext(t.Context(), "GET", "/record/urn:uuid:20add669-b781-4c66-977c-000000000002", nil))
+		testcheck.Close(t, db)
+		if conflict {
+			if w.Code != 500 || !strings.Contains(w.Body.String(), "ambiguous record ID") {
+				t.Fatal(w.Code, w.Body.String())
+			}
+		} else if w.Code != 200 || !strings.Contains(w.Body.String(), strings.Repeat("payload", 500)) {
+			t.Fatal(w.Code, w.Body.String())
+		}
+	}
+
+}
+
 func TestRedupeSymlinkContainment(t *testing.T) {
 	source := t.TempDir()
 	inside := filepath.Join(source, "published")
@@ -1237,6 +1322,38 @@ func TestRedupeSymlinkContainment(t *testing.T) {
 	entries, err := os.ReadDir(inside)
 	if err != nil || len(entries) != 0 {
 		t.Fatalf("published entries %v, %v", entries, err)
+	}
+}
+
+func TestZipIndexCollisionPreservesOutput(t *testing.T) {
+	dir := t.TempDir()
+	name := filepath.Join(dir, "input.zip")
+	var b bytes.Buffer
+	w := zip.NewWriter(&b)
+	for i := range 2 {
+		m, err := w.Create("same.warc")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err = m.Write(resourceBytes(i)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := w.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(name, b.Bytes(), 0600); err != nil {
+		t.Fatal(err)
+	}
+	target := filepath.Join(dir, "index.cdxj")
+	if err := os.WriteFile(target, []byte("previous"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := executeCaptureCommand(t, "index", "--index-file", target, name); err == nil || !strings.Contains(err.Error(), "same.warc") {
+		t.Fatalf("collision: %v", err)
+	}
+	if data, err := os.ReadFile(target); err != nil || string(data) != "previous" {
+		t.Fatalf("published %q, %v", data, err)
 	}
 }
 

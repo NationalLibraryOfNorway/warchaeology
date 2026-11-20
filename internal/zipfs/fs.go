@@ -5,6 +5,7 @@ package zipfs
 
 import (
 	"archive/zip"
+	"fmt"
 	"os"
 	"path"
 	"strings"
@@ -36,16 +37,25 @@ func splitpath(name string) (dir, file string) {
 	return
 }
 
-func New(r *zip.Reader) afero.Fs {
+func New(r *zip.Reader) (*Fs, error) {
 	fs := &Fs{r: r, files: map[string]map[string]*zip.File{"/": {}}}
 	for _, file := range r.File {
 		d, f := splitpath(file.Name)
+		if f == "" && !file.FileInfo().IsDir() {
+			return nil, fmt.Errorf("ZIP file %q conflicts with the root directory", file.Name)
+		}
 		if _, ok := fs.files[d]; !ok {
 			fs.files[d] = make(map[string]*zip.File)
 		}
-		if _, ok := fs.files[d][f]; !ok {
-			fs.files[d][f] = file
+		if prior, exists := fs.files[d][f]; exists {
+			if prior != nil {
+				return nil, fmt.Errorf("conflicting ZIP entries %q and %q", prior.Name, file.Name)
+			}
+			if !file.FileInfo().IsDir() {
+				return nil, fmt.Errorf("ZIP file %q conflicts with a directory", file.Name)
+			}
 		}
+		fs.files[d][f] = file
 		if file.FileInfo().IsDir() {
 			dirname := path.Join(d, f)
 			if _, ok := fs.files[dirname]; !ok {
@@ -64,19 +74,24 @@ func New(r *zip.Reader) afero.Fs {
 			}
 			if _, ok := fs.files[d][f]; !ok {
 				fs.files[d][f] = nil
+			} else if prior := fs.files[d][f]; prior != nil && !prior.FileInfo().IsDir() {
+				return nil, fmt.Errorf("conflicting ZIP entries %q and %q", prior.Name, file.Name)
 			}
 			dv = d
 		}
 	}
-	return fs
+	return fs, nil
 }
 
 // NewWACZ accepts Browsertrix's zero CRC placeholders for stored child WACZs.
 // Nonzero child CRCs and all other members retain normal checksum validation.
-func NewWACZ(r *zip.Reader) afero.Fs {
-	fs := New(r).(*Fs)
+func NewWACZ(r *zip.Reader) (*Fs, error) {
+	fs, err := New(r)
+	if err != nil {
+		return nil, err
+	}
 	fs.allowMissingNestedCRC = true
-	return fs
+	return fs, nil
 }
 
 func (fs *Fs) Create(name string) (afero.File, error) { return nil, syscall.EPERM }

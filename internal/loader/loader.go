@@ -16,7 +16,7 @@ import (
 )
 
 type StorageRefResolver interface {
-	CaptureByID(context.Context, string) (*cdx.Capture, error)
+	CapturesByID(context.Context, string, func(*cdx.Capture) error) error
 }
 
 type RecordLoader interface {
@@ -43,6 +43,33 @@ type WarcRefersToNotFoundError struct {
 
 func (e WarcRefersToNotFoundError) Error() string {
 	return fmt.Sprintf("record referred via WARC-Refers-To not found: %s", e.WarcRefersTo)
+}
+
+func (l *Loader) CaptureByID(ctx context.Context, id string) (*cdx.Capture, error) {
+	var candidates []*cdx.Capture
+	err := l.CapturesByID(ctx, id, func(c *cdx.Capture) error { candidates = append(candidates, c); return nil })
+	if err != nil || len(candidates) == 0 {
+		return nil, err
+	}
+	if len(candidates) > 1 {
+		var first string
+		for i, c := range candidates {
+			record, err := l.RecordLoader.RecordByStorageRef(WithCapture(ctx, c), c.GetRef())
+			if err != nil {
+				return nil, err
+			}
+			fingerprint, err := warcdigest.RecordFingerprint(record)
+			if err = errors.Join(err, record.Close()); err != nil {
+				return nil, err
+			}
+			if i == 0 {
+				first = fingerprint
+			} else if first != fingerprint {
+				return nil, fmt.Errorf("ambiguous record ID %q", id)
+			}
+		}
+	}
+	return candidates[0], nil
 }
 
 func (l *Loader) StorageRefById(ctx context.Context, id string) (string, error) {

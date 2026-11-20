@@ -10,7 +10,6 @@ import (
 	"encoding/json/v2"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -23,6 +22,7 @@ import (
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/filewalker"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/stat"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/timestamp"
+	"github.com/nationallibraryofnorway/warchaeology/v5/internal/warcdigest"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/workerpool"
 	"github.com/spf13/afero"
 )
@@ -255,26 +255,8 @@ func inventoryRecord(rec gowarc.Record, source, path string) (*entry, error) {
 	if b, ok := wr.Block().(gowarc.ProtocolHeaderBlock); ok {
 		e.PayloadLength -= int64(len(b.ProtocolHeaderBytes()))
 	}
-	h := sha256.New()
-	if _, err = fmt.Fprintln(h, wr.Version().String()); err != nil {
-		return nil, err
-	}
-	data, err := json.Marshal(wr.WarcHeader())
-	if err != nil {
-		return nil, err
-	}
-	if _, err = h.Write(data); err != nil {
-		return nil, err
-	}
-	raw, err := wr.Block().RawBytes()
-	if err != nil {
-		return nil, err
-	}
-	if _, err = io.Copy(h, raw); err != nil {
-		return nil, err
-	}
-	e.Fingerprint = hex.EncodeToString(h.Sum(nil))
-	return e, nil
+	e.Fingerprint, err = warcdigest.RecordFingerprint(wr)
+	return e, err
 }
 
 func (o *RedupeOptions) checkSources(ctx context.Context) error {
