@@ -4,7 +4,9 @@
 package index
 
 import (
+	"crypto/sha256"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 
@@ -16,6 +18,7 @@ type FileIndex struct {
 	dir       string
 	db        *badger.DB
 	keepIndex bool
+	keyPrefix string
 }
 
 func NewFileIndex(indexDir string, keepIndex, newIndex bool) (*FileIndex, error) {
@@ -41,10 +44,17 @@ func NewFileIndex(indexDir string, keepIndex, newIndex bool) (*FileIndex, error)
 	return idx, nil
 }
 
+// SetValidationProfile restricts cache hits to the validation settings used
+// to compute the stored statistics. Configure it before submitting workers.
+func (idx *FileIndex) SetValidationProfile(profile string) {
+	digest := sha256.Sum256([]byte(profile))
+	idx.keyPrefix = fmt.Sprintf("\x00validate-v1/%x/", digest)
+}
+
 func (idx *FileIndex) GetFileStats(key string) (result stat.Result, err error) {
 	err = runWithConflictRetry(func() error {
 		return idx.db.View(func(txn *badger.Txn) error {
-			item, err := txn.Get([]byte(key))
+			item, err := txn.Get([]byte(idx.keyPrefix + key))
 			if err != nil {
 				return err
 			}
@@ -64,13 +74,13 @@ func (idx *FileIndex) SaveFileStats(key string, result stat.Result) error {
 	err := runWithConflictRetry(func() error {
 		return idx.db.Update(func(txn *badger.Txn) error {
 			if result == nil {
-				return txn.Delete([]byte(key))
+				return txn.Delete([]byte(idx.keyPrefix + key))
 			}
 			val, err := result.MarshalBinary()
 			if err != nil {
 				return err
 			}
-			return txn.Set([]byte(key), val)
+			return txn.Set([]byte(idx.keyPrefix+key), val)
 		})
 	})
 	return err

@@ -22,6 +22,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/nationallibraryofnorway/warchaeology/v5/cmd/validate"
 	cdx "github.com/nationallibraryofnorway/warchaeology/v5/internal/cdx"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/cdxstore"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/filewalker"
@@ -126,6 +127,25 @@ func TestCaptureCommandValidation(t *testing.T) {
 			}
 		})
 	}
+}
+
+func openCommandCheckpoints(t *testing.T, command, dir string) *index.FileIndex {
+	t.Helper()
+	if command == "validate" {
+		flags := validate.NewValidateFlags()
+		options, err := flags.ToOptions()
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { testcheck.Close(t, options) })
+		return options.FileIndex
+	}
+	files, err := index.NewFileIndex(dir, true, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { testcheck.Close(t, files) })
+	return files
 }
 
 func executeCaptureCommand(t *testing.T, args ...string) error {
@@ -637,11 +657,8 @@ func TestMountedConversionCheckpoints(t *testing.T) {
 				t.Fatal(err)
 			}
 		}
-		db, err := index.NewFileIndex(work, true, false)
-		if err != nil {
-			t.Fatal(err)
-		}
-		defer testcheck.Close(t, db)
+		db := openCommandCheckpoints(t, command[0], work)
+
 		for _, input := range inputs {
 			key, err := filewalker.MemberLocator([]string{input}, "/archive/shared.warc")
 			if err != nil {
@@ -842,11 +859,8 @@ func TestFullFileCoverageAndRetry(t *testing.T) {
 					t.Fatalf("incomplete retry output: %v", err)
 				}
 			}
-			files, err := index.NewFileIndex(work, true, false)
-			if err != nil {
-				t.Fatal(err)
-			}
-			defer testcheck.Close(t, files)
+			files := openCommandCheckpoints(t, command, work)
+
 			result, err := files.GetFileStats(source)
 			if err != nil || result == nil || result.Records() != 2 {
 				t.Fatalf("checkpoint = %v, %v", result, err)
@@ -910,11 +924,8 @@ func TestContinuePastBadArchives(t *testing.T) {
 				}
 				return
 			}
-			files, err := index.NewFileIndex(work, true, false)
-			if err != nil {
-				t.Fatal(err)
-			}
-			defer testcheck.Close(t, files)
+			files := openCommandCheckpoints(t, name, work)
+
 			r, err := files.GetFileStats(good)
 			if err != nil || r == nil || r.Records() != 1 {
 				t.Fatalf("good input = %v, %v", r, err)
@@ -1135,6 +1146,56 @@ func TestDedupDiscardsIncompleteIdentity(t *testing.T) {
 	}
 	if err = executeCaptureCommand(t, "audit", out); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestForcedCommandsReachLastMember(t *testing.T) {
+	var compressed bytes.Buffer
+	for i := 1; i <= 3; i++ {
+		record := resourceBytes(i)
+		if i == 2 {
+			record = bytes.Replace(record, []byte("WARC-Type: resource"), []byte("WARC-Type: unknown"), 1)
+		}
+		z := gzip.NewWriter(&compressed)
+		if _, err := z.Write(record); err != nil {
+			t.Fatal(err)
+		}
+		if err := z.Close(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	src := filepath.Join(t.TempDir(), "input.warc.gz")
+	if err := os.WriteFile(src, compressed.Bytes(), 0600); err != nil {
+		t.Fatal(err)
+	}
+	for _, command := range []string{"convert", "validate"} {
+		idx := t.TempDir()
+		args := []string{command}
+		out := t.TempDir()
+		if command == "convert" {
+			args = append(args, "warc", "--one-to-one", "--compress=false", "--output-dir", out, "--min-disk-free=0")
+		}
+		args = append(args, "--strict", "--force", "--keep-index", "--index-dir", idx, src)
+		if err := executeCaptureCommand(t, args...); err != nil {
+			t.Fatal(err)
+		}
+		if command == "convert" {
+			data, err := os.ReadFile(filepath.Join(out, "input.warc"))
+			if err != nil || !bytes.Contains(data, []byte("https://example.org/3")) {
+				t.Fatalf("last record missing: %v", err)
+			}
+		}
+		files := openCommandCheckpoints(t, command, idx)
+		r, err := files.GetFileStats(src)
+		testcheck.Close(t, files)
+		if command == "validate" {
+			if err := executeCaptureCommand(t, "validate", "--strict", "--keep-index", "--index-dir", idx, src); err == nil {
+				t.Fatal("strict retry accepted malformed member")
+			}
+		}
+		if err != nil || r == nil || r.Records() != 2 {
+			t.Fatalf("%s checkpoint %v, %v", command, r, err)
+		}
 	}
 }
 

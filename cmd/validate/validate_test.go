@@ -34,7 +34,7 @@ func TestValidateFile(t *testing.T) {
 				outputDir: t.TempDir(),
 			}
 
-			results, err := options.handleFile(afero.NewOsFs(), tt.name)
+			results, err := options.handleFile(t.Context(), afero.NewOsFs(), tt.name)
 			if err != nil && !errors.Is(err, tt.err) {
 				t.Fatalf("expected error %T: %v, got %T: %v", tt.err, tt.err, err, err)
 			}

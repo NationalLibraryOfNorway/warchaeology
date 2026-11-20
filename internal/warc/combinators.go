@@ -5,15 +5,50 @@ package warc
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"io"
 	"iter"
+	"log/slog"
 	"strings"
 
 	"github.com/nationallibraryofnorway/gowarc/v3"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/filter"
 )
+
+// Records skips recoverable read failures before record selection.
+func Records(ctx context.Context, reader *gowarc.WarcFileReader, force bool, path string) iter.Seq2[gowarc.Record, error] {
+	if !force {
+		return reader.Records()
+	}
+	return func(yield func(gowarc.Record, error) bool) {
+		var last int64 = -1
+		for {
+			if err := ctx.Err(); err != nil {
+				yield(gowarc.Record{}, err)
+				return
+			}
+			rec, err := reader.Next()
+			if err == io.EOF {
+				return
+			}
+			if err != nil {
+				closeErr := rec.Close()
+				if closeErr != nil || rec.Offset <= last {
+					yield(rec, errors.Join(err, closeErr))
+					return
+				}
+				slog.Warn("Skipping malformed record", "path", path, "offset", rec.Offset, "error", err)
+				last = rec.Offset
+				continue
+			}
+			if !yield(rec, nil) {
+				return
+			}
+		}
+	}
+}
 
 func Filter(seq iter.Seq2[gowarc.Record, error], accept func(gowarc.Record) bool) iter.Seq2[gowarc.Record, error] {
 	if accept == nil {

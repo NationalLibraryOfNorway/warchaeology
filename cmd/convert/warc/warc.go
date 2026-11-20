@@ -4,9 +4,9 @@
 package warc
 
 import (
+	"context"
 	"errors"
 	"fmt"
-	"log/slog"
 
 	"github.com/nationallibraryofnorway/gowarc/v3"
 	"github.com/nationallibraryofnorway/warchaeology/v5/cmd/convert/internal/conversion"
@@ -218,26 +218,23 @@ func (o *ConvertWarcOptions) Run() error {
 	return runner.Run(o.Paths, o.handleFile)
 }
 
-func (o *ConvertWarcOptions) handleFile(fs afero.Fs, path string, getWriter conversion.GetWriter) (result stat.Result, resultErr error) {
+func (o *ConvertWarcOptions) handleFile(ctx context.Context, fs afero.Fs, path string, getWriter conversion.GetWriter) (result stat.Result, resultErr error) {
 	file, err := fs.Open(path)
 	if err != nil {
 		return nil, err
 	}
-	defer func() { _ = file.Close() }()
 
 	warcFileReader, err := gowarc.NewWarcFileReaderFromStream(file, o.Offset, o.WarcRecordOptions...)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create warc file reader: %w", err)
+		return nil, fmt.Errorf("failed to create warc file reader: %w", errors.Join(err, file.Close()))
 	}
-	defer func() { _ = warcFileReader.Close() }()
+	defer func() { resultErr = errors.Join(resultErr, warcFileReader.Close()) }()
 
 	var writer *gowarc.WarcFileWriter
 
 	result = stat.NewResult(path)
 
-	var lastOffset int64 = -1
-
-	raw := warcFileReader.Records()
+	raw := warc.Records(ctx, warcFileReader, o.Force, path)
 	if !o.Force && o.Offset == 0 && o.RecordNum <= 0 && o.RecordCount <= 0 {
 		info, err := file.Stat()
 		if err != nil {
@@ -248,12 +245,6 @@ func (o *ConvertWarcOptions) handleFile(fs afero.Fs, path string, getWriter conv
 	records := warc.Compose(raw, nil, o.RecordNum, o.RecordCount)
 	for record, err := range records {
 		if err != nil {
-			// When forcing, avoid infinite loop by ensuring the iterator moves forward
-			if o.Force && lastOffset != record.Offset {
-				slog.Warn(err.Error(), "offset", record.Offset, "path", path)
-				lastOffset = record.Offset
-				continue
-			}
 			return result, warc.ErrorFrom(record, err)
 		}
 

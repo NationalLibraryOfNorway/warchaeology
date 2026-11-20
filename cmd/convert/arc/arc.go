@@ -4,6 +4,7 @@
 package arc
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -224,7 +225,7 @@ func (o *ConvertArcOptions) Run() error {
 	return runner.Run(o.Paths, o.handleFile)
 }
 
-func (o *ConvertArcOptions) handleFile(fs afero.Fs, fileName string, getWriter conversion.GetWriter) (result stat.Result, resultErr error) {
+func (o *ConvertArcOptions) handleFile(ctx context.Context, fs afero.Fs, fileName string, getWriter conversion.GetWriter) (result stat.Result, resultErr error) {
 	result = stat.NewResult(fileName)
 
 	arcFileReader, err := arcreader.NewArcFileReader(fs, fileName, 0, o.WarcRecordOptions...)
