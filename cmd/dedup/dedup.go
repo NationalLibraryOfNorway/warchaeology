@@ -485,12 +485,20 @@ func (o *DedupOptions) handleFile(fs afero.Fs, path string) (result stat.Result,
 		}()
 	}
 
+	info, err := file.Stat()
+	if err != nil {
+		return result, err
+	}
+	var coverage warc.Coverage
 	records := warc.Compose(warcReader.Records(), nil, 0, 0)
 	for record, err := range records {
 		if err != nil {
 			return result, warc.ErrorFrom(record, err)
 		}
 
+		if e := coverage.Add(file, record); e != nil {
+			return result, errors.Join(e, record.Close())
+		}
 		if writer == nil || !o.WarcWriterConfig.OneToOneWriter {
 			warcDate, err := record.WarcRecord.WarcHeader().GetTime(gowarc.WarcDate)
 			if err != nil {
@@ -507,7 +515,7 @@ func (o *DedupOptions) handleFile(fs afero.Fs, path string) (result stat.Result,
 		}
 	}
 
-	return result, nil
+	return result, coverage.Finish(file, info.Size())
 }
 
 func (o *DedupOptions) handleRecord(writer *gowarc.WarcFileWriter, record gowarc.Record, result stat.Result) (resultErr error) {
