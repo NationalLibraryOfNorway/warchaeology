@@ -312,19 +312,20 @@ func (w *WarcWriterConfig) GetWarcWriterContext(ctx context.Context, path string
 		if err != nil {
 			return nil, err
 		}
+		state := &identityState{release: release}
 		openHook := w.openOutputFileHook.WithSrcFileName(path)
 		closeHook := w.closeOutputFileHook.WithSrcFileName(path)
 		opts := make([]gowarc.WarcFileWriterOption, 0, len(w.WarcFileWriterOptions)+3)
 		opts = append(opts, w.WarcFileWriterOptions...)
 		opts = append(opts,
 			gowarc.WithFileNameGenerator(namer),
-			gowarc.WithBeforeFileCreationHook(func(name string) error { return w.recordHookError(openHook.RunContext(ctx, name)) }),
+			gowarc.WithBeforeFileCreationHook(func(name string) error { return state.record(openHook.RunContext(ctx, name)) }),
 			gowarc.WithAfterFileCreationHook(func(name string, size int64, id string) error {
-				return w.recordHookError(closeHook.RunContext(ctx, name, size, id))
+				return state.record(closeHook.RunContext(ctx, name, size, id))
 			}),
 		)
 		ww = gowarc.NewWarcFileWriter(opts...)
-		w.reservations.Store(ww, release)
+		w.reservations.Store(ww, state)
 		return ww, nil
 	}
 
@@ -409,10 +410,28 @@ func (w *WarcWriterConfig) recordHookError(err error) error {
 	return err
 }
 
+type identityState struct {
+	release func() error
+	mu      sync.Mutex
+	err     error
+}
+
+func (s *identityState) record(err error) error {
+	if err != nil {
+		s.mu.Lock()
+		s.err = errors.Join(s.err, err)
+		s.mu.Unlock()
+	}
+	return err
+}
+
 func (w *WarcWriterConfig) FinishIdentity(writer *gowarc.WarcFileWriter) error {
 	err := FinalizeWriter(writer)
 	if release, ok := w.reservations.LoadAndDelete(writer); ok {
-		err = errors.Join(err, release.(func() error)())
+		state := release.(*identityState)
+		state.mu.Lock()
+		err = errors.Join(err, state.err, state.release())
+		state.mu.Unlock()
 	}
 	return err
 }

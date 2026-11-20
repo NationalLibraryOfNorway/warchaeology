@@ -836,6 +836,29 @@ func TestFullFileCoverageAndRetry(t *testing.T) {
 	}
 }
 
+func TestIdentityRetryAfterMissingInput(t *testing.T) {
+	dir, out := t.TempDir(), t.TempDir()
+	first, second := filepath.Join(dir, "one.warc"), filepath.Join(dir, "two.warc")
+	if err := os.WriteFile(first, resourceBytes(1), 0600); err != nil {
+		t.Fatal(err)
+	}
+	args := []string{"convert", "warc", "--one-to-one", "--keep-index", "--compress=false", "--min-disk-free=0", "--index-dir", t.TempDir(), "--output-dir", out, first, second}
+	if err := executeCaptureCommand(t, args...); err == nil {
+		t.Fatal("missing input accepted")
+	}
+	if err := os.WriteFile(second, resourceBytes(2), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := executeCaptureCommand(t, args...); err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range []string{first, second} {
+		if _, err := os.Stat(filepath.Join(out, filepath.Base(path))); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
 func TestServeReturnsQueuedIngestionFailure(t *testing.T) {
 	dir := t.TempDir()
 	for i := range 5 {
@@ -850,6 +873,38 @@ func TestServeReturnsQueuedIngestionFailure(t *testing.T) {
 	err := executeCaptureCommand(t, "serve", "--address=127.0.0.1:0", "--concurrency=1", "--index-dir", t.TempDir(), dir)
 	if err == nil || !strings.Contains(err.Error(), "incomplete archive") {
 		t.Fatalf("serve = %v", err)
+	}
+}
+
+func TestIdentityCheckpointIsolatesHookFailure(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("uses a shell hook")
+	}
+	dir, work := t.TempDir(), t.TempDir()
+	hook := filepath.Join(dir, "close-hook")
+	if err := os.WriteFile(hook, []byte("#!/bin/sh\ncase \"$WARC_SRC_FILE_NAME\" in */bad.warc) exit 1;; esac\n"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	good, bad := filepath.Join(dir, "good.warc"), filepath.Join(dir, "bad.warc")
+	for i, path := range []string{good, bad} {
+		if err := os.WriteFile(path, resourceBytes(i), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	err := executeCaptureCommand(t, "convert", "warc", "--one-to-one", "--keep-index", "--continue-on-error", "--concurrency=2", "--index-dir", work, "--output-dir", t.TempDir(), "--min-disk-free=0", "--close-output-file-hook", hook, good, bad)
+	if err == nil {
+		t.Fatal("accepted failed hook")
+	}
+	files, err := index.NewFileIndex(work, true, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer testcheck.Close(t, files)
+	for _, path := range []string{good, bad} {
+		r, err := files.GetFileStats(path)
+		if err != nil || (r != nil) != (path == good) {
+			t.Fatalf("%s checkpoint = %v, %v", path, r, err)
+		}
 	}
 }
 
