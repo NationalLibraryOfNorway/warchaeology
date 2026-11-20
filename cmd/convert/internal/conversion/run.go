@@ -132,7 +132,7 @@ func (o RunOptions) process(ctx context.Context, fs afero.Fs, path string, handl
 }
 
 type GetWriter func(string, time.Time) (*gowarc.WarcFileWriter, error)
-type FileHandler func(afero.Fs, string, GetWriter) (stat.Result, error)
+type FileHandler func(context.Context, afero.Fs, string, GetWriter) (stat.Result, error)
 
 // ConvertFile scopes publication to one input, including its input hooks.
 func (o RunOptions) ConvertFile(ctx context.Context, fs afero.Fs, path string, handle FileHandler) (stat.Result, error) {
@@ -143,7 +143,7 @@ func (o RunOptions) ConvertFile(ctx context.Context, fs afero.Fs, path string, h
 		return writer, err
 	}
 	result, err := filewalker.PrePostHookContext(ctx, fs, path, o.Open, o.Close, func(fs afero.Fs, path string) (stat.Result, error) {
-		return handle(fs, path, get)
+		return handle(ctx, fs, path, get)
 	})
 	if finish != nil {
 		err = errors.Join(err, ctx.Err())

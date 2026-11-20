@@ -5,6 +5,7 @@ package validate
 
 import (
 	"context"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -147,6 +148,13 @@ func (f ValidateFlags) ToOptions() (_ *ValidateOptions, err error) {
 		if err != nil {
 			return nil, fmt.Errorf("failed to create file index: %w", err)
 		}
+		profile, err := json.Marshal([]any{o.force, o.recordNum, o.recordCount, o.offset, o.hashFunction,
+			f.WarcRecordOptionFlags.StrictValidation(), f.WarcRecordOptionFlags.LenientValidation(), f.WarcRecordOptionFlags.LaxHostParsing(),
+			f.FilterFlags.ResponseCode(), f.FilterFlags.RecordId(), f.FilterFlags.RecordType(), f.FilterFlags.MimeType()})
+		if err != nil {
+			return nil, err
+		}
+		o.FileIndex.SetValidationProfile(string(profile))
 	}
 
 	o.FileWalker, err = f.FileWalkerFlags.ToFileWalker()
@@ -250,7 +258,7 @@ func (o *ValidateOptions) Run() (runErr error) {
 
 	return o.FileWalker.WalkInputs(ctx, o.paths, o.continueOnError, func(fs afero.Fs, path string) error {
 		return workerPool.Submit(func() {
-			result, err := filewalker.Preposterous(fs, path, o.openInputFileHook, o.closeInputFileHook, o.FileIndex, o.handleFile)
+			result, err := filewalker.Preposterous(fs, path, o.openInputFileHook, o.closeInputFileHook, o.FileIndex, func(fs afero.Fs, path string) (stat.Result, error) { return o.handleFile(ctx, fs, path) })
 			if errors.Is(err, filewalker.ErrSkipFile) {
 				return
 			} else if err != nil {
@@ -268,7 +276,7 @@ func (o *ValidateOptions) Run() (runErr error) {
 	})
 }
 
-func (o *ValidateOptions) handleFile(fs afero.Fs, path string) (stat.Result, error) {
+func (o *ValidateOptions) handleFile(ctx context.Context, fs afero.Fs, path string) (stat.Result, error) {
 	result := stat.NewResult(path)
 
 	file, err := fs.Open(path)
@@ -288,9 +296,7 @@ func (o *ValidateOptions) handleFile(fs afero.Fs, path string) (stat.Result, err
 	}
 	defer func() { _ = warcFileReader.Close() }()
 
-	var lastOffset int64 = -1
-
-	raw := warcFileReader.Records()
+	raw := warc.Records(ctx, warcFileReader, o.force, path)
 	if !o.force && o.offset == 0 && o.recordNum <= 0 && o.recordCount <= 0 {
 		info, err := file.Stat()
 		if err != nil {
@@ -301,12 +307,6 @@ func (o *ValidateOptions) handleFile(fs afero.Fs, path string) (stat.Result, err
 	records := warc.Compose(raw, o.filter, o.recordNum, o.recordCount)
 	for record, err := range records {
 		if err != nil {
-			// When forcing, avoid infinite loop by ensuring the iterator moves forward
-			if o.force && lastOffset != record.Offset {
-				slog.Warn(err.Error(), "offset", record.Offset, "path", path)
-				lastOffset = record.Offset
-				continue
-			}
 			return result, warc.ErrorFrom(record, err)
 		}
 

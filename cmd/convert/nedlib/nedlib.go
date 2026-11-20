@@ -4,6 +4,7 @@
 package nedlib
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -209,7 +210,7 @@ func (o *ConvertNedlibOptions) Run() error {
 	return runner.Run(o.Paths, o.handleFile)
 }
 
-func (o *ConvertNedlibOptions) handleFile(fs afero.Fs, fileName string, getWriter conversion.GetWriter) (result stat.Result, resultErr error) {
+func (o *ConvertNedlibOptions) handleFile(ctx context.Context, fs afero.Fs, fileName string, getWriter conversion.GetWriter) (result stat.Result, resultErr error) {
 	result = stat.NewResult(fileName)
 
 	nedlibReader, err := nedlibreader.NewNedlibReader(fs, fileName, o.WarcWriterConfig.DefaultTime, o.WarcRecordOptions...)
