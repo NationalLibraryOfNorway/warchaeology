@@ -4,7 +4,7 @@
 package ls
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"io"
 	"regexp"

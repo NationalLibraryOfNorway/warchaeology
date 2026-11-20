@@ -4,8 +4,8 @@
 package zipnum
 
 import (
-	"encoding/json"
-	"fmt"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"io"
 	"os"
 	"path/filepath"
@@ -42,7 +42,7 @@ func writeMetadata(m meta, path string) (err error) {
 	if err != nil {
 		return err
 	}
-	err = json.NewEncoder(f).Encode(m)
+	err = json.MarshalEncode(jsontext.NewEncoder(f), m)
 	if err == nil {
 		err = syncFile(f)
 	}
@@ -65,18 +65,6 @@ func (z *zipnum) writeMetadata(start time.Time, sources []string) error {
 
 // decodeMetadata rejects unknown fields and trailing JSON values.
 func decodeMetadata(r io.Reader) (m meta, err error) {
-	decoder := json.NewDecoder(r)
-	decoder.DisallowUnknownFields()
-	err = decoder.Decode(&m)
-	if err == nil {
-		var trailing any
-		if trailingErr := decoder.Decode(&trailing); trailingErr != io.EOF {
-			if trailingErr == nil {
-				err = fmt.Errorf("metadata contains multiple JSON values")
-			} else {
-				err = trailingErr
-			}
-		}
-	}
+	err = json.UnmarshalRead(r, &m, json.RejectUnknownMembers(true))
 	return m, err
 }

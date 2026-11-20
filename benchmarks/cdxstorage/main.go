@@ -10,7 +10,8 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"flag"
 	"fmt"
 	"os"
@@ -382,7 +383,7 @@ func main() {
 	}
 	q := time.Since(start).Seconds() / 100
 	e.close()
-	check(json.NewEncoder(os.Stdout).Encode(map[string]any{
+	check(json.MarshalEncode(jsontext.NewEncoder(os.Stdout), map[string]any{
 		"order":              *order,
 		"generation_seconds": generationSeconds,
 		"engine":             *name,
