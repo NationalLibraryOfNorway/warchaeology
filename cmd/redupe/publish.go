@@ -7,7 +7,8 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"io"
@@ -49,9 +50,8 @@ func writeJSON(path string, value any) (err error) {
 		return err
 	}
 	defer func() { _ = os.Remove(f.Name()) }()
-	encoder := json.NewEncoder(f)
-	encoder.SetIndent("", "  ")
-	err = encoder.Encode(value)
+	encoder := jsontext.NewEncoder(f, jsontext.WithIndent("  "))
+	err = json.MarshalEncode(encoder, value)
 	err = errors.Join(err, f.Sync(), f.Close())
 	if err != nil {
 		return err
@@ -144,7 +144,7 @@ func (o *RedupeOptions) publishPeriod(ctx context.Context, ordered, output, y st
 			err = errors.Join(err, manifest.Close())
 		}
 	}()
-	encoder := json.NewEncoder(manifest)
+	encoder := jsontext.NewEncoder(manifest)
 	err = orderedRecords(ordered, func(ref string) error {
 		if err := ctx.Err(); err != nil {
 			return err
@@ -166,7 +166,7 @@ func (o *RedupeOptions) publishPeriod(ctx context.Context, ordered, output, y st
 		if err != nil {
 			return err
 		}
-		return encoder.Encode(manifestEntry{p, loc, e.Fingerprint})
+		return json.MarshalEncode(encoder, manifestEntry{p, loc, e.Fingerprint})
 	})
 	if err != nil {
 		return err

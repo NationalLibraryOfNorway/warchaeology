@@ -7,7 +7,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"io"
@@ -30,12 +30,12 @@ import (
 const invalidRevisitDate = "invalid revisit target date"
 
 type entry struct {
-	Audit         *auditEvidence `json:"audit,omitempty"`
+	Audit         *auditEvidence `json:"audit,omitzero"`
 	Capture       *cdx.Capture   `json:"capture"`
 	Fingerprint   string         `json:"fingerprint"`
 	Profile       string         `json:"profile,omitempty"`
-	Truncated     bool           `json:"truncated,omitempty"`
-	Segmented     bool           `json:"segmented,omitempty"`
+	Truncated     bool           `json:"truncated,omitzero"`
+	Segmented     bool           `json:"segmented,omitzero"`
 	PayloadLength int64          `json:"payloadLength"`
 	Context       []string       `json:"context,omitempty"`
 	Issue         string         `json:"issue,omitempty"`

@@ -9,7 +9,8 @@ import (
 	"context"
 	"crypto/sha1"
 	"encoding/base32"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"io"
@@ -123,10 +124,10 @@ func readManifest(t *testing.T, dir, y string) []manifestEntry {
 	}
 	defer testcheck.Close(t, f)
 	var entries []manifestEntry
-	decoder := json.NewDecoder(f)
+	decoder := jsontext.NewDecoder(f)
 	for {
 		var e manifestEntry
-		err := decoder.Decode(&e)
+		err := json.UnmarshalDecode(decoder, &e)
 		if errors.Is(err, io.EOF) {
 			break
 		}

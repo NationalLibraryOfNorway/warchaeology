@@ -10,7 +10,8 @@ import (
 	"crypto/sha256"
 	"crypto/sha512"
 	"encoding/hex"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"io"
@@ -39,7 +40,7 @@ func (e *missingTarget) target() string {
 }
 
 type auditEvidence struct {
-	BlockVerified bool              `json:"blockVerified,omitempty"`
+	BlockVerified bool              `json:"blockVerified,omitzero"`
 	Header        string            `json:"header,omitempty"`
 	Payload       map[string]string `json:"payload,omitempty"`
 	Declared      string            `json:"declared,omitempty"`
@@ -335,7 +336,7 @@ func (a *collection) writeReport(w io.Writer) error {
 	if _, err := io.WriteString(w, "{\"summary\":"); err != nil {
 		return err
 	}
-	if err := json.NewEncoder(w).Encode(a.summary); err != nil {
+	if err := json.MarshalEncode(jsontext.NewEncoder(w), a.summary); err != nil {
 		return err
 	}
 	if _, err := io.WriteString(w, ",\"records\":["); err != nil {

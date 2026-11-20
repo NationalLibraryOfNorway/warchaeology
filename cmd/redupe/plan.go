@@ -8,7 +8,8 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/warcdigest"
@@ -144,7 +145,7 @@ func (o *RedupeOptions) Run(ctx context.Context) (err error) {
 		if o.ReportPath != "" {
 			err = errors.Join(err, writeJSON(o.ReportPath, o.report))
 		} else if o.reportWriter != nil {
-			err = errors.Join(err, json.NewEncoder(o.reportWriter).Encode(o.report))
+			err = errors.Join(err, json.MarshalEncode(jsontext.NewEncoder(o.reportWriter), o.report))
 		}
 	}()
 	if err = o.open(ctx); err != nil {
@@ -155,7 +156,7 @@ func (o *RedupeOptions) Run(ctx context.Context) (err error) {
 		return err
 	}
 	h := sha256.New()
-	config, err := json.Marshal(o.configuration)
+	config, err := json.Marshal(o.configuration, json.Deterministic(true))
 	if err != nil {
 		return err
 	}
@@ -169,7 +170,7 @@ func (o *RedupeOptions) Run(ctx context.Context) (err error) {
 				}
 				e.Capture.Generation = ""
 				var err error
-				data, err = json.Marshal(e)
+				data, err = json.Marshal(e, json.Deterministic(true))
 				if err != nil {
 					return err
 				}
@@ -576,7 +577,7 @@ func (o *RedupeOptions) reportDependencies(y string, chain []*entry) error {
 func (o *RedupeOptions) addFinding(y string, f Finding) error {
 	o.report.FindingCount++
 	if o.findings != nil {
-		if err := json.NewEncoder(o.findings).Encode(struct {
+		if err := json.MarshalEncode(jsontext.NewEncoder(o.findings), struct {
 			Finding
 
 			Period string `json:"period,omitempty"`

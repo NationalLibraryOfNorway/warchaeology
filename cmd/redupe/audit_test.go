@@ -6,7 +6,7 @@ package redupe
 import (
 	"bytes"
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"github.com/nationallibraryofnorway/gowarc/v3"
 	"os"
 	"path/filepath"
@@ -38,8 +38,8 @@ func TestCollectionAudit(t *testing.T) {
 		t.Fatal("missing donor passed")
 	}
 	var report struct {
-		Summary auditSummary
-		Records []auditFinding
+		Summary auditSummary   `json:"summary"`
+		Records []auditFinding `json:"records"`
 	}
 	if err := json.Unmarshal(out.Bytes(), &report); err != nil {
 		t.Fatal(err)
@@ -149,7 +149,9 @@ func TestAuditIncomplete(t *testing.T) {
 	if err := (auditOptions{}).run(context.Background(), root, &out); err == nil {
 		t.Fatal("incomplete audit passed")
 	}
-	var r struct{ Summary auditSummary }
+	var r struct {
+		Summary auditSummary `json:"summary"`
+	}
 	if err := json.Unmarshal(out.Bytes(), &r); err != nil {
 		t.Fatal(err)
 	}
@@ -169,7 +171,9 @@ func TestAuditCandidateIsNeverSubstituted(t *testing.T) {
 	if err := (auditOptions{repair: dst}).run(context.Background(), root, &out); err == nil {
 		t.Fatal("digest-only repair accepted")
 	}
-	var r struct{ Summary auditSummary }
+	var r struct {
+		Summary auditSummary `json:"summary"`
+	}
 	if err := json.Unmarshal(out.Bytes(), &r); err != nil {
 		t.Fatal(err)
 	}
@@ -202,8 +206,8 @@ func TestAuditMalformedRevisitDate(t *testing.T) {
 		t.Fatal("certified invalid revisit")
 	}
 	var report struct {
-		Summary auditSummary
-		Records []auditFinding
+		Summary auditSummary   `json:"summary"`
+		Records []auditFinding `json:"records"`
 	}
 	if err := json.Unmarshal(out.Bytes(), &report); err != nil {
 		t.Fatal(err)
