@@ -7,7 +7,8 @@ package captures
 import (
 	"compress/gzip"
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"io"
@@ -202,8 +203,8 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case route == "/packages" && r.Method == http.MethodGet:
 		w.Header().Set("Content-Type", "application/x-ndjson")
 		w.Header().Set("Trailer", "X-Packages-Error")
-		encoder := json.NewEncoder(w)
-		err := db.ListPackages(r.Context(), func(p cdxstore.PackageInfo) error { return encoder.Encode(p) })
+		encoder := jsontext.NewEncoder(w)
+		err := db.ListPackages(r.Context(), func(p cdxstore.PackageInfo) error { return json.MarshalEncode(encoder, p) })
 		if err != nil {
 			w.Header().Set("X-Packages-Error", err.Error())
 		}
@@ -240,7 +241,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 func writeJSON(w http.ResponseWriter, v any) {
 	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(v); err != nil {
+	if err := json.MarshalEncode(jsontext.NewEncoder(w), v); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 	}
 }
@@ -337,7 +338,7 @@ func (h *Handler) upload(w http.ResponseWriter, r *http.Request, db *cdxstore.DB
 				return err
 			}
 		}
-		return json.NewEncoder(report).Encode(rejection)
+		return json.MarshalEncode(jsontext.NewEncoder(report), rejection)
 	}
 	result, err := db.Upload(ctx, reader, o)
 	if report != nil {

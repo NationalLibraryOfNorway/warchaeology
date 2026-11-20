@@ -6,7 +6,8 @@ package serve
 import (
 	"bytes"
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -299,13 +300,14 @@ func TestNativeEscapedCaptures(t *testing.T) {
 			t.Errorf("replayed %q", body)
 		}
 	}
-	ids := json.NewDecoder(strings.NewReader(get("/id")))
-	for ids.More() {
+	ids := jsontext.NewDecoder(strings.NewReader(get("/id")))
+	for ids.PeekKind() != 0 {
 		var row struct {
-			ID, Filename string
-			Offset       int
+			ID       string `json:"id"`
+			Filename string `json:"filename"`
+			Offset   int    `json:"offset"`
 		}
-		if err := ids.Decode(&row); err != nil {
+		if err := json.UnmarshalDecode(ids, &row); err != nil {
 			t.Fatal(err)
 		}
 		offset, ok := offsets[row.ID]

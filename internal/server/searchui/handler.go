@@ -6,7 +6,8 @@ package searchui
 
 import (
 	"embed"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"io/fs"
 	"net/http"
 	"strconv"
@@ -28,10 +29,10 @@ func New(index *fulltext.Index, synchronizers ...*fulltext.Synchronizer) http.Ha
 	mux.HandleFunc("GET /search/status", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		if syncer == nil {
-			_ = json.NewEncoder(w).Encode(map[string]bool{"enabled": index != nil})
+			_ = json.MarshalEncode(jsontext.NewEncoder(w), map[string]bool{"enabled": index != nil})
 			return
 		}
-		_ = json.NewEncoder(w).Encode(map[string]any{"enabled": index != nil, "indexing": syncer.Status()})
+		_ = json.MarshalEncode(jsontext.NewEncoder(w), map[string]any{"enabled": index != nil, "indexing": syncer.Status()})
 	})
 	mux.HandleFunc("GET /search", func(w http.ResponseWriter, r *http.Request) {
 		if index == nil {
@@ -97,7 +98,7 @@ func New(index *fulltext.Index, synchronizers ...*fulltext.Synchronizer) http.Ha
 			http.Error(w, "timeline unavailable", http.StatusServiceUnavailable)
 			return
 		}
-		_ = json.NewEncoder(w).Encode(map[string]any{
+		_ = json.MarshalEncode(jsontext.NewEncoder(w), map[string]any{
 			"hits":          result.Hits,
 			"totalEstimate": result.Total,
 			"timeline":      timeline,

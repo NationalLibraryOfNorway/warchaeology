@@ -6,7 +6,8 @@ package coreserver
 import (
 	"bytes"
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"io"
@@ -81,9 +82,9 @@ func (h Handler) debug(w http.ResponseWriter, r *http.Request) {
 		slog.Debug("Found items", "count", count, "duration", time.Since(start))
 	}()
 
-	enc := json.NewEncoder(w)
+	enc := jsontext.NewEncoder(w)
 	for res := range response {
-		err = enc.Encode(res)
+		err = json.MarshalEncode(enc, res)
 		if err != nil {
 			slog.Warn("Failed to marshal result", "error", err)
 			continue

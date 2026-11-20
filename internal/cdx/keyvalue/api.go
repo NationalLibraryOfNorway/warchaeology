@@ -8,7 +8,8 @@ package keyvalue
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 
 	index "github.com/nationallibraryofnorway/warchaeology/v5/internal/cdx"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/cdx/schema"
@@ -58,9 +59,9 @@ func (cr CdxResponse) GetError() error {
 
 func (cr CdxResponse) MarshalJSON() ([]byte, error) {
 	res := &struct {
-		Key   string          `json:"key"`
-		Value json.RawMessage `json:"value,omitempty"`
-		Error string          `json:"error,omitempty"`
+		Key   string         `json:"key"`
+		Value jsontext.Value `json:"value,omitzero"`
+		Error string         `json:"error,omitempty"`
 	}{
 		Key: cr.Key.String(),
 	}
