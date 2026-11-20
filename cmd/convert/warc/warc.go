@@ -297,7 +297,7 @@ func (o *ConvertWarcOptions) Run() (runErr error) {
 	return nil
 }
 
-func (o *ConvertWarcOptions) handleFile(fs afero.Fs, path string) (stat.Result, error) {
+func (o *ConvertWarcOptions) handleFile(fs afero.Fs, path string) (result stat.Result, resultErr error) {
 	file, err := fs.Open(path)
 	if err != nil {
 		return nil, err
@@ -314,12 +314,12 @@ func (o *ConvertWarcOptions) handleFile(fs afero.Fs, path string) (stat.Result, 
 	if o.WarcWriterConfig.OneToOneWriter {
 		defer func() {
 			if writer != nil {
-				_ = writer.Close()
+				resultErr = errors.Join(resultErr, o.WarcWriterConfig.FinishIdentity(writer))
 			}
 		}()
 	}
 
-	result := stat.NewResult(path)
+	result = stat.NewResult(path)
 
 	var lastOffset int64 = -1
 
@@ -338,11 +338,11 @@ func (o *ConvertWarcOptions) handleFile(fs afero.Fs, path string) (stat.Result, 
 		if writer == nil || !o.WarcWriterConfig.OneToOneWriter {
 			warcDate, err := record.WarcRecord.WarcHeader().GetTime(gowarc.WarcDate)
 			if err != nil {
-				return result, warc.ErrorFrom(record, err)
+				return result, errors.Join(warc.ErrorFrom(record, err), record.Close())
 			}
 			writer, err = o.WarcWriterConfig.GetWarcWriter(path, warcDate)
 			if err != nil {
-				return result, warc.ErrorFrom(record, err)
+				return result, errors.Join(warc.ErrorFrom(record, err), record.Close())
 			}
 		}
 		err = o.handleRecord(writer, record, result)

@@ -304,8 +304,8 @@ func (o *ConvertArcOptions) Run() (runErr error) {
 	return nil
 }
 
-func (o *ConvertArcOptions) handleFile(fs afero.Fs, fileName string) (stat.Result, error) {
-	result := stat.NewResult(fileName)
+func (o *ConvertArcOptions) handleFile(fs afero.Fs, fileName string) (result stat.Result, resultErr error) {
+	result = stat.NewResult(fileName)
 
 	arcFileReader, err := arcreader.NewArcFileReader(fs, fileName, 0, o.WarcRecordOptions...)
 	if err != nil {
@@ -317,7 +317,7 @@ func (o *ConvertArcOptions) handleFile(fs afero.Fs, fileName string) (stat.Resul
 	if o.WarcWriterConfig.OneToOneWriter {
 		defer func() {
 			if writer != nil {
-				_ = writer.Close()
+				resultErr = errors.Join(resultErr, o.WarcWriterConfig.FinishIdentity(writer))
 			}
 		}()
 	}
@@ -330,11 +330,11 @@ func (o *ConvertArcOptions) handleFile(fs afero.Fs, fileName string) (stat.Resul
 		if writer == nil || !o.WarcWriterConfig.OneToOneWriter {
 			warcDate, err := record.WarcRecord.WarcHeader().GetTime(gowarc.WarcDate)
 			if err != nil {
-				return result, warc.ErrorFrom(record, err)
+				return result, errors.Join(warc.ErrorFrom(record, err), record.Close())
 			}
 			writer, err = o.WarcWriterConfig.GetWarcWriter(fileName, warcDate)
 			if err != nil {
-				return result, warc.ErrorFrom(record, err)
+				return result, errors.Join(warc.ErrorFrom(record, err), record.Close())
 			}
 		}
 		err = o.handleRecord(writer, record, result)
