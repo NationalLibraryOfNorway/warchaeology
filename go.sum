@@ -141,8 +141,8 @@ github.com/mattn/go-runewidth v0.0.31 h1:1oCV4ReTlosDBc6rYRw5cL8S/4y8iv5oRl4SJ5I
 github.com/mattn/go-runewidth v0.0.31/go.mod h1:3qAiGCV4Koz/yuveO58qUefmUTRm8r0IGEXZ9jeHp/8=
 github.com/mschoch/smat v0.2.0 h1:8imxQsjDm8yFEAVBe7azKmKSgzSkZXDuKkSq9374khM=
 github.com/mschoch/smat v0.2.0/go.mod h1:kc9mz7DoBKqDyiRL7VZN8KvXQMWeTaVnttLRXOlotKw=
-github.com/nationallibraryofnorway/gowarc/v3 v3.2.0 h1:gzG7mzszF8a4M/FsNvdeea6KPJf6Emeb5RvTUUkFLBQ=
-github.com/nationallibraryofnorway/gowarc/v3 v3.2.0/go.mod h1:hGUY+omqacEf/q685oZYxTb5ZwBAjJSAWNwzC++4geo=
+github.com/nationallibraryofnorway/gowarc/v3 v3.2.1 h1:B4HxMLx2wJ59wFXH9aVWU4kyOrLE4S0Jayr6F0XlW/g=
+github.com/nationallibraryofnorway/gowarc/v3 v3.2.1/go.mod h1:AA9wP4mCHaUq7Jj7x3J65FCAuvUkbN9ov4JJaFdzL38=
 github.com/nationallibraryofnorway/whatwg-url v0.9.1 h1:kGyhz2uSi70VS1JxgSZwZjpmrV8bM5PercNlxhMlls8=
 github.com/nationallibraryofnorway/whatwg-url v0.9.1/go.mod h1:3KSm5/kiby6KExnnCXZ1Vmdwc+pLZokAdtJavchDKwg=
 github.com/pelletier/go-toml/v2 v2.4.3 h1:GTRvJQutkOSftxIFD5xw9aepkYNuPWmVJpffdDPYVpY=
