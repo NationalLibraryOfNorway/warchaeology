@@ -72,6 +72,7 @@ func NewCmdIndex() *cobra.Command {
 	flags.AddFlags(cmd)
 	cmd.Flags().Bool("pywb", false, "resolve revisit payload locations for offline pywb CDXJ replay")
 	cmd.AddCommand(reset.NewCmdReset())
+	cmd.AddCommand(newCmdHydrate())
 	addMaintenanceCommands(cmd)
 	return cmd
 }
