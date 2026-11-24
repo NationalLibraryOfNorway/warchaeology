@@ -255,20 +255,14 @@ func (o *CatOptions) handleFile(ctx context.Context, fs afero.Fs, path string) e
 		_ = warcFileReader.Close()
 	}()
 
-	var lastOffset int64 = -1
+	raw := warc.Records(ctx, warcFileReader, o.force, path)
 
-	records := warc.Compose(warcFileReader.Records(), o.filter, o.recordNum, o.recordCount)
+	records := warc.Compose(raw, o.filter, o.recordNum, o.recordCount)
 	for record, err := range records {
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
 		if err != nil {
-			// When forcing, avoid infinite loop by ensuring the iterator moves forward
-			if o.force && lastOffset != record.Offset {
-				slog.Warn(err.Error(), "offset", record.Offset, "path", path)
-				lastOffset = record.Offset
-				continue
-			}
 			return warc.ErrorFrom(record, err)
 		}
 		if err := o.handleRecord(os.Stdout, record); err != nil {
