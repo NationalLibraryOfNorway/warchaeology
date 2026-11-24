@@ -1,3 +1,6 @@
+// Copyright 2021 National Library of Norway.
+// SPDX-License-Identifier: Apache-2.0
+
 package nedlibreader
 
 import (
@@ -11,7 +14,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/nlnwa/gowarc/v3"
+	"github.com/nationallibraryofnorway/gowarc/v3"
 	"github.com/spf13/afero"
 )
 
@@ -52,7 +55,7 @@ func (nedlibReader *NedlibReader) Next() (gowarc.Record, error) {
 	if err != nil {
 		return gowarc.Record{}, err
 	}
-	defer response.Body.Close()
+	defer func() { _ = response.Body.Close() }()
 
 	warcRecordBuilder := gowarc.NewRecordBuilder(gowarc.Response, nedlibReader.warcRecordOptions...)
 

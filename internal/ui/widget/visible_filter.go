@@ -1,3 +1,6 @@
+// Copyright 2026 National Library of Norway.
+// SPDX-License-Identifier: Apache-2.0
+
 package widget
 
 import (
@@ -48,14 +51,6 @@ func (t *visibleLineEndingReader) Read(p []byte) (int, error) {
 	if len(t.pending) > 0 {
 		n := copy(p, t.pending)
 		t.pending = t.pending[n:]
-		if len(t.pending) == 0 && t.upErr != nil {
-			err := t.upErr
-			t.upErr = nil
-			if n > 0 {
-				return n, nil
-			}
-			return 0, err
-		}
 		return n, nil
 	}
 

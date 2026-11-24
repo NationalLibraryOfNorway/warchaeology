@@ -1,8 +1,11 @@
+// Copyright 2026 National Library of Norway.
+// SPDX-License-Identifier: Apache-2.0
+
 package widget
 
 import (
 	"github.com/awesome-gocui/gocui"
-	"github.com/nlnwa/gowarc/v3"
+	"github.com/nationallibraryofnorway/gowarc/v3"
 )
 
 // Controller is the single interface that the application implements and all
@@ -33,9 +36,7 @@ type Widget interface {
 	Layout(gui *gocui.Gui, x0, y0, x1, y1 int) error
 }
 
-// Modal is implemented by overlay dialogs that need setup/teardown when
-// shown/hidden.
+// Modal is implemented by overlay dialogs that need setup when shown.
 type Modal interface {
 	Init(gui *gocui.Gui) error
-	Dispose(gui *gocui.Gui) error
 }

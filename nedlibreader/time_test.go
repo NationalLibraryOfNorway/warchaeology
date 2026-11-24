@@ -1,3 +1,6 @@
+// Copyright 2024 National Library of Norway.
+// SPDX-License-Identifier: Apache-2.0
+
 package nedlibreader
 
 import (
@@ -136,7 +139,7 @@ func TestParseTime(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	time.Local = location //nolint:gosmopolitan
+	time.Local = location
 
 	for testFormat, tests := range timeTests {
 		_, ok := timeParseFuncs[testFormat]

@@ -1,10 +1,13 @@
+// Copyright 2026 National Library of Norway.
+// SPDX-License-Identifier: Apache-2.0
+
 package model
 
 import (
 	"fmt"
 
 	"github.com/awesome-gocui/gocui"
-	"github.com/nlnwa/gowarc/v3"
+	"github.com/nationallibraryofnorway/gowarc/v3"
 )
 
 // Record-type colors — vivid foreground colors for dark terminals.

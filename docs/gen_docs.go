@@ -1,3 +1,6 @@
+// Copyright 2021 National Library of Norway.
+// SPDX-License-Identifier: Apache-2.0
+
 package main
 
 import (
@@ -55,4 +58,27 @@ func genMdDoc(dir string) {
 	if err := doc.GenMarkdownTreeCustom(c, dir, filePrepender, linkHandler); err != nil {
 		panic(err)
 	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		panic(err)
+	}
+	for _, entry := range entries {
+		if !strings.HasPrefix(entry.Name(), "warc") {
+			continue
+		}
+		path := filepath.Join(dir, entry.Name())
+		b, err := os.ReadFile(path)
+		if err != nil {
+			panic(err)
+		}
+		lines := strings.Split(string(b), "\n")
+		for i, line := range lines {
+			lines[i] = strings.TrimRight(strings.ReplaceAll(line, "\t", "    "), " ")
+		}
+		contents := strings.TrimRight(strings.Join(lines, "\n"), "\n") + "\n"
+		if err = os.WriteFile(path, []byte(contents), 0o644); err != nil {
+			panic(err)
+		}
+	}
+
 }

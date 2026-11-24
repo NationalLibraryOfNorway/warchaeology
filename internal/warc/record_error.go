@@ -1,7 +1,10 @@
+// Copyright 2026 National Library of Norway.
+// SPDX-License-Identifier: Apache-2.0
+
 package warc
 
 import (
-	"github.com/nlnwa/gowarc/v3"
+	"github.com/nationallibraryofnorway/gowarc/v3"
 )
 
 func ErrorFrom(record gowarc.Record, err error) RecordError {

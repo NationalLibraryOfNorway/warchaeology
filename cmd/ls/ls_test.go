@@ -1,3 +1,6 @@
+// Copyright 2024 National Library of Norway.
+// SPDX-License-Identifier: Apache-2.0
+
 package ls
 
 import (
@@ -6,7 +9,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/nlnwa/gowarc/v3"
+	"github.com/nationallibraryofnorway/gowarc/v3"
 	"github.com/spf13/afero"
 )
 
@@ -53,5 +56,16 @@ func BenchmarkListFile(b *testing.B) {
 
 	for b.Loop() {
 		_ = opts.handleFile(context.Background(), afero.NewOsFs(), warcWithErrors)
+	}
+}
+
+func TestCropStringCrops(t *testing.T) {
+	input := "123456789"
+	expected := "1234\u2026"
+
+	actual := cropString(input, 5)
+
+	if actual != expected {
+		t.Errorf("Expected %s got %s", expected, actual)
 	}
 }

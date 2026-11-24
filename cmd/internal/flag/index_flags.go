@@ -1,7 +1,10 @@
+// Copyright 2024 National Library of Norway.
+// SPDX-License-Identifier: Apache-2.0
+
 package flag
 
 import (
-	"fmt"
+	"errors"
 	"os"
 	"path/filepath"
 
@@ -25,11 +28,9 @@ type IndexFlags struct{}
 
 func (f IndexFlags) AddFlags(cmd *cobra.Command) {
 	cacheDir, err := os.UserCacheDir()
-	if err != nil {
-		panic(fmt.Errorf("failed to get user cache dir: %v", err))
+	if err == nil {
+		cacheDir = filepath.Join(cacheDir, "warchaeology", cmd.Name())
 	}
-
-	cacheDir = filepath.Join(cacheDir, "warchaeology", cmd.Name())
 
 	flags := cmd.Flags()
 	flags.BoolP(KeepIndex, "k", false, KeepIndexHelp)
@@ -54,9 +55,17 @@ func (f IndexFlags) NewIndex() bool {
 }
 
 func (f IndexFlags) ToDigestIndex() (*index.DigestIndex, error) {
-	return index.NewDigestIndex(f.IndexDir(), f.KeepIndex(), f.NewIndex())
+	dir := f.IndexDir()
+	if dir == "" {
+		return nil, errors.New("set --index-dir to select an index directory")
+	}
+	return index.NewDigestIndex(dir, f.KeepIndex(), f.NewIndex())
 }
 
 func (f IndexFlags) ToFileIndex() (*index.FileIndex, error) {
-	return index.NewFileIndex(f.IndexDir(), f.KeepIndex(), f.NewIndex())
+	dir := f.IndexDir()
+	if dir == "" {
+		return nil, errors.New("set --index-dir to select an index directory")
+	}
+	return index.NewFileIndex(dir, f.KeepIndex(), f.NewIndex())
 }

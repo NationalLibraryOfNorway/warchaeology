@@ -1,0 +1,36 @@
+// Copyright 2023 National Library of Norway.
+// SPDX-License-Identifier: Apache-2.0
+
+//go:build linux
+
+package dedup
+
+import (
+	"fmt"
+	"syscall"
+)
+
+// checkFileDescriptorLimit checks if the OS limit for open file descriptors is high enough and if not, tries to increase it.
+func checkFileDescriptorLimit(limit uint64) error {
+	var rLimit syscall.Rlimit
+	err := syscall.Getrlimit(syscall.RLIMIT_NOFILE, &rLimit)
+	if err != nil {
+		return fmt.Errorf("failed to get rlimit: %w", err)
+	}
+
+	if rLimit.Max < limit {
+		fmt.Printf("It is recommended to set max file descriptors to at least %d. Current value is %d\n", limit, rLimit.Max)
+	}
+
+	if rLimit.Cur > limit {
+		return nil
+	}
+
+	rLimit.Cur = min(limit, rLimit.Max)
+
+	err = syscall.Setrlimit(syscall.RLIMIT_NOFILE, &rLimit)
+	if err != nil {
+		return fmt.Errorf("failed to set rlimit: %w", err)
+	}
+	return nil
+}

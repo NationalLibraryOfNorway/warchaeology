@@ -12,8 +12,8 @@ warc version [flags]
 ### Options
 
 ```
-  -h, --help            help for version
-  -o, --output string   One of 'yaml' or 'json'
+  -h, --help[=true|false]   help for version
+  -o, --output string       One of 'yaml' or 'json'
 ```
 
 ### Options inherited from parent commands
@@ -27,5 +27,5 @@ warc version [flags]
 
 ### SEE ALSO
 
-* [warc](warc.md)	 - A tool for handling warc files
+* [warc](warc.md)     - A tool for handling warc files
 

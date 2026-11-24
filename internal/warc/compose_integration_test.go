@@ -1,3 +1,6 @@
+// Copyright 2024 National Library of Norway.
+// SPDX-License-Identifier: Apache-2.0
+
 package warc
 
 import (
@@ -6,7 +9,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/nlnwa/gowarc/v3"
+	"github.com/nationallibraryofnorway/gowarc/v3"
 )
 
 var (

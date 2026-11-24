@@ -1,0 +1,144 @@
+// Copyright 2026 National Library of Norway.
+// SPDX-License-Identifier: Apache-2.0
+
+package index
+
+import (
+	"errors"
+	"strings"
+	"sync"
+	"sync/atomic"
+	"testing"
+
+	"github.com/dgraph-io/badger/v4"
+	"github.com/nationallibraryofnorway/gowarc/v3"
+	"github.com/nationallibraryofnorway/warchaeology/v5/internal/testcheck"
+)
+
+func TestDonorFailureAndConcurrentRegistration(t *testing.T) {
+	idx, e := NewDigestIndex(t.TempDir(), true, true)
+	if e != nil {
+		t.Fatal(e)
+	}
+	defer testcheck.Close(t, idx)
+	ref := &gowarc.RevisitRef{
+		Profile:        gowarc.ProfileIdenticalPayloadDigestV1_1,
+		TargetRecordId: "https://example.com/record/1",
+		TargetUri:      "https://example.com/",
+		TargetDate:     "2020-01-01T00:00:00.123456789Z",
+	}
+	failure := errors.New("output failed")
+	if e = idx.WriteWithDonor("sha1:1234", ref, func(*gowarc.RevisitRef) error { return failure }); !errors.Is(e, failure) {
+		t.Fatal(e)
+	}
+	var first atomic.Int64
+	var wg sync.WaitGroup
+	for range 16 {
+		wg.Go(func() {
+			if e := idx.WriteWithDonor("sha1:1234", ref, func(existing *gowarc.RevisitRef) error {
+				if existing == nil {
+					first.Add(1)
+				} else if existing.TargetDate != ref.TargetDate {
+					t.Error("timestamp precision lost")
+				}
+				return nil
+			}); e != nil {
+				t.Error(e)
+			}
+		})
+	}
+	wg.Wait()
+	if first.Load() != 1 {
+		t.Fatal(first.Load())
+	}
+}
+func TestUnpublishedDonorRunRefusesRestart(t *testing.T) {
+	dir := t.TempDir()
+	idx, e := NewDigestIndex(dir, true, true)
+	if e != nil {
+		t.Fatal(e)
+	}
+	if e = idx.BeginOutputRun(); e != nil {
+		t.Fatal(e)
+	}
+	if e = idx.Close(); e != nil {
+		t.Fatal(e)
+	}
+	if idx, e = NewDigestIndex(dir, true, false); e == nil {
+		_ = idx.Close()
+		t.Fatal("unpublished output reused")
+	}
+	idx, e = NewDigestIndex(dir, true, true)
+	if e != nil {
+		t.Fatal(e)
+	}
+	if e = idx.BeginOutputRun(); e != nil {
+		t.Fatal(e)
+	}
+	if e = idx.CommitOutputRun(); e != nil {
+		t.Fatal(e)
+	}
+	_ = idx.Close()
+	idx, e = NewDigestIndex(dir, true, false)
+	if e != nil {
+		t.Fatal(e)
+	}
+	_ = idx.Close()
+}
+
+func TestRejectLegacyCheckpointFormat(t *testing.T) {
+	dir := t.TempDir()
+	idx, err := NewDigestIndex(dir, true, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := idx.db.Update(func(tx *badger.Txn) error { return tx.Set([]byte("!format"), []byte("dedup-v3")) }); err != nil {
+		t.Fatal(err)
+	}
+	if err := idx.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if idx, err := NewDigestIndex(dir, true, false); err == nil {
+		_ = idx.Close()
+		t.Fatal("accepted old donor index")
+	} else if !strings.Contains(err.Error(), "fresh") {
+		t.Fatal(err)
+	}
+}
+
+func TestFileDonorVisibility(t *testing.T) {
+	idx, err := NewDigestIndex(t.TempDir(), false, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer testcheck.Close(t, idx)
+	first, second := idx.NewFileDonors(), idx.NewFileDonors()
+	write := func(file *FileDonors, id, want string) {
+		t.Helper()
+		ref := &gowarc.RevisitRef{TargetRecordId: id, TargetDate: "2020-01-01T00:00:00Z"}
+		err := file.WriteWithDonor("sha1:1234", ref, func(d *gowarc.RevisitRef) error {
+			got := ""
+			if d != nil {
+				got = d.TargetRecordId
+			}
+			if got != want {
+				t.Fatalf("donor %q, want %q", got, want)
+			}
+			return nil
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	write(first, "one", "")
+	write(first, "again", "one")
+	write(second, "two", "")
+	if err := second.Finish(true); err != nil {
+		t.Fatal(err)
+	}
+	if err := first.Finish(false); err != nil {
+		t.Fatal(err)
+	}
+	third := idx.NewFileDonors()
+	write(third, "three", "two")
+}

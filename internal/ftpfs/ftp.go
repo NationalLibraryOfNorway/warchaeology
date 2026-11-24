@@ -1,12 +1,16 @@
+// Copyright 2024 National Library of Norway.
+// SPDX-License-Identifier: Apache-2.0
+
 package ftpfs
 
 import (
 	"context"
+	"io"
 	"os"
 	"syscall"
 	"time"
 
-	"github.com/jackc/puddle"
+	"github.com/jackc/puddle/v2"
 	"github.com/jlaffaye/ftp"
 	"github.com/spf13/afero"
 )
@@ -16,30 +20,33 @@ import (
 // For detailed information on any method, please refer to the documentation of the ftp
 // package available at github.com/jlaffaye/ftp.
 type Fs struct {
-	pool *puddle.Pool
+	pool *puddle.Pool[connection]
 }
 
-func New(addr, user, passwd string, poolSize int32) afero.Fs {
-	constructor := func(ctx context.Context) (any, error) {
-		c, err := ftp.Dial(addr, ftp.DialWithContext(ctx))
-		if err != nil {
-			return nil, err
-		}
-		err = c.Login(user, passwd)
-		if err != nil {
-			return nil, err
-		}
-		return c, nil
+func New(addr, user, passwd string, poolSize int32) (afero.Fs, error) {
+	constructor := func(ctx context.Context) (connection, error) {
+		return connect(func() (connection, error) {
+			c, err := ftp.Dial(addr, ftp.DialWithContext(ctx))
+			if err != nil {
+				return nil, err
+			}
+			return serverConnection{c}, nil
+		}, user, passwd)
 	}
 
-	destructor := func(value any) {
-		_ = value.(*ftp.ServerConn).Quit()
+	destructor := func(c connection) {
+		_ = c.Quit()
 	}
 
-	pool := puddle.NewPool(constructor, destructor, poolSize)
-	return &Fs{
-		pool: pool,
+	pool, err := puddle.NewPool(&puddle.Config[connection]{
+		Constructor: constructor,
+		Destructor:  destructor,
+		MaxSize:     poolSize,
+	})
+	if err != nil {
+		return nil, err
 	}
+	return &Fs{pool: pool}, nil
 }
 
 func (s Fs) Name() string { return "ftpfs" }
@@ -103,3 +110,31 @@ func (s Fs) Chown(name string, uid, gid int) error {
 func (s Fs) Chtimes(name string, atime time.Time, mtime time.Time) error {
 	return syscall.EROFS
 }
+
+// connection isolates the protocol transport for deterministic contract tests.
+type connection interface {
+	Login(string, string) error
+	Quit() error
+	GetEntry(string) (*ftp.Entry, error)
+	List(string) ([]*ftp.Entry, error)
+	retrieve(string, uint64) (io.ReadCloser, error)
+}
+type serverConnection struct{ *ftp.ServerConn }
+
+func (c serverConnection) retrieve(name string, offset uint64) (io.ReadCloser, error) {
+	return c.RetrFrom(name, offset)
+}
+func connect(dial func() (connection, error), user, password string) (connection, error) {
+	c, err := dial()
+	if err != nil {
+		return nil, err
+	}
+	if err := c.Login(user, password); err != nil {
+		_ = c.Quit()
+		return nil, err
+	}
+	return c, nil
+}
+
+// Close waits for borrowed connections to be returned before shutting down.
+func (s Fs) Close() error { s.pool.Close(); return nil }

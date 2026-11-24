@@ -1,3 +1,6 @@
+// Copyright 2021 National Library of Norway.
+// SPDX-License-Identifier: Apache-2.0
+
 package cat
 
 import (
@@ -11,11 +14,11 @@ import (
 	"os/signal"
 	"syscall"
 
+	"github.com/nationallibraryofnorway/gowarc/v3"
 	"github.com/nationallibraryofnorway/warchaeology/v5/cmd/internal/flag"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/filewalker"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/filter"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/warc"
-	"github.com/nlnwa/gowarc/v3"
 	"github.com/spf13/afero"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -51,6 +54,17 @@ type CatOptions struct {
 	writer            *writer
 	fileWalker        *filewalker.FileWalker
 	warcRecordOptions []gowarc.WarcRecordOption
+}
+
+// Close releases the resources owned by the options. Call it after Run returns.
+// Repeated calls are safe; Close must not run concurrently with Run or itself.
+func (o *CatOptions) Close() error {
+	var err error
+	if o.fileWalker != nil {
+		err = errors.Join(err, o.fileWalker.Close())
+		o.fileWalker = nil
+	}
+	return err
 }
 
 type CatFlags struct {
@@ -102,18 +116,13 @@ func (f CatFlags) ToOptions() (*CatOptions, error) {
 		return nil, fmt.Errorf("failed to read from source file: %w", err)
 	}
 
-	fileWalker, err := f.FileWalkerFlags.ToFileWalker()
-	if err != nil {
-		return nil, fmt.Errorf("failed to create file walker: %w", err)
-	}
-
 	writer := &writer{
 		showWarcHeader:     f.ShowWarcHeader(),
 		showProtocolHeader: f.ShowProtocolHeader(),
 		showPayload:        f.ShowPayload(),
 	}
 
-	return &CatOptions{
+	o := &CatOptions{
 		paths:             fileList,
 		offset:            f.WarcIteratorFlags.Offset(),
 		recordCount:       f.WarcIteratorFlags.Limit(),
@@ -121,11 +130,17 @@ func (f CatFlags) ToOptions() (*CatOptions, error) {
 		force:             f.WarcIteratorFlags.Force(),
 		filter:            filter,
 		continueOnError:   f.ErrorFlags.ContinueOnError(),
-		fileWalker:        fileWalker,
 		compress:          f.Compress(),
 		writer:            writer,
 		warcRecordOptions: f.WarcRecordOptionFlags.ToWarcRecordOptions(),
-	}, nil
+	}
+
+	o.fileWalker, err = f.FileWalkerFlags.ToFileWalker()
+	if err != nil {
+		return nil, fmt.Errorf("failed to create file walker: %w", err)
+	}
+
+	return o, nil
 }
 
 func NewCmdCat() *cobra.Command {
@@ -146,6 +161,11 @@ warc cat -n4 -P file1.warc.gz | feh -`,
 			if err != nil {
 				return err
 			}
+			defer func() {
+				if err := o.Close(); err != nil {
+					slog.Error("Close options", "error", err)
+				}
+			}()
 			err = o.Complete(cmd, args)
 			if err != nil {
 				return err
@@ -155,11 +175,7 @@ warc cat -n4 -P file1.warc.gz | feh -`,
 				return err
 			}
 			cmd.SilenceUsage = true
-			err = o.Run()
-			if errors.Is(err, context.Canceled) {
-				os.Exit(1)
-			}
-			return err
+			return o.Run()
 		},
 	}
 
@@ -191,10 +207,13 @@ func (o *CatOptions) Validate() error {
 }
 
 // Run runs the cat command
+// The caller must close the options after Run returns.
 func (o *CatOptions) Run() error {
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
 	defer cancel()
 
+	// The callback consumes each member synchronously.
+	o.fileWalker.WaitForReaders = func() {}
 	for _, path := range o.paths {
 		err := o.fileWalker.Walk(ctx, path, func(fs afero.Fs, path string, err error) error {
 			if err != nil {
@@ -206,8 +225,7 @@ func (o *CatOptions) Run() error {
 				if !o.continueOnError {
 					cancel()
 				}
-				var recordErr warc.RecordError
-				if errors.As(err, &recordErr) {
+				if recordErr, ok := errors.AsType[warc.RecordError](err); ok {
 					slog.Error(recordErr.Error(), "path", path, "offset", recordErr.Offset())
 				} else {
 					slog.Error(err.Error(), "path", path)
@@ -237,38 +255,29 @@ func (o *CatOptions) handleFile(ctx context.Context, fs afero.Fs, path string) e
 		_ = warcFileReader.Close()
 	}()
 
-	var lastOffset int64 = -1
+	raw := warc.Records(ctx, warcFileReader, o.force, path)
 
-	records := warc.Compose(warcFileReader.Records(), o.filter, o.recordNum, o.recordCount)
+	records := warc.Compose(raw, o.filter, o.recordNum, o.recordCount)
 	for record, err := range records {
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
 		if err != nil {
-			// When forcing, avoid infinite loop by ensuring the iterator moves forward
-			if o.force && lastOffset != record.Offset {
-				slog.Warn(err.Error(), "offset", record.Offset, "path", path)
-				lastOffset = record.Offset
-				continue
-			}
 			return warc.ErrorFrom(record, err)
 		}
-		if err := o.handleRecord(record); err != nil {
+		if err := o.handleRecord(os.Stdout, record); err != nil {
 			return warc.ErrorFrom(record, err)
 		}
 	}
 	return nil
 }
 
-func (o *CatOptions) handleRecord(record gowarc.Record) error {
-	defer record.Close()
-	var w io.Writer
+func (o *CatOptions) handleRecord(w io.Writer, record gowarc.Record) (resultErr error) {
+	defer func() { resultErr = errors.Join(resultErr, record.Close()) }()
 	if o.compress {
-		gw := gzip.NewWriter(os.Stdout)
-		defer gw.Close()
+		gw := gzip.NewWriter(w)
+		defer func() { resultErr = errors.Join(resultErr, gw.Close()) }()
 		w = gw
-	} else {
-		w = os.Stdout
 	}
 	return o.writer.writeWarcRecord(w, record.WarcRecord)
 }

@@ -1,17 +1,19 @@
+// Copyright 2021 National Library of Norway.
+// SPDX-License-Identifier: Apache-2.0
+
 package ls
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"io"
 	"regexp"
 	"strconv"
 	"strings"
 
-	"github.com/nationallibraryofnorway/warchaeology/v5/internal/time"
-	"github.com/nationallibraryofnorway/warchaeology/v5/internal/util"
+	"github.com/nationallibraryofnorway/gowarc/v3"
+	"github.com/nationallibraryofnorway/warchaeology/v5/internal/timestamp"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/warc"
-	"github.com/nlnwa/gowarc/v3"
 )
 
 var fieldPattern = regexp.MustCompile(`([abBeghikmMNrsSTV])([+-]?)(\d*)`)
@@ -64,13 +66,13 @@ func (recordWriter *JSONWriter) WriteRecord(record gowarc.Record, fileName strin
 			if err != nil {
 				return fmt.Errorf("failed to parse date: %w", err)
 			}
-			metadata.Date = time.To14(date)
+			metadata.Date = timestamp.Format14(date)
 		case 'B':
 			date, err := warc.Date(warcRecord)
 			if err != nil {
 				return fmt.Errorf("failed to parse date: %w", err)
 			}
-			metadata.Date = time.ToW3CDTF(date)
+			metadata.Date = timestamp.FormatRFC3339(date)
 		case 'e':
 			metadata.IpAddress = warc.IPAddress(warcRecord)
 		case 'g':
@@ -218,7 +220,7 @@ func formatInt(value int64, align, length int) string {
 
 func formatText(value string, align, length int) string {
 	if length > 0 {
-		value = util.CropString(value, length)
+		value = cropString(value, length)
 	}
 	return padString(value, align, length)
 }
@@ -262,7 +264,7 @@ func (recordWriter *RecordWriter) createFieldFunc(t *field) {
 			if err != nil {
 				return "              "
 			}
-			return time.To14(t)
+			return timestamp.Format14(t)
 		})
 	case 'B':
 		t.fn = createStringFn(t.align, t.length, func(record gowarc.Record, file string) string {
@@ -270,7 +272,7 @@ func (recordWriter *RecordWriter) createFieldFunc(t *field) {
 			if err != nil {
 				return "                   "
 			}
-			return time.ToW3CDTF(t)
+			return timestamp.FormatRFC3339(t)
 		})
 	case 'e':
 		t.fn = createStringFn(t.align, t.length, func(record gowarc.Record, file string) string {
@@ -342,4 +344,11 @@ func (recordWriter *RecordWriter) createFieldFunc(t *field) {
 			return record.Offset
 		})
 	}
+}
+
+func cropString(s string, size int) string {
+	if len(s) > size {
+		s = s[:size-1] + "\u2026"
+	}
+	return s
 }

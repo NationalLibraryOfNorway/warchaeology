@@ -1,7 +1,11 @@
+// Copyright 2024 National Library of Norway.
+// SPDX-License-Identifier: Apache-2.0
+
 package zipfs
 
 import (
 	"archive/zip"
+	"fmt"
 	"os"
 	"path"
 	"strings"
@@ -11,35 +15,48 @@ import (
 	"github.com/spf13/afero"
 )
 
+const statOperation = "stat"
+
 type Fs struct {
-	r     *zip.Reader
-	files map[string]map[string]*zip.File
+	allowMissingNestedCRC bool
+	r                     *zip.Reader
+	files                 map[string]map[string]*zip.File
+}
+
+// CanonicalPath returns the absolute member name used for ZIP lookups.
+func CanonicalPath(name string) string {
+	return path.Clean("/" + strings.ReplaceAll(name, "\\", "/"))
 }
 
 // splitpath splits a path into directory and file parts.
 // It returns the cleaned versions of the directory and file.
 // If the path is empty or does not start with a slash, it is prefixed with a slash.
 func splitpath(name string) (dir, file string) {
-	name = strings.ReplaceAll(name, "\\", "/")
-	if len(name) == 0 || name[0] != '/' {
-		name = "/" + name
-	}
-	name = path.Clean(name)
+	name = CanonicalPath(name)
 	dir, file = path.Split(name)
 	dir = path.Clean(dir)
 	return
 }
 
-func New(r *zip.Reader) afero.Fs {
-	fs := &Fs{r: r, files: make(map[string]map[string]*zip.File)}
+func New(r *zip.Reader) (*Fs, error) {
+	fs := &Fs{r: r, files: map[string]map[string]*zip.File{"/": {}}}
 	for _, file := range r.File {
 		d, f := splitpath(file.Name)
+		if f == "" && !file.FileInfo().IsDir() {
+			return nil, fmt.Errorf("ZIP file %q conflicts with the root directory", file.Name)
+		}
 		if _, ok := fs.files[d]; !ok {
 			fs.files[d] = make(map[string]*zip.File)
 		}
-		if _, ok := fs.files[d][f]; !ok {
-			fs.files[d][f] = file
+		if prior, exists := fs.files[d][f]; exists {
+			if prior != nil {
+				return nil, fmt.Errorf("conflicting ZIP entries %q and %q", prior.Name, file.Name)
+			}
+			if !file.FileInfo().IsDir() {
+				return nil, fmt.Errorf("ZIP file %q conflicts with a directory", file.Name)
+			}
 		}
+		fs.files[d][f] = file
 		if file.FileInfo().IsDir() {
 			dirname := path.Join(d, f)
 			if _, ok := fs.files[dirname]; !ok {
@@ -58,11 +75,24 @@ func New(r *zip.Reader) afero.Fs {
 			}
 			if _, ok := fs.files[d][f]; !ok {
 				fs.files[d][f] = nil
+			} else if prior := fs.files[d][f]; prior != nil && !prior.FileInfo().IsDir() {
+				return nil, fmt.Errorf("conflicting ZIP entries %q and %q", prior.Name, file.Name)
 			}
 			dv = d
 		}
 	}
-	return fs
+	return fs, nil
+}
+
+// NewWACZ accepts Browsertrix's zero CRC placeholders for stored child WACZs.
+// Nonzero child CRCs and all other members retain normal checksum validation.
+func NewWACZ(r *zip.Reader) (*Fs, error) {
+	fs, err := New(r)
+	if err != nil {
+		return nil, err
+	}
+	fs.allowMissingNestedCRC = true
+	return fs, nil
 }
 
 func (fs *Fs) Create(name string) (afero.File, error) { return nil, syscall.EPERM }
@@ -77,11 +107,11 @@ func (fs *Fs) Open(name string) (afero.File, error) {
 		return &File{fs: fs, isdir: true}, nil
 	}
 	if _, ok := fs.files[d]; !ok {
-		return nil, &os.PathError{Op: "stat", Path: name, Err: syscall.ENOENT}
+		return nil, &os.PathError{Op: statOperation, Path: name, Err: syscall.ENOENT}
 	}
 	file, ok := fs.files[d][f]
 	if !ok {
-		return nil, &os.PathError{Op: "stat", Path: name, Err: syscall.ENOENT}
+		return nil, &os.PathError{Op: statOperation, Path: name, Err: syscall.ENOENT}
 	}
 	if file == nil {
 		return &File{
@@ -132,11 +162,11 @@ func (fs *Fs) Stat(name string) (os.FileInfo, error) {
 		return &pseudoRoot{}, nil
 	}
 	if _, ok := fs.files[d]; !ok {
-		return nil, &os.PathError{Op: "stat", Path: name, Err: syscall.ENOENT}
+		return nil, &os.PathError{Op: statOperation, Path: name, Err: syscall.ENOENT}
 	}
 	file, ok := fs.files[d][f]
 	if !ok {
-		return nil, &os.PathError{Op: "stat", Path: name, Err: syscall.ENOENT}
+		return nil, &os.PathError{Op: statOperation, Path: name, Err: syscall.ENOENT}
 	}
 	if file == nil {
 		return pseudoDir{name}, nil

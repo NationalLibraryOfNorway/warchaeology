@@ -1,27 +1,26 @@
+// Copyright 2021 National Library of Norway.
+// SPDX-License-Identifier: Apache-2.0
+
 package nedlib
 
 import (
 	"context"
 	"errors"
 	"fmt"
-	"log/slog"
 	"os"
-	"os/signal"
-	"syscall"
 
+	"github.com/nationallibraryofnorway/gowarc/v3"
+	"github.com/nationallibraryofnorway/warchaeology/v5/cmd/convert/internal/conversion"
 	"github.com/nationallibraryofnorway/warchaeology/v5/cmd/internal/flag"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/filewalker"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/hooks"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/index"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/stat"
-	"github.com/nationallibraryofnorway/warchaeology/v5/internal/time"
-	"github.com/nationallibraryofnorway/warchaeology/v5/internal/util"
+	"github.com/nationallibraryofnorway/warchaeology/v5/internal/timestamp"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/version"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/warc"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/warcwriterconfig"
-	"github.com/nationallibraryofnorway/warchaeology/v5/internal/workerpool"
 	"github.com/nationallibraryofnorway/warchaeology/v5/nedlibreader"
-	"github.com/nlnwa/gowarc/v3"
 	"github.com/spf13/afero"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -38,6 +37,25 @@ type ConvertNedlibOptions struct {
 	WarcRecordOptions  []gowarc.WarcRecordOption
 	OpenInputFileHook  hooks.OpenInputFileHook
 	CloseInputFileHook hooks.CloseInputFileHook
+}
+
+// Close releases the resources owned by the options. Call it after Run returns.
+// Repeated calls are safe; Close must not run concurrently with Run or itself.
+func (o *ConvertNedlibOptions) Close() error {
+	var err error
+	if o.WarcWriterConfig != nil {
+		err = errors.Join(err, o.WarcWriterConfig.Close())
+		o.WarcWriterConfig = nil
+	}
+	if o.FileIndex != nil {
+		err = errors.Join(err, o.FileIndex.Close())
+		o.FileIndex = nil
+	}
+	if o.FileWalker != nil {
+		err = errors.Join(err, o.FileWalker.Close())
+		o.FileWalker = nil
+	}
+	return err
 }
 
 type ConvertNedlibFlags struct {
@@ -68,16 +86,32 @@ func (f ConvertNedlibFlags) AddFlags(cmd *cobra.Command) {
 	f.ErrorFlags.AddFlags(cmd)
 }
 
-func (f ConvertNedlibFlags) ToOptions() (*ConvertNedlibOptions, error) {
+func (f ConvertNedlibFlags) ToOptions() (_ *ConvertNedlibOptions, err error) {
 	// The Nedlib data structure does not support direct filename transformations.
 	// Instead, we employ a custom generator that treats the input filename as a date.
 	// When we request a new warcwriter, we submit a synthetic fromFilename based on the date of the first record.
 	viper.Set(flag.NameGenerator, "nedlib")
 
-	warcWriterConfig, err := f.WarcWriterConfigFlags.ToWarcWriterConfig()
+	fileList, err := flag.ReadSrcFileList(f.FileWalkerFlags.SrcFileListFlags.SrcFileList())
+	if err != nil {
+		return nil, fmt.Errorf("failed to read from source file: %w", err)
+	}
+
+	o := &ConvertNedlibOptions{
+		Paths:           fileList,
+		ContinueOnError: f.ErrorFlags.ContinueOnError(),
+	}
+	defer func() {
+		if err != nil {
+			err = errors.Join(err, o.Close())
+		}
+	}()
+
+	o.WarcWriterConfig, err = f.WarcWriterConfigFlags.ToWarcWriterConfig()
 	if err != nil {
 		return nil, fmt.Errorf("failed to create warc writer config: %w", err)
 	}
+	warcWriterConfig := o.WarcWriterConfig
 
 	warcInfoFunc := func(wr gowarc.WarcRecordBuilder) error {
 		warcHeader := &gowarc.WarcFields{}
@@ -93,7 +127,7 @@ func (f ConvertNedlibFlags) ToOptions() (*ConvertNedlibOptions, error) {
 	}
 	warcWriterConfig.WarcFileWriterOptions = append(warcWriterConfig.WarcFileWriterOptions, gowarc.WithWarcInfoFunc(warcInfoFunc))
 
-	warcRecordOptions := []gowarc.WarcRecordOption{
+	o.WarcRecordOptions = []gowarc.WarcRecordOption{
 		gowarc.WithVersion(warcWriterConfig.WarcVersion),
 		gowarc.WithAddMissingDigest(true),
 		gowarc.WithFixDigest(true),
@@ -101,32 +135,18 @@ func (f ConvertNedlibFlags) ToOptions() (*ConvertNedlibOptions, error) {
 		gowarc.WithAddMissingContentLength(true),
 	}
 
-	fileList, err := flag.ReadSrcFileList(f.FileWalkerFlags.SrcFileListFlags.SrcFileList())
-	if err != nil {
-		return nil, fmt.Errorf("failed to read from source file: %w", err)
-	}
-
-	fileWalker, err := f.FileWalkerFlags.ToFileWalker()
-	if err != nil {
-		return nil, fmt.Errorf("failed to create file walker: %w", err)
-	}
-
-	var fileIndex *index.FileIndex
 	if f.IndexFlags.KeepIndex() {
-		fileIndex, err = f.IndexFlags.ToFileIndex()
+		o.FileIndex, err = f.IndexFlags.ToFileIndex()
 		if err != nil {
 			return nil, fmt.Errorf("failed to create file index: %w", err)
 		}
 	}
 
-	return &ConvertNedlibOptions{
-		WarcWriterConfig:  warcWriterConfig,
-		WarcRecordOptions: warcRecordOptions,
-		Paths:             fileList,
-		FileWalker:        fileWalker,
-		FileIndex:         fileIndex,
-		ContinueOnError:   f.ErrorFlags.ContinueOnError(),
-	}, nil
+	o.FileWalker, err = f.FileWalkerFlags.ToFileWalker()
+	if err != nil {
+		return nil, fmt.Errorf("failed to create file walker: %w", err)
+	}
+	return o, nil
 }
 
 func NewCmdConvertNedlib() *cobra.Command {
@@ -136,11 +156,14 @@ func NewCmdConvertNedlib() *cobra.Command {
 		Use:   "nedlib FILE/DIR ...",
 		Short: "Convert directory with files harvested with Nedlib into warc files",
 		Long:  ``,
-		RunE: func(cmd *cobra.Command, args []string) error {
+		RunE: func(cmd *cobra.Command, args []string) (runErr error) {
 			o, err := flags.ToOptions()
 			if err != nil {
 				return err
 			}
+			defer func() {
+				runErr = errors.Join(runErr, o.Close())
+			}()
 			err = o.Complete(cmd, args)
 			if err != nil {
 				return err
@@ -150,11 +173,7 @@ func NewCmdConvertNedlib() *cobra.Command {
 				return err
 			}
 			cmd.SilenceUsage = true
-			err = o.Run()
-			if errors.Is(err, context.Canceled) {
-				os.Exit(1)
-			}
-			return err
+			return o.Run()
 		},
 	}
 
@@ -175,104 +194,24 @@ func (o *ConvertNedlibOptions) Validate() error {
 	return nil
 }
 
+// Run processes the inputs and waits for workers to finish.
+// The caller must close the options after Run returns.
 func (o *ConvertNedlibOptions) Run() error {
-	done := make(chan struct{})
-	exitCode := 0
-
-	defer func() {
-		<-done
-		os.Exit(exitCode)
-	}()
-
-	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
-	defer cancel()
-
-	results := make(chan stat.Result)
-	go func() {
-		defer close(done)
-
-		stats := stat.NewStats()
-		defer func() {
-			slog.Info("Total", "files", stats.Files, "errors", stats.Errors, "records", stats.Records)
-		}()
-
-		for result := range results {
-			slog := slog.With("path", result.Name())
-			for _, err := range result.Errors() {
-				var recordErr warc.RecordError
-				if errors.As(err, &recordErr) {
-					slog.Error("Validation error", "error", recordErr.Error(), "offset", recordErr.Offset())
-				} else {
-					slog.Error("Validation error", "error", err.Error())
-				}
-			}
-			slog.Info("Converted file", "errors", result.ErrorCount(), "records", result.Records())
-			stats.Merge(result)
-		}
-		if stats.Errors > 0 {
-			exitCode = 1
-		}
-	}()
-	defer close(results)
-
-	if o.FileIndex != nil {
-		defer o.FileIndex.Close()
+	runner := conversion.RunOptions{
+		Walker:      o.FileWalker,
+		Index:       o.FileIndex,
+		Writer:      o.WarcWriterConfig,
+		Open:        o.OpenInputFileHook,
+		Close:       o.CloseInputFileHook,
+		Concurrency: o.Concurrency,
+		MinimumFree: o.MinWARCDiskFree,
+		Continue:    o.ContinueOnError,
 	}
-
-	defer o.WarcWriterConfig.Close()
-
-	workerPool := workerpool.New(ctx, o.Concurrency)
-	defer workerPool.CloseWait()
-
-	for _, path := range o.Paths {
-		err := o.FileWalker.Walk(ctx, path, func(fs afero.Fs, path string, err error) error {
-			if err != nil {
-				return err
-			}
-
-			workerPool.Submit(func() {
-				// Assert WARC disk has enough free space
-				if o.MinWARCDiskFree > 0 {
-					diskFree, err := util.DiskFree(o.WarcWriterConfig.OutDir)
-					if err != nil {
-						cancel()
-						slog.Error("Failed to get free space on device", "path", o.WarcWriterConfig.OutDir, "error", err)
-						return
-					}
-					if diskFree < o.MinWARCDiskFree {
-						cancel()
-						slog.Error("Not enough free space on device", "bytesFree", diskFree, "path", o.WarcWriterConfig.OutDir)
-						return
-					}
-				}
-
-				result, err := filewalker.Preposterous(fs, path, o.OpenInputFileHook, o.CloseInputFileHook, o.FileIndex, o.handleFile)
-				if errors.Is(err, filewalker.ErrSkipFile) {
-					return
-				} else if err != nil {
-					if !o.ContinueOnError {
-						cancel()
-					}
-					if result == nil {
-						result = stat.NewResult(path)
-					}
-					result.AddError(err)
-				}
-
-				results <- result
-			})
-
-			return nil
-		})
-		if err != nil {
-			return err
-		}
-	}
-	return nil
+	return runner.Run(o.Paths, o.handleFile)
 }
 
-func (o *ConvertNedlibOptions) handleFile(fs afero.Fs, fileName string) (stat.Result, error) {
-	result := stat.NewResult(fileName)
+func (o *ConvertNedlibOptions) handleFile(ctx context.Context, fs afero.Fs, fileName string, getWriter conversion.GetWriter) (result stat.Result, resultErr error) {
+	result = stat.NewResult(fileName)
 
 	nedlibReader, err := nedlibreader.NewNedlibReader(fs, fileName, o.WarcWriterConfig.DefaultTime, o.WarcRecordOptions...)
 	if err != nil {
@@ -281,13 +220,6 @@ func (o *ConvertNedlibOptions) handleFile(fs afero.Fs, fileName string) (stat.Re
 	defer func() { _ = nedlibReader.Close() }()
 
 	var writer *gowarc.WarcFileWriter
-	if o.WarcWriterConfig.OneToOneWriter {
-		defer func() {
-			if writer != nil {
-				_ = writer.Close()
-			}
-		}()
-	}
 
 	records := warc.Compose(nedlibReader.Records(), nil, 0, 0)
 	for record, err := range records {
@@ -297,14 +229,19 @@ func (o *ConvertNedlibOptions) handleFile(fs afero.Fs, fileName string) (stat.Re
 
 		warcDate, err := record.WarcRecord.WarcHeader().GetTime(gowarc.WarcDate)
 		if err != nil {
-			return result, warc.ErrorFrom(record, err)
+			return result, errors.Join(warc.ErrorFrom(record, err), record.Close())
 		}
 
-		syntheticFileName := time.To14(warcDate)
+		syntheticFileName := timestamp.Format14(warcDate)
 
-		writer, err := o.WarcWriterConfig.GetWarcWriter(syntheticFileName, warcDate)
+		if o.WarcWriterConfig.OneToOneWriter {
+			syntheticFileName = fileName
+		}
+		if writer == nil || !o.WarcWriterConfig.OneToOneWriter {
+			writer, err = getWriter(syntheticFileName, warcDate)
+		}
 		if err != nil {
-			return result, warc.ErrorFrom(record, err)
+			return result, errors.Join(warc.ErrorFrom(record, err), record.Close())
 		}
 
 		err = o.handleRecord(writer, record, result)
@@ -316,8 +253,8 @@ func (o *ConvertNedlibOptions) handleFile(fs afero.Fs, fileName string) (stat.Re
 	return result, nil
 }
 
-func (o *ConvertNedlibOptions) handleRecord(w *gowarc.WarcFileWriter, record gowarc.Record, result stat.Result) error {
-	defer record.Close()
+func (o *ConvertNedlibOptions) handleRecord(w *gowarc.WarcFileWriter, record gowarc.Record, result stat.Result) (resultErr error) {
+	defer func() { resultErr = errors.Join(resultErr, record.Close()) }()
 
 	result.IncrRecords()
 

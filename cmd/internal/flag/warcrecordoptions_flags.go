@@ -1,10 +1,13 @@
+// Copyright 2024 National Library of Norway.
+// SPDX-License-Identifier: Apache-2.0
+
 package flag
 
 import (
 	"os"
 
-	"github.com/nlnwa/gowarc/v3"
-	"github.com/nlnwa/whatwg-url/url"
+	"github.com/nationallibraryofnorway/gowarc/v3"
+	"github.com/nationallibraryofnorway/whatwg-url/url"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 )
@@ -51,11 +54,25 @@ func (f WarcRecordOptionFlags) LaxHostParsing() bool {
 }
 
 func (f WarcRecordOptionFlags) ToWarcRecordOptions() []gowarc.WarcRecordOption {
+	return f.recordOptions(false)
+}
+
+// IndexRecordOptions keeps protocol blocks available for capture metadata extraction.
+func (f WarcRecordOptionFlags) IndexRecordOptions() []gowarc.WarcRecordOption {
+	return f.recordOptions(true)
+}
+
+func (f WarcRecordOptionFlags) recordOptions(parseBlocks bool) []gowarc.WarcRecordOption {
 	options := []gowarc.WarcRecordOption{
 		gowarc.WithBufferTmpDir(f.TempDir()),
 	}
 	if f.LenientValidation() {
-		options = append(options, gowarc.WithNoValidation())
+		if parseBlocks {
+			// gowarc caches the block during spec validation. Keep it readable after Next returns.
+			options = append(options, gowarc.WithSyntaxErrorPolicy(gowarc.ErrIgnore), gowarc.WithSpecViolationPolicy(gowarc.ErrWarn), gowarc.WithUnknownRecordTypePolicy(gowarc.ErrIgnore))
+		} else {
+			options = append(options, gowarc.WithNoValidation())
+		}
 	}
 	if f.StrictValidation() {
 		options = append(options, gowarc.WithStrictValidation())

@@ -1,3 +1,6 @@
+// Copyright 2021 National Library of Norway.
+// SPDX-License-Identifier: Apache-2.0
+
 package index
 
 import (
@@ -5,7 +8,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/nlnwa/gowarc/v3"
+	"github.com/nationallibraryofnorway/gowarc/v3"
+	"github.com/nationallibraryofnorway/warchaeology/v5/internal/timestamp"
 )
 
 const (
@@ -39,7 +43,7 @@ func UnmarshalRevisitRef(data []byte) (*gowarc.RevisitRef, error) {
 	if err := now.UnmarshalBinary(data[oDate:oUri]); err != nil {
 		return nil, err
 	}
-	revisitReference.TargetDate = now.Format(time.RFC3339)
+	revisitReference.TargetDate = timestamp.FormatRFC3339(now)
 	revisitReference.TargetUri = string(data[oUri:])
 	return revisitReference, nil
 }

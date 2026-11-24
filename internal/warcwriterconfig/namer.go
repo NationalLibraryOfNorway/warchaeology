@@ -1,12 +1,15 @@
+// Copyright 2021 National Library of Norway.
+// SPDX-License-Identifier: Apache-2.0
+
 package warcwriterconfig
 
 import (
 	"path/filepath"
 	"strings"
-	"sync"
+	"sync/atomic"
 	"time"
 
-	"github.com/nlnwa/gowarc/v3"
+	"github.com/nationallibraryofnorway/gowarc/v3"
 )
 
 func NewIdentityNamer(path, filePrefix, dir string) gowarc.WarcFileNameGenerator {
@@ -16,8 +19,8 @@ func NewIdentityNamer(path, filePrefix, dir string) gowarc.WarcFileNameGenerator
 	basename = strings.TrimSuffix(basename, ".warc")
 
 	return &gowarc.PatternNameGenerator{
-		Pattern:   "%{prefix}s" + basename + ".%{ext}s",
-		Prefix:    filePrefix,
+		Pattern:   "%{prefix}s.%{ext}s",
+		Prefix:    filePrefix + basename,
 		Directory: dir,
 	}
 }
@@ -31,17 +34,17 @@ func NewNedlibNamer(path, filePrefix, dir string) gowarc.WarcFileNameGenerator {
 	}
 }
 
-var once sync.Once
-var defaultNamer gowarc.WarcFileNameGenerator
+// Share only the sequence, never the output directory or prefix of a prior run.
+var defaultSerial atomic.Int32
 
+type defaultNameGenerator struct{ prefix, directory string }
+
+func (g defaultNameGenerator) NewWarcfileName() (string, string) {
+	namer := &gowarc.PatternNameGenerator{Prefix: g.prefix, Directory: g.directory, Serial: defaultSerial.Add(1) - 1}
+	return namer.NewWarcfileName()
+}
 func NewDefaultNamer(filePrefix, dir string) gowarc.WarcFileNameGenerator {
-	once.Do(func() {
-		defaultNamer = &gowarc.PatternNameGenerator{
-			Prefix:    filePrefix,
-			Directory: dir,
-		}
-	})
-	return defaultNamer
+	return defaultNameGenerator{prefix: filePrefix, directory: dir}
 }
 
 func parseSubdirPattern(dirPattern string, t time.Time) string {

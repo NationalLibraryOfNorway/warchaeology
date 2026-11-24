@@ -1,3 +1,6 @@
+// Copyright 2026 National Library of Norway.
+// SPDX-License-Identifier: Apache-2.0
+
 package widget
 
 import (
@@ -57,9 +60,5 @@ func (w *ShortcutsModal) Init(gui *gocui.Gui) error {
 
 	view.WriteString(shortcutHelpText)
 
-	return nil
-}
-
-func (w *ShortcutsModal) Dispose(gui *gocui.Gui) error {
 	return nil
 }

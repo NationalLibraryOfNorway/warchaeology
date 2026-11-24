@@ -4,6 +4,8 @@ title: Contributing
 
 ## Build
 
+Use Go 1.27 or later. CI uses Go 1.27.3.
+
 ```shell
 go build -o warc
 ```
@@ -12,6 +14,14 @@ go build -o warc
 
 ```shell
 goreleaser release --clean --snapshot
+```
+
+Distribution builds explicitly strip debug information and symbol tables with
+`-s -w`. Normal development builds retain debugging information. To build a
+stripped binary directly:
+
+```shell
+CGO_ENABLED=0 go build -ldflags="-s -w" -o warc
 ```
 
 ## Generate CLI docs
@@ -27,3 +37,16 @@ cd website
 npm install
 npm run start
 ```
+
+## Breaking changes in release notes
+
+GitHub's **Generate release notes** categorizes merged pull requests using
+`.github/release.yml`. Apply the `breaking-change` or `Semver-Major` label to
+a pull request containing a breaking change; both labels select the existing
+**Breaking Changes** category.
+
+Use a descriptive PR title and include migration instructions in its body.
+Commit subjects containing `!` and `BREAKING CHANGE:` footers document intent,
+but GitHub's built-in release-note generator does not use them to classify PRs.
+Review the generated release and add the migration details from
+[Migration notes](guides/upgrading.md) before publishing.

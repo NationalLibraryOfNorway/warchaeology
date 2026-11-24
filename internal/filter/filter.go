@@ -1,19 +1,5 @@
-/*
- * Copyright 2022 National Library of Norway.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *       http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- *
- */
+// Copyright 2022 National Library of Norway.
+// SPDX-License-Identifier: Apache-2.0
 
 package filter
 
@@ -21,12 +7,13 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/nlnwa/gowarc/v3"
+	"github.com/nationallibraryofnorway/gowarc/v3"
 )
 
 type RecordFilter struct {
 	ids         []string
 	RecordTypes gowarc.RecordType
+	hasStatus   bool
 	fromStatus  int
 	toStatus    int
 	mime        []string
@@ -42,6 +29,7 @@ func New(options ...func(*RecordFilter)) *RecordFilter {
 
 func WithCodeRange(from, to int) func(*RecordFilter) {
 	return func(f *RecordFilter) {
+		f.hasStatus = true
 		f.fromStatus = from
 		f.toStatus = to
 	}
@@ -67,19 +55,13 @@ func WithMimeType(mimeTypes []string) func(*RecordFilter) {
 }
 
 func (f *RecordFilter) Accept(wr gowarc.WarcRecord) bool {
-	// Check record ID's
-	if len(f.ids) > 0 && !slices.Contains(f.ids, wr.RecordId()) {
-		return false
-	}
-
-	// Check Record type
-	if f.RecordTypes != 0 && wr.Type()&f.RecordTypes == 0 {
+	if !f.acceptIdentity(wr) {
 		return false
 	}
 
 	// Check HTTP response code
 	if v, ok := wr.Block().(gowarc.HttpResponseBlock); ok {
-		if v.HttpStatusCode() < f.fromStatus || v.HttpStatusCode() >= f.toStatus {
+		if f.hasStatus && (v.HttpStatusCode() < f.fromStatus || v.HttpStatusCode() >= f.toStatus) {
 			return false
 		}
 	}
@@ -115,4 +97,23 @@ func (f *RecordFilter) Accept(wr gowarc.WarcRecord) bool {
 	}
 
 	return true
+}
+
+func (f *RecordFilter) AcceptCapture(wr gowarc.WarcRecord, mime string, status int) bool {
+	if !f.acceptIdentity(wr) {
+		return false
+	}
+	if f.hasStatus && (status == 0 || status < f.fromStatus || status >= f.toStatus) {
+		return false
+	}
+	for _, m := range f.mime {
+		if strings.Contains(mime, m) {
+			return true
+		}
+	}
+	return len(f.mime) == 0
+}
+
+func (f *RecordFilter) acceptIdentity(wr gowarc.WarcRecord) bool {
+	return (len(f.ids) == 0 || slices.Contains(f.ids, wr.RecordId())) && (f.RecordTypes == 0 || wr.Type()&f.RecordTypes != 0)
 }

@@ -1,3 +1,6 @@
+// Copyright 2024 National Library of Norway.
+// SPDX-License-Identifier: Apache-2.0
+
 package hooks
 
 import (
@@ -8,8 +11,6 @@ import (
 	"testing"
 
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/stat"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 )
 
 const (
@@ -39,22 +40,24 @@ func TestOpenInputFileHook(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			h, err := NewOpenInputFileHook(tt.command, tt.hook)
 			if err != nil {
-				if tt.wantErr != "" {
-					require.Error(t, err)
-					assert.Equal(t, tt.wantErr, err.Error())
-					return
-				} else {
-					assert.NoError(t, err)
+				if tt.wantErr == "" || err.Error() != tt.wantErr {
+					t.Fatalf("constructor error = %v, want %q", err, tt.wantErr)
 				}
+				return
 			}
 
 			out, err := h.Output(tt.fileName)
 			if tt.wantErr != "" {
-				require.Error(t, err)
-				assert.Equal(t, tt.wantErr, err.Error())
+				if err == nil {
+					t.Fatal("expected an error")
+				}
+				if err.Error() != tt.wantErr {
+					t.Errorf("error = %q, want %q", err, tt.wantErr)
+				}
 				return
-			} else {
-				assert.NoError(t, err)
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
 			}
 
 			env := strings.Split(strings.TrimSpace(string(out)), "\n")
@@ -91,12 +94,12 @@ func TestCloseInputFileHook(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			h, err := NewCloseInputFileHook(tt.command, tt.hook)
-			if err != nil && tt.wantErr != "" {
-				require.Error(t, err)
-				assert.Equal(t, tt.wantErr, err.Error())
+			if err != nil {
+				if tt.wantErr == "" || err.Error() != tt.wantErr {
+					t.Fatalf("constructor error = %v, want %q", err, tt.wantErr)
+				}
 				return
 			}
-			assert.NoError(t, err)
 
 			result := stat.NewResult(tt.fileName)
 			for range tt.errorCount {
@@ -106,11 +109,16 @@ func TestCloseInputFileHook(t *testing.T) {
 
 			out, err := h.Output(tt.fileName, result, tt.resultErr)
 			if tt.wantErr != "" {
-				require.Error(t, err)
-				assert.Equal(t, tt.wantErr, err.Error())
+				if err == nil {
+					t.Fatal("expected an error")
+				}
+				if err.Error() != tt.wantErr {
+					t.Errorf("error = %q, want %q", err, tt.wantErr)
+				}
 				return
-			} else {
-				assert.NoError(t, err)
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
 			}
 
 			env := strings.Split(strings.TrimSpace(string(out)), "\n")
@@ -145,25 +153,25 @@ func TestOpenOutputFileHook(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			h, err := NewOpenOutputFileHook(tt.command, tt.hook)
 			if err != nil {
-				if tt.wantErr != "" {
-					require.Error(t, err)
-					assert.Equal(t, tt.wantErr, err.Error())
-					return
-				} else {
-					assert.NoError(t, err)
+				if tt.wantErr == "" || err.Error() != tt.wantErr {
+					t.Fatalf("constructor error = %v, want %q", err, tt.wantErr)
 				}
-			} else {
-				assert.NoError(t, err)
+				return
 			}
 
 			h = h.WithSrcFileName(tt.srcFileName)
 			out, err := h.Output(tt.fileName)
 			if tt.wantErr != "" {
-				require.Error(t, err)
-				assert.Equal(t, tt.wantErr, err.Error())
+				if err == nil {
+					t.Fatal("expected an error")
+				}
+				if err.Error() != tt.wantErr {
+					t.Errorf("error = %q, want %q", err, tt.wantErr)
+				}
 				return
-			} else {
-				assert.NoError(t, err)
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
 			}
 
 			env := strings.Split(strings.TrimSpace(string(out)), "\n")
@@ -220,25 +228,25 @@ func TestCloseOutputFileHook(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			h, err := NewCloseOutputFileHook(tt.command, tt.hook)
 			if err != nil {
-				if tt.wantErr != "" {
-					require.Error(t, err)
-					assert.Equal(t, tt.wantErr, err.Error())
-					return
-				} else {
-					assert.NoError(t, err)
+				if tt.wantErr == "" || err.Error() != tt.wantErr {
+					t.Fatalf("constructor error = %v, want %q", err, tt.wantErr)
 				}
-			} else {
-				assert.NoError(t, err)
+				return
 			}
 
 			h = h.WithSrcFileName(tt.srcFileName)
 			out, err := h.Output(tt.fileName, tt.size, tt.warcInfoId)
 			if tt.wantErr != "" {
-				require.Error(t, err)
-				assert.Equal(t, tt.wantErr, err.Error())
+				if err == nil {
+					t.Fatal("expected an error")
+				}
+				if err.Error() != tt.wantErr {
+					t.Errorf("error = %q, want %q", err, tt.wantErr)
+				}
 				return
-			} else {
-				assert.NoError(t, err)
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
 			}
 
 			env := strings.Split(strings.TrimSpace(string(out)), "\n")

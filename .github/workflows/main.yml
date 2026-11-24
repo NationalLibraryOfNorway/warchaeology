@@ -12,7 +12,7 @@ jobs:
     steps:
       - uses: actions/setup-go@v7
         with:
-          go-version: 'stable'
+          go-version: '1.27.3'
       - uses: actions/checkout@v7
         with:
           lfs: true
@@ -32,7 +32,7 @@ jobs:
           lfs: true
       - uses: actions/setup-go@v7
         with:
-          go-version: 'stable'
+          go-version: '1.27.3'
       - run: go test ./...
 
   build:
@@ -41,14 +41,14 @@ jobs:
     steps:
       - name: Detect snapshot
         if: ${{ !startsWith(github.ref, 'refs/tags/v') }}
-        run: echo "flags=--snapshot" >> $GITHUB_ENV
+        run: echo "flags=--snapshot" >> "$GITHUB_ENV"
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
           lfs: true
       - uses: actions/setup-go@v7
         with:
-          go-version: 'stable'
+          go-version: '1.27.3'
       - uses: goreleaser/goreleaser-action@v7
         with:
           distribution: goreleaser
@@ -93,3 +93,23 @@ jobs:
         with:
           name: rpm-i386
           path: dist/warchaeology-*i386.rpm
+      - uses: actions/upload-artifact@v7
+        with:
+          name: darwin-arm64
+          path: dist/warchaeology_Darwin_arm64.tar.gz
+      - uses: actions/upload-artifact@v7
+        with:
+          name: linux-arm64
+          path: dist/warchaeology_Linux_arm64.tar.gz
+      - uses: actions/upload-artifact@v7
+        with:
+          name: windows-arm64
+          path: dist/warchaeology_Windows_arm64.zip
+      - uses: actions/upload-artifact@v7
+        with:
+          name: deb-arm64
+          path: dist/warchaeology_*arm64.deb
+      - uses: actions/upload-artifact@v7
+        with:
+          name: rpm-aarch64
+          path: dist/warchaeology-*aarch64.rpm

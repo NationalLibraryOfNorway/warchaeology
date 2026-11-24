@@ -1,11 +1,14 @@
+// Copyright 2024 National Library of Norway.
+// SPDX-License-Identifier: Apache-2.0
+
 package arcreader
 
 import (
 	"path/filepath"
 	"testing"
 
-	"github.com/nlnwa/gowarc/v3"
-	"github.com/nlnwa/whatwg-url/url"
+	"github.com/nationallibraryofnorway/gowarc/v3"
+	"github.com/nationallibraryofnorway/whatwg-url/url"
 	"github.com/spf13/afero"
 )
 

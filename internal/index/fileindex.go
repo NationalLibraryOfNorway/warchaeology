@@ -1,11 +1,16 @@
+// Copyright 2024 National Library of Norway.
+// SPDX-License-Identifier: Apache-2.0
+
 package index
 
 import (
+	"crypto/sha256"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 
-	"github.com/dgraph-io/badger/v3"
+	"github.com/dgraph-io/badger/v4"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/stat"
 )
 
@@ -13,6 +18,7 @@ type FileIndex struct {
 	dir       string
 	db        *badger.DB
 	keepIndex bool
+	keyPrefix string
 }
 
 func NewFileIndex(indexDir string, keepIndex, newIndex bool) (*FileIndex, error) {
@@ -31,18 +37,24 @@ func NewFileIndex(indexDir string, keepIndex, newIndex bool) (*FileIndex, error)
 
 	if newIndex {
 		if err = db.DropAll(); err != nil {
-			idx.Close()
-			return nil, err
+			return nil, errors.Join(err, idx.Close())
 		}
 	}
 
 	return idx, nil
 }
 
+// SetValidationProfile restricts cache hits to the validation settings used
+// to compute the stored statistics. Configure it before submitting workers.
+func (idx *FileIndex) SetValidationProfile(profile string) {
+	digest := sha256.Sum256([]byte(profile))
+	idx.keyPrefix = fmt.Sprintf("\x00validate-v1/%x/", digest)
+}
+
 func (idx *FileIndex) GetFileStats(key string) (result stat.Result, err error) {
 	err = runWithConflictRetry(func() error {
 		return idx.db.View(func(txn *badger.Txn) error {
-			item, err := txn.Get([]byte(key))
+			item, err := txn.Get([]byte(idx.keyPrefix + key))
 			if err != nil {
 				return err
 			}
@@ -62,23 +74,29 @@ func (idx *FileIndex) SaveFileStats(key string, result stat.Result) error {
 	err := runWithConflictRetry(func() error {
 		return idx.db.Update(func(txn *badger.Txn) error {
 			if result == nil {
-				return txn.Delete([]byte(key))
+				return txn.Delete([]byte(idx.keyPrefix + key))
 			}
 			val, err := result.MarshalBinary()
 			if err != nil {
 				return err
 			}
-			return txn.Set([]byte(key), val)
+			return txn.Set([]byte(idx.keyPrefix+key), val)
 		})
 	})
 	return err
 }
 
-func (idx *FileIndex) Close() {
+func (idx *FileIndex) Sync() error { return idx.db.Sync() }
+
+func (idx *FileIndex) Close() error {
+	var err error
 	if idx.db != nil {
-		_ = idx.db.Close()
+		err = errors.Join(err, idx.db.Close())
+		idx.db = nil
 	}
 	if !idx.keepIndex && idx.dir != "" {
-		_ = os.RemoveAll(idx.dir)
+		err = errors.Join(err, os.RemoveAll(idx.dir))
+		idx.dir = ""
 	}
+	return err
 }

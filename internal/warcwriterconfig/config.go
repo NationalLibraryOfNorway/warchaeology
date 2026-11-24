@@ -1,20 +1,31 @@
+// Copyright 2021 National Library of Norway.
+// SPDX-License-Identifier: Apache-2.0
+
 package warcwriterconfig
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sync"
 	"time"
 
+	"github.com/nationallibraryofnorway/gowarc/v3"
+	"github.com/nationallibraryofnorway/warchaeology/v5/internal/bytesize"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/hooks"
-	"github.com/nationallibraryofnorway/warchaeology/v5/internal/util"
-	"github.com/nlnwa/gowarc/v3"
+	"github.com/nationallibraryofnorway/warchaeology/v5/internal/publication"
 )
 
 const DefaultDateFormat = "2006-1-2"
 
 type WarcWriterConfig struct {
+	reservations          sync.Map
+	compressed            bool
+	hookErrorsMu          sync.Mutex
+	hookErrors            error
 	FilePrefix            string
 	DefaultTime           time.Time
 	OutDir                string
@@ -204,7 +215,8 @@ func New(cmd string, options ...func(*WarcWriterOptions)) (*WarcWriterConfig, er
 		return nil, err
 	}
 
-	if o.OneToOneWriter {
+	if o.OneToOneWriter || o.WarcFileNameGenerator == "identity" {
+		o.OneToOneWriter = true
 		// Only one writer with unrestricted size to allow for one to one mapping
 		o.ConcurrentWriters = 1
 		o.MaxFileSize = "0"
@@ -215,13 +227,14 @@ func New(cmd string, options ...func(*WarcWriterOptions)) (*WarcWriterConfig, er
 		gowarc.WithMaxConcurrentWriters(o.ConcurrentWriters),
 		gowarc.WithCompression(o.Compress),
 		gowarc.WithCompressionLevel(o.CompressionLevel),
-		gowarc.WithMaxFileSize(util.ParseSizeInBytes(o.MaxFileSize)),
+		gowarc.WithMaxFileSize(bytesize.Parse(o.MaxFileSize)),
 		gowarc.WithFlush(o.Flush),
 		gowarc.WithWarcInfoFunc(o.WarcInfoFunc),
 		gowarc.WithRecordOptions(gowarc.WithVersion(version), gowarc.WithBufferTmpDir(o.TmpDir)),
 	}
 
 	return &WarcWriterConfig{
+		compressed:            o.Compress,
 		DefaultTime:           defaultTime,
 		OutDir:                outDir,
 		FilePrefix:            o.FilePrefix,
@@ -236,7 +249,40 @@ func New(cmd string, options ...func(*WarcWriterOptions)) (*WarcWriterConfig, er
 	}, nil
 }
 
+// ReserveOutput claims the final one-to-one filename across concurrent writers.
+func (w *WarcWriterConfig) ReserveOutput(path string, date time.Time) (func() error, error) {
+	dir := filepath.Join(w.OutDir, parseSubdirPattern(w.SubDirPattern, date))
+	if err := os.MkdirAll(dir, 0777); err != nil {
+		return nil, err
+	}
+	_, name := NewIdentityNamer(path, w.FilePrefix, dir).NewWarcfileName()
+	if w.compressed {
+		name += ".gz"
+	}
+	dest := filepath.Join(dir, name)
+	lock := dest + ".reserve"
+	f, err := os.OpenFile(lock, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
+	if err != nil {
+		return nil, fmt.Errorf("reserve %s for %s: %w", dest, path, err)
+	}
+	release := func() error { return os.Remove(lock) }
+	if err = f.Close(); err != nil {
+		return nil, errors.Join(err, release())
+	}
+	if _, err = os.Lstat(dest); !errors.Is(err, os.ErrNotExist) {
+		if err == nil {
+			err = os.ErrExist
+		}
+		return nil, errors.Join(fmt.Errorf("reserve %s for %s: %w", dest, path, err), release())
+	}
+	return release, nil
+}
+
 func (w *WarcWriterConfig) GetWarcWriter(path string, warcDate time.Time) (*gowarc.WarcFileWriter, error) {
+	return w.GetWarcWriterContext(context.Background(), path, warcDate)
+}
+
+func (w *WarcWriterConfig) GetWarcWriterContext(ctx context.Context, path string, warcDate time.Time) (*gowarc.WarcFileWriter, error) {
 	var namer gowarc.WarcFileNameGenerator
 	var dir string
 
@@ -264,14 +310,24 @@ func (w *WarcWriterConfig) GetWarcWriter(path string, warcDate time.Time) (*gowa
 	var ww *gowarc.WarcFileWriter
 
 	if w.OneToOneWriter {
+		release, err := w.ReserveOutput(path, warcDate)
+		if err != nil {
+			return nil, err
+		}
+		state := &identityState{release: release}
+		openHook := w.openOutputFileHook.WithSrcFileName(path)
+		closeHook := w.closeOutputFileHook.WithSrcFileName(path)
 		opts := make([]gowarc.WarcFileWriterOption, 0, len(w.WarcFileWriterOptions)+3)
 		opts = append(opts, w.WarcFileWriterOptions...)
 		opts = append(opts,
 			gowarc.WithFileNameGenerator(namer),
-			gowarc.WithBeforeFileCreationHook(w.openOutputFileHook.WithSrcFileName(path).Run),
-			gowarc.WithAfterFileCreationHook(w.closeOutputFileHook.WithSrcFileName(path).Run),
+			gowarc.WithBeforeFileCreationHook(func(name string) error { return state.record(openHook.RunContext(ctx, name)) }),
+			gowarc.WithAfterFileCreationHook(func(name string, size int64, id string) error {
+				return state.record(closeHook.RunContext(ctx, name, size, id))
+			}),
 		)
 		ww = gowarc.NewWarcFileWriter(opts...)
+		w.reservations.Store(ww, state)
 		return ww, nil
 	}
 
@@ -285,7 +341,11 @@ func (w *WarcWriterConfig) GetWarcWriter(path string, warcDate time.Time) (*gowa
 
 	opts := make([]gowarc.WarcFileWriterOption, 0, len(w.WarcFileWriterOptions)+1)
 	opts = append(opts, w.WarcFileWriterOptions...)
-	opts = append(opts, gowarc.WithFileNameGenerator(namer))
+	opts = append(opts, gowarc.WithFileNameGenerator(namer),
+		gowarc.WithBeforeFileCreationHook(func(name string) error { return w.recordHookError(w.openOutputFileHook.RunContext(ctx, name)) }),
+		gowarc.WithAfterFileCreationHook(func(name string, size int64, id string) error {
+			return w.recordHookError(w.closeOutputFileHook.RunContext(ctx, name, size, id))
+		}))
 	ww = gowarc.NewWarcFileWriter(opts...)
 	w.writers[subDir] = ww
 
@@ -293,12 +353,172 @@ func (w *WarcWriterConfig) GetWarcWriter(path string, warcDate time.Time) (*gowa
 }
 
 func (w *WarcWriterConfig) Close() error {
-	var lastErr error
+	var closeErr error
 	for _, writer := range w.writers {
 		err := writer.Close()
 		if err != nil {
-			lastErr = fmt.Errorf("error closing WARC writer: %w", err)
+			closeErr = errors.Join(closeErr, fmt.Errorf("error closing WARC writer: %w", err))
 		}
 	}
-	return lastErr
+	clear(w.writers)
+	w.hookErrorsMu.Lock()
+	closeErr = errors.Join(closeErr, w.hookErrors)
+	w.hookErrors = nil
+	w.hookErrorsMu.Unlock()
+	return closeErr
+}
+
+// Publish finalizes output and reports errors from the writers and their hooks.
+func (w *WarcWriterConfig) Publish() error {
+	var err error
+	for _, writer := range w.writers {
+		err = errors.Join(err, writer.Rotate())
+	}
+	return errors.Join(err, w.Close())
+}
+
+// FinalizeWriter collects publication errors before shutting down the writer.
+func FinalizeWriter(writer *gowarc.WarcFileWriter) error {
+	return errors.Join(writer.Rotate(), writer.Close())
+}
+
+// ForDirectory creates an independent writer scope with the same output policy.
+// No writer or mutex is shared with the template.
+func (w *WarcWriterConfig) ForDirectory(dir string) *WarcWriterConfig {
+	return &WarcWriterConfig{
+		compressed:            w.compressed,
+		FilePrefix:            w.FilePrefix,
+		DefaultTime:           w.DefaultTime,
+		OutDir:                dir,
+		TmpDir:                w.TmpDir,
+		WarcVersion:           w.WarcVersion,
+		WarcFileNameGenerator: w.WarcFileNameGenerator,
+		SubDirPattern:         w.SubDirPattern,
+		writers:               make(map[string]*gowarc.WarcFileWriter),
+		openOutputFileHook:    w.openOutputFileHook,
+		closeOutputFileHook:   w.closeOutputFileHook,
+		WarcFileWriterOptions: append([]gowarc.WarcFileWriterOption(nil), w.WarcFileWriterOptions...),
+	}
+}
+
+// gowarc v3 ignores hook return values. Retain failures until all writers have
+// closed so callers can refuse publication of incomplete output.
+func (w *WarcWriterConfig) recordHookError(err error) error {
+	if err != nil {
+		w.hookErrorsMu.Lock()
+		w.hookErrors = errors.Join(w.hookErrors, err)
+		w.hookErrorsMu.Unlock()
+	}
+	return err
+}
+
+type identityState struct {
+	release func() error
+	mu      sync.Mutex
+	err     error
+}
+
+func (s *identityState) record(err error) error {
+	if err != nil {
+		s.mu.Lock()
+		s.err = errors.Join(s.err, err)
+		s.mu.Unlock()
+	}
+	return err
+}
+
+func (w *WarcWriterConfig) FinishIdentity(writer *gowarc.WarcFileWriter) error {
+	err := FinalizeWriter(writer)
+	if release, ok := w.reservations.LoadAndDelete(writer); ok {
+		state := release.(*identityState)
+		state.mu.Lock()
+		err = errors.Join(err, state.err, state.release())
+		state.mu.Unlock()
+	}
+	return err
+}
+
+// WriterForInput stages one-to-one output until its input has been processed.
+// For a shared writer the run owns publication and finish is nil.
+func (w *WarcWriterConfig) WriterForInput(ctx context.Context, path string, date time.Time) (*gowarc.WarcFileWriter, func(bool) error, error) {
+	if !w.OneToOneWriter {
+		writer, err := w.GetWarcWriterContext(ctx, path, date)
+		return writer, nil, err
+	}
+	release, err := w.ReserveOutput(path, date)
+	if err != nil {
+		return nil, nil, err
+	}
+	dir := filepath.Join(w.OutDir, parseSubdirPattern(w.SubDirPattern, date))
+	stage, err := os.MkdirTemp(dir, ".conversion-")
+	if err != nil {
+		return nil, nil, errors.Join(err, release())
+	}
+	openHook := w.openOutputFileHook.WithSrcFileName(path)
+	closeHook := w.closeOutputFileHook.WithSrcFileName(path)
+	var hookErr error
+	var staged, infoID string
+	var size int64
+	opts := append([]gowarc.WarcFileWriterOption(nil), w.WarcFileWriterOptions...)
+	opts = append(opts, gowarc.WithFileNameGenerator(NewIdentityNamer(path, w.FilePrefix, stage)),
+		gowarc.WithBeforeFileCreationHook(func(name string) error {
+			hookErr = openHook.RunContext(ctx, filepath.Join(dir, filepath.Base(name)))
+			return hookErr
+		}), gowarc.WithAfterFileCreationHook(func(name string, n int64, id string) error {
+			staged, size, infoID = name, n, id
+			return nil
+		}))
+	writer := gowarc.NewWarcFileWriter(opts...)
+	finish := func(success bool) (err error) {
+		defer func() { err = errors.Join(err, os.RemoveAll(stage), release()) }()
+		err = FinalizeWriter(writer)
+		err = errors.Join(err, hookErr)
+		if err != nil || !success {
+			return err
+		}
+		if staged == "" {
+			return errors.New("conversion writer closed without an output file")
+		}
+		dest := filepath.Join(dir, filepath.Base(staged))
+		return publishStaged(staged, dest, w.OutDir, publication.SyncDir, func() error { return closeHook.RunContext(ctx, dest, size, infoID) })
+	}
+	return writer, finish, nil
+}
+
+// publishStaged makes a completed file durable before reporting its final name to the hook.
+func publishStaged(staged, dest, root string, syncDir func(string) error, afterPublish func() error) (err error) {
+	dir := filepath.Dir(dest)
+	file, e := os.OpenFile(staged, os.O_RDWR, 0)
+	if e != nil {
+		return e
+	}
+	original, e := file.Stat()
+	err = errors.Join(e, file.Sync(), file.Close())
+	if err != nil {
+		return err
+	}
+	if runtime.GOOS == "windows" {
+		err = publication.Rename(staged, dest, false)
+	} else {
+		err = os.Link(staged, dest)
+	}
+	if err != nil {
+		return err
+	}
+	for parent := dir; ; parent = filepath.Dir(parent) {
+		err = syncDir(parent)
+		if err != nil || filepath.Clean(parent) == filepath.Clean(root) || filepath.Dir(parent) == parent {
+			break
+		}
+	}
+	if err == nil {
+		err = afterPublish()
+	}
+	if err != nil {
+		published, destErr := os.Lstat(dest)
+		if destErr == nil && os.SameFile(original, published) {
+			err = errors.Join(err, os.Remove(dest), syncDir(dir))
+		}
+	}
+	return err
 }

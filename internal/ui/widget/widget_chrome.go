@@ -1,3 +1,6 @@
+// Copyright 2026 National Library of Norway.
+// SPDX-License-Identifier: Apache-2.0
+
 package widget
 
 import (
@@ -6,8 +9,8 @@ import (
 	"strings"
 
 	"github.com/awesome-gocui/gocui"
+	"github.com/nationallibraryofnorway/gowarc/v3"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/ui/model"
-	"github.com/nlnwa/gowarc/v3"
 )
 
 type ChromeWidget struct {
@@ -75,7 +78,10 @@ func (w *ChromeWidget) Layout(gui *gocui.Gui, x0, y0, x1, y1 int) error {
 
 func (w *ChromeWidget) onMouseToggle(gui *gocui.Gui, view *gocui.View) error {
 	x, y := view.Cursor()
-	str, _ := view.Line(y)
+	str, err := view.Line(y)
+	if err != nil || x < 0 || x >= len(str) {
+		return nil
+	}
 
 	nl := strings.LastIndexFunc(str[:x], indexFunc)
 	if nl == -1 {

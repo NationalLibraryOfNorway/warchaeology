@@ -1,3 +1,6 @@
+// Copyright 2024 National Library of Norway.
+// SPDX-License-Identifier: Apache-2.0
+
 package hooks
 
 import (
@@ -45,10 +48,14 @@ func NewOpenInputFileHook(cmd, hook string) (OpenInputFileHook, error) {
 }
 
 func (h OpenInputFileHook) Run(fileName string) error {
+	return h.RunContext(context.Background(), fileName)
+}
+
+func (h OpenInputFileHook) RunContext(ctx context.Context, fileName string) error {
 	if h.hook == "" {
 		return nil
 	}
-	b, err := h.Output(fileName)
+	b, err := h.OutputContext(ctx, fileName)
 	if len(b) > 0 {
 		_, _ = fmt.Fprintln(os.Stderr, string(b))
 	}
@@ -56,7 +63,11 @@ func (h OpenInputFileHook) Run(fileName string) error {
 }
 
 func (h OpenInputFileHook) Output(fileName string) ([]byte, error) {
-	c := exec.CommandContext(context.TODO(), h.hook)
+	return h.OutputContext(context.Background(), fileName)
+}
+
+func (h OpenInputFileHook) OutputContext(ctx context.Context, fileName string) ([]byte, error) {
+	c := exec.CommandContext(ctx, h.hook)
 	c.Env = append(c.Environ(), EnvCommand+"="+h.cmd)
 	c.Env = append(c.Environ(), EnvHookType+"=OpenInputFile")
 	c.Env = append(c.Environ(), EnvFileName+"="+fileName)
@@ -97,10 +108,14 @@ func NewCloseInputFileHook(cmd, hook string) (CloseInputFileHook, error) {
 }
 
 func (h CloseInputFileHook) Run(fileName string, result stat.Result, resultErr error) error {
+	return h.RunContext(context.Background(), fileName, result, resultErr)
+}
+
+func (h CloseInputFileHook) RunContext(ctx context.Context, fileName string, result stat.Result, resultErr error) error {
 	if h.hook == "" {
 		return nil
 	}
-	b, err := h.Output(fileName, result, resultErr)
+	b, err := h.OutputContext(ctx, fileName, result, resultErr)
 	if len(b) > 0 {
 		_, _ = fmt.Fprintln(os.Stderr, string(b))
 	}
@@ -108,7 +123,11 @@ func (h CloseInputFileHook) Run(fileName string, result stat.Result, resultErr e
 }
 
 func (h CloseInputFileHook) Output(fileName string, result stat.Result, resultErr error) ([]byte, error) {
-	c := exec.CommandContext(context.TODO(), h.hook)
+	return h.OutputContext(context.Background(), fileName, result, resultErr)
+}
+
+func (h CloseInputFileHook) OutputContext(ctx context.Context, fileName string, result stat.Result, resultErr error) ([]byte, error) {
+	c := exec.CommandContext(ctx, h.hook)
 	c.Env = append(c.Environ(), EnvCommand+"="+h.cmd)
 	c.Env = append(c.Environ(), EnvHookType+"=CloseInputFile")
 	c.Env = append(c.Environ(), EnvFileName+"="+fileName)
@@ -167,10 +186,14 @@ func (h OpenOutputFileHook) WithSrcFileName(srcFileName string) OpenOutputFileHo
 }
 
 func (h OpenOutputFileHook) Run(fileName string) error {
+	return h.RunContext(context.Background(), fileName)
+}
+
+func (h OpenOutputFileHook) RunContext(ctx context.Context, fileName string) error {
 	if h.hook == "" {
 		return nil
 	}
-	b, err := h.Output(fileName)
+	b, err := h.outputContext(ctx, fileName)
 	if len(b) > 0 {
 		_, _ = fmt.Fprintln(os.Stderr, string(b))
 	}
@@ -178,7 +201,11 @@ func (h OpenOutputFileHook) Run(fileName string) error {
 }
 
 func (h OpenOutputFileHook) Output(fileName string) ([]byte, error) {
-	c := exec.CommandContext(context.TODO(), h.hook)
+	return h.outputContext(context.Background(), fileName)
+}
+
+func (h OpenOutputFileHook) outputContext(ctx context.Context, fileName string) ([]byte, error) {
+	c := exec.CommandContext(ctx, h.hook)
 	c.Env = append(c.Environ(), EnvCommand+"="+h.cmd)
 	c.Env = append(c.Environ(), EnvHookType+"=OpenOutputFile")
 	c.Env = append(c.Environ(), EnvFileName+"="+fileName)
@@ -226,10 +253,14 @@ func (h CloseOutputFileHook) WithSrcFileName(srcFileName string) CloseOutputFile
 }
 
 func (h CloseOutputFileHook) Run(fileName string, size int64, warcInfoId string) error {
+	return h.RunContext(context.Background(), fileName, size, warcInfoId)
+}
+
+func (h CloseOutputFileHook) RunContext(ctx context.Context, fileName string, size int64, warcInfoId string) error {
 	if h.hook == "" {
 		return nil
 	}
-	b, err := h.Output(fileName, size, warcInfoId)
+	b, err := h.outputContext(ctx, fileName, size, warcInfoId)
 	if len(b) > 0 {
 		_, _ = fmt.Fprintln(os.Stderr, string(b))
 	}
@@ -237,11 +268,15 @@ func (h CloseOutputFileHook) Run(fileName string, size int64, warcInfoId string)
 }
 
 func (h CloseOutputFileHook) Output(fileName string, size int64, warcInfoId string) ([]byte, error) {
+	return h.outputContext(context.Background(), fileName, size, warcInfoId)
+}
+
+func (h CloseOutputFileHook) outputContext(ctx context.Context, fileName string, size int64, warcInfoId string) ([]byte, error) {
 	if h.hook == "" {
 		return nil, nil
 	}
 
-	c := exec.CommandContext(context.TODO(), h.hook)
+	c := exec.CommandContext(ctx, h.hook)
 	c.Env = append(c.Environ(), EnvCommand+"="+h.cmd)
 	c.Env = append(c.Environ(), EnvHookType+"=CloseOutputFile")
 	c.Env = append(c.Environ(), EnvFileName+"="+fileName)

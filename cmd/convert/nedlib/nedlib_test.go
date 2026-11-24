@@ -1,9 +1,14 @@
+// Copyright 2024 National Library of Norway.
+// SPDX-License-Identifier: Apache-2.0
+
 package nedlib
 
 import (
 	"path/filepath"
 	"testing"
 
+	"github.com/nationallibraryofnorway/warchaeology/v5/cmd/convert/internal/conversion"
+	"github.com/nationallibraryofnorway/warchaeology/v5/internal/testcheck"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/warcwriterconfig"
 	"github.com/spf13/afero"
 )
@@ -45,13 +50,13 @@ func Test(t *testing.T) {
 			if err != nil {
 				t.Fatalf("failed to create warc writer config: %v", err)
 			}
-			defer warcWriterConfig.Close()
 
 			o := &ConvertNedlibOptions{
 				WarcWriterConfig: warcWriterConfig,
 			}
+			defer testcheck.Close(t, o)
 
-			_, err = o.handleFile(afero.NewOsFs(), filename)
+			_, err = (conversion.RunOptions{Writer: o.WarcWriterConfig}).ConvertFile(t.Context(), afero.NewOsFs(), filename, o.handleFile)
 			if err != nil && !tt.wantError {
 				t.Fatal(err)
 			}

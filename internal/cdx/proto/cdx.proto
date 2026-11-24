@@ -1,0 +1,81 @@
+// Copyright 2026 National Library of Norway.
+// SPDX-License-Identifier: Apache-2.0
+
+syntax = "proto3";
+
+package schema;
+
+import "google/protobuf/timestamp.proto";
+
+option go_package = "github.com/nationallibraryofnorway/warchaeology/v5/internal/cdx/schema";
+
+message Cdx {
+  // uri (required) - The value should be the non-transformed URI used for the
+  // searchable URI (first sortable field).
+  string uri = 1;
+  // sha (recommended) - A Base32 encoded SHA-1 digest of the payload that this
+  // record refers to. Omit if the URI has no intrinsic payload. For revisit
+  // records, this is the digest of the original payload. The algorithm prefix
+  // (e.g. sha-1) is not included in this field. See dig for alternative hashing
+  // algorithms.
+  string sha = 2;
+  // dig - A Base32 encoded output of a hashing algorithm applied to the URI’s
+  // payload. This should include a prefix indicating the algorithm.
+  string dig = 3;
+  // hsc - HTTP Status Code. Applicable for response records for HTTP(S) URIs.
+  int32 hsc = 4;
+  // mct - Media Content Type (MIME type). For HTTP(S) response records this is
+  // typically the “Content-Type” from the HTTP header. This field, however,
+  // does not specify the origin of the information. It may be used to include
+  // content type that was derived from content analysis or other sources.
+  string mct = 5;
+  // ref (required) - A URI that resolves to the resource that this record
+  // refers to. This can be any well defined URI scheme. For the most common web
+  // archive use case of warc filename plus offset, see Appendix C. For other
+  // use cases, existing schemes can be used or new ones devised.
+  string ref = 6;
+  // rid (recommended) - Record ID. Typically WARC-Record-ID or equivalent if
+  // not using WARCs. In a mixed environment, you should ensure that record ID
+  // is unique.
+  string rid = 7;
+  // cle - Content Length. The length of the content (uncompressed), ignoring
+  // WARC headers, but including any HTTP headers or similar.
+  int64 cle = 8;
+  // ple - Payload Length. The length of the payload (uncompressed). The exact
+  // meaning will vary by content type, but the common case is the length of the
+  // document, excluding any HTTP headers in a HTTP response record.
+  int64 ple = 9;
+  // rle - Record Length. The length of the record that this line refers to.
+  // This is the entire record (including e.g. WARC headers) as written on disk
+  // (compressed if stored compressed).
+  int64 rle = 10;
+  // rct - Record Concurrant To. The record ID of another record that the
+  // current record is considered to be ‘concurrant’ to. See further WARC
+  // chapter 5.7 (WARC-Concurrent-To).
+  string rct = 11;
+  // rou (recommended) - Revisit Original URI. Only valid for records of type
+  // revisit. Contains the URI of the record that this record is considered a
+  // revisit of.
+  string rou = 12;
+  // rod (recommended) - Revisit Original Date. Only valid for records of type
+  // revisit. Contains the timestamp (equivalent to sortable field #2) of the
+  // record that this record is considered a revisit of.
+  google.protobuf.Timestamp rod = 13;
+  // roi - Revisit Original record ID. Only valid for records of type revisit.
+  // Contains the record ID of the record that this record is considered a
+  // revisit of.
+  string roi = 14;
+  // Searchable URI - ssu (sortable searchable URI)
+  string ssu = 15;
+  // Timestamp - sts (sortable timestamp)
+  google.protobuf.Timestamp sts = 16;
+  // Record Type - srt (sortable record type)
+  string srt = 17;
+  string filename = 18;
+  string source = 19;
+  int64 offset = 20;
+  string method = 21;
+  string request_body = 22;
+  bytes extra_json = 23;
+  string generation = 24;
+}

@@ -1,3 +1,6 @@
+// Copyright 2024 National Library of Norway.
+// SPDX-License-Identifier: Apache-2.0
+
 package flag
 
 import (
@@ -8,8 +11,8 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/nationallibraryofnorway/gowarc/v3"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/filter"
-	"github.com/nlnwa/gowarc/v3"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 )
@@ -35,26 +38,14 @@ Example:
 	MimeTypeHelp = `only process records with these MIME types; repeat the flag or use a comma-separated list`
 )
 
-type FilterFlags struct {
-	defaultMimeType []string
-}
+type FilterFlags struct{}
 
-func WithDefaultMimeType(mimeTypes []string) func(*FilterFlags) {
-	return func(f *FilterFlags) {
-		f.defaultMimeType = mimeTypes
-	}
-}
-
-func (f FilterFlags) AddFlags(cmd *cobra.Command, opts ...func(*FilterFlags)) {
-	for _, opt := range opts {
-		opt(&f)
-	}
-
+func (f FilterFlags) AddFlags(cmd *cobra.Command) {
 	flags := cmd.Flags()
 	flags.StringSlice(RecordId, []string{}, RecordIdHelp)
 	flags.StringSliceP(RecordType, "t", []string{}, RecordTypeHelp)
 	flags.StringP(ResponseCode, "S", "", ResponseCodeHelp)
-	flags.StringSliceP(MimeType, "m", f.defaultMimeType, MimeTypeHelp)
+	flags.StringSliceP(MimeType, "m", nil, MimeTypeHelp)
 
 	if err := cmd.RegisterFlagCompletionFunc(RecordType, SliceCompletion{
 		"warcinfo",
@@ -98,12 +89,16 @@ func (f FilterFlags) ToFilter() (*filter.RecordFilter, error) {
 		return nil, fmt.Errorf("failed to parse record types: %w", err)
 	}
 
-	return filter.New(
+	opts := []func(*filter.RecordFilter){
 		filter.WithMimeType(f.MimeType()),
-		filter.WithCodeRange(from, to),
+
 		filter.WithRecordIds(f.RecordId()),
 		filter.WithRecordTypes(recordTypes),
-	), nil
+	}
+	if f.ResponseCode() != "" {
+		opts = append(opts, filter.WithCodeRange(from, to))
+	}
+	return filter.New(opts...), nil
 }
 
 func toRecordTypes(recordTypes []string) (recordType gowarc.RecordType, err error) {

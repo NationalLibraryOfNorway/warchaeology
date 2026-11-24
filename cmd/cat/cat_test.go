@@ -1,3 +1,6 @@
+// Copyright 2024 National Library of Norway.
+// SPDX-License-Identifier: Apache-2.0
+
 package cat
 
 import (
@@ -10,7 +13,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/nlnwa/gowarc/v3"
+	"github.com/nationallibraryofnorway/gowarc/v3"
+	"github.com/nationallibraryofnorway/warchaeology/v5/internal/testcheck"
 )
 
 var (
@@ -60,29 +64,18 @@ func TestWriteWarcRecord(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				defer f.Close()
+				defer testcheck.Close(t, f)
 
 				gzipReader, err := gzip.NewReader(f)
 				if err != nil {
 					t.Fatal(err)
 				}
-				defer gzipReader.Close()
-				count := 0
-				for {
-					// Read bytes from the bufio reader
-					buffer := make([]byte, 1024)
-					n, err := gzipReader.Read(buffer)
-					if err != nil {
-						if err == io.EOF {
-							break
-						} else {
-							want = append(want, buffer[:n]...)
-							break
-						}
-					}
-					count += n
-
-					want = append(want, buffer[:n]...)
+				want, err = io.ReadAll(gzipReader)
+				if !errors.Is(err, test.err) {
+					t.Fatalf("read gzip fixture: %v, want %v", err, test.err)
+				}
+				if closeErr := gzipReader.Close(); closeErr != nil && !errors.Is(closeErr, test.err) {
+					t.Fatal(closeErr)
 				}
 
 				_, err = f.Seek(0, 0)
@@ -100,7 +93,9 @@ func TestWriteWarcRecord(t *testing.T) {
 					t.Fatal(err)
 				}
 				defer func() {
-					_ = warcFileReader.Close()
+					if err := warcFileReader.Close(); err != nil && !errors.Is(err, test.err) {
+						t.Errorf("close WARC reader: %v", err)
+					}
 				}()
 			} else {
 				// open WARC file reader
@@ -108,9 +103,7 @@ func TestWriteWarcRecord(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				defer func() {
-					_ = warcFileReader.Close()
-				}()
+				defer testcheck.Close(t, warcFileReader)
 
 				want, err = os.ReadFile(testFile)
 				if err != nil {
@@ -170,5 +163,25 @@ want is %d bytes, got is %d bytes
 					got.Bytes()[len(got.Bytes())-n:])
 			}
 		})
+	}
+}
+
+// gzipHeaderWriter accepts the gzip header and fails when the compressor
+// flushes the small record during Close.
+type gzipHeaderWriter struct{ bytes.Buffer }
+
+func (w *gzipHeaderWriter) Write(p []byte) (int, error) {
+	if w.Len() >= 10 {
+		return 0, io.ErrClosedPipe
+	}
+	return w.Buffer.Write(p)
+}
+
+func TestCompressedRecordReturnsFinalizationError(t *testing.T) {
+	o := CatOptions{compress: true, writer: &writer{}}
+	var dst gzipHeaderWriter
+	err := o.handleRecord(&dst, gowarc.Record{})
+	if !errors.Is(err, io.ErrClosedPipe) || dst.Len() != 10 {
+		t.Fatalf("wrote %d bytes, got %v", dst.Len(), err)
 	}
 }

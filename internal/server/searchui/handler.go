@@ -1,0 +1,115 @@
+// Copyright 2026 National Library of Norway.
+// SPDX-License-Identifier: Apache-2.0
+
+// Package searchui exposes search as JSON and a framework-free archive console.
+package searchui
+
+import (
+	"embed"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
+	"io/fs"
+	"net/http"
+	"strconv"
+	"time"
+
+	"github.com/nationallibraryofnorway/warchaeology/v5/internal/fulltext"
+)
+
+//go:embed assets/*
+var assets embed.FS
+
+// New owns no index resources; the server must close its index after handlers drain.
+func New(index *fulltext.Index, syncer *fulltext.Synchronizer, playbackURLBase string) http.Handler {
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /search/status", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		status := map[string]any{"enabled": index != nil}
+		if playbackURLBase != "" {
+			status["playbackUrlBase"] = playbackURLBase
+		}
+		if syncer != nil {
+			status["indexing"] = syncer.Status()
+		}
+		_ = json.MarshalEncode(jsontext.NewEncoder(w), status)
+	})
+	mux.HandleFunc("GET /search", func(w http.ResponseWriter, r *http.Request) {
+		if index == nil {
+			http.Error(w, "full-text search is not enabled", http.StatusNotFound)
+			return
+		}
+		values := r.URL.Query()
+		req := fulltext.Request{Query: values.Get("q"), Host: values.Get("host"), Package: values.Get("package")}
+		for name, target := range map[string]*int{"offset": &req.Offset, "limit": &req.Limit} {
+			if raw := values.Get(name); raw != "" {
+				value, err := strconv.Atoi(raw)
+				if err != nil {
+					http.Error(w, "invalid "+name, http.StatusBadRequest)
+					return
+				}
+				*target = value
+			}
+		}
+		for name, target := range map[string]*time.Time{"from": &req.From, "to": &req.To} {
+			if raw := values.Get(name); raw != "" {
+				value, err := time.Parse(time.RFC3339, raw)
+				if err != nil {
+					http.Error(w, "invalid "+name+": use RFC3339", http.StatusBadRequest)
+					return
+				}
+				*target = value
+			}
+		}
+		if !req.From.IsZero() && !req.To.IsZero() && req.From.After(req.To) {
+			http.Error(w, "from must precede to", http.StatusBadRequest)
+			return
+		}
+		limit := req.Limit
+		if limit == 0 {
+			limit = 20
+		}
+		if req.Offset+limit > 10000 || req.Query == "" || req.Offset < 0 || req.Offset >= 10000 || req.Limit < 0 || req.Limit > 100 {
+			http.Error(w, "invalid query or pagination", http.StatusBadRequest)
+			return
+		}
+		if err := fulltext.ValidateQuery(req.Query); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		result, err := index.Search(r.Context(), req)
+		if err != nil {
+			http.Error(w, "search unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		if syncer != nil {
+			visible := result.Hits[:0]
+			for _, hit := range result.Hits {
+				if syncer.Visible(r.Context(), hit.Fields) {
+					visible = append(visible, hit)
+				}
+			}
+			result.Hits = visible
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Cache-Control", "no-store")
+		timeline, err := index.Timeline(r.Context(), req)
+		if err != nil {
+			http.Error(w, "timeline unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		_ = json.MarshalEncode(jsontext.NewEncoder(w), map[string]any{
+			"hits":          result.Hits,
+			"totalEstimate": result.Total,
+			"timeline":      timeline,
+			"offset":        req.Offset,
+			"limit":         limit,
+		})
+	})
+	files, _ := fs.Sub(assets, "assets")
+	mux.Handle("GET /", http.FileServer(http.FS(files)))
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; frame-src 'none'; worker-src 'none'")
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		mux.ServeHTTP(w, r)
+	})
+}

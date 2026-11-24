@@ -1,10 +1,13 @@
+// Copyright 2021 National Library of Norway.
+// SPDX-License-Identifier: Apache-2.0
+
 package index
 
 import (
 	"reflect"
 	"testing"
 
-	"github.com/nlnwa/gowarc/v3"
+	"github.com/nationallibraryofnorway/gowarc/v3"
 )
 
 func Test_codec_decode(t *testing.T) {
@@ -108,9 +111,21 @@ func Test_codec_encode_invalid(t *testing.T) {
 		value *gowarc.RevisitRef
 	}{
 		{name: "nil", value: nil},
-		{name: "invalid id", value: &gowarc.RevisitRef{Profile: gowarc.ProfileIdenticalPayloadDigestV1_1, TargetRecordId: "bad", TargetDate: "2006-11-17T11:48:47Z"}},
-		{name: "invalid date", value: &gowarc.RevisitRef{Profile: gowarc.ProfileIdenticalPayloadDigestV1_1, TargetRecordId: "<urn:uuid:ce151eae-2bb0-41a7-a1b5-a984d5e4fa70>", TargetDate: "not-a-date"}},
-		{name: "invalid profile", value: &gowarc.RevisitRef{Profile: "invalid", TargetRecordId: "<urn:uuid:ce151eae-2bb0-41a7-a1b5-a984d5e4fa70>", TargetDate: "2006-11-17T11:48:47Z"}},
+		{name: "invalid id", value: &gowarc.RevisitRef{
+			Profile:        gowarc.ProfileIdenticalPayloadDigestV1_1,
+			TargetRecordId: "bad",
+			TargetDate:     "2006-11-17T11:48:47Z",
+		}},
+		{name: "invalid date", value: &gowarc.RevisitRef{
+			Profile:        gowarc.ProfileIdenticalPayloadDigestV1_1,
+			TargetRecordId: "<urn:uuid:ce151eae-2bb0-41a7-a1b5-a984d5e4fa70>",
+			TargetDate:     "not-a-date",
+		}},
+		{name: "invalid profile", value: &gowarc.RevisitRef{
+			Profile:        "invalid",
+			TargetRecordId: "<urn:uuid:ce151eae-2bb0-41a7-a1b5-a984d5e4fa70>",
+			TargetDate:     "2006-11-17T11:48:47Z",
+		}},
 	}
 
 	for _, tt := range tests {

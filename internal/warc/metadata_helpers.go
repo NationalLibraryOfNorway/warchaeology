@@ -1,10 +1,13 @@
+// Copyright 2024 National Library of Norway.
+// SPDX-License-Identifier: Apache-2.0
+
 package warc
 
 import (
 	"time"
 
-	"github.com/nlnwa/gowarc/v3"
-	"github.com/nlnwa/whatwg-url/url"
+	"github.com/nationallibraryofnorway/gowarc/v3"
+	"github.com/nationallibraryofnorway/whatwg-url/url"
 )
 
 type Metadata struct {
@@ -16,10 +19,10 @@ type Metadata struct {
 	RecordId   string `json:"recordId,omitempty"`
 	Checksum   string `json:"checksum,omitempty"`
 	MimeType   string `json:"mimeType,omitempty"`
-	StatusCode int    `json:"statusCode,omitempty"`
-	Size       int64  `json:"size,omitempty"`
+	StatusCode int    `json:"statusCode,omitzero"`
+	Size       int64  `json:"size,omitzero"`
 	Type       string `json:"type,omitempty"`
-	Offset     int64  `json:"offset,omitempty"`
+	Offset     int64  `json:"offset,omitzero"`
 }
 
 func URL(wr gowarc.WarcRecord) string {
@@ -46,6 +49,7 @@ func FileName(wr gowarc.WarcRecord) string {
 	return wr.WarcHeader().Get(gowarc.WarcFilename)
 }
 
+// Hostname returns derived WHATWG-normalized metadata, never a replacement for the stored URI.
 func Hostname(wr gowarc.WarcRecord) string {
 	uri := wr.WarcHeader().Get(gowarc.WarcTargetURI)
 
@@ -74,7 +78,7 @@ func MIMEType(wr gowarc.WarcRecord) string {
 			return block.HttpHeader().Get("Content-Type")
 		}
 	case gowarc.HttpRequestBlock:
-		if block.HttpHeader() == nil {
+		if block.HttpHeader() != nil {
 			return block.HttpHeader().Get("Content-Type")
 		}
 	}

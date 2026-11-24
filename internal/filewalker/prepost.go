@@ -1,6 +1,10 @@
+// Copyright 2024 National Library of Norway.
+// SPDX-License-Identifier: Apache-2.0
+
 package filewalker
 
 import (
+	"context"
 	"errors"
 	"fmt"
 
@@ -11,14 +15,20 @@ import (
 )
 
 // ErrSkipFile is returned by hooks to signal that the file should be skipped.
-var ErrSkipFile = errors.New("skip file")
+var ErrSkipFile = hooks.ErrSkipFile
 
 type FileHandler func(fs afero.Fs, path string) (stat.Result, error)
 
 // Preposterous wraps the PrePostHook function with result caching.
 func Preposterous(fs afero.Fs, path string, preHook hooks.OpenInputFileHook, postHook hooks.CloseInputFileHook, fileIndex *index.FileIndex, fn FileHandler) (stat.Result, error) {
+	var key string
 	if fileIndex != nil {
-		result, err := fileIndex.GetFileStats(path)
+		var err error
+		key, err = CheckpointKey(fs, path)
+		if err != nil {
+			return nil, err
+		}
+		result, err := fileIndex.GetFileStats(key)
 		if err != nil {
 			return nil, fmt.Errorf("failed to get file stats: %w", err)
 		}
@@ -31,7 +41,7 @@ func Preposterous(fs afero.Fs, path string, preHook hooks.OpenInputFileHook, pos
 	result, resultErr := PrePostHook(fs, path, preHook, postHook, fn)
 
 	if fileIndex != nil && resultErr == nil {
-		if err := fileIndex.SaveFileStats(path, result); err != nil {
+		if err := fileIndex.SaveFileStats(key, result); err != nil {
 			return nil, fmt.Errorf("failed to save file stats: %w", err)
 		}
 	}
@@ -41,7 +51,11 @@ func Preposterous(fs afero.Fs, path string, preHook hooks.OpenInputFileHook, pos
 
 // PrePostHook wraps a function with calls to open and close input file hooks.
 func PrePostHook(fs afero.Fs, path string, preHook hooks.OpenInputFileHook, postHook hooks.CloseInputFileHook, fn func(fs afero.Fs, path string) (stat.Result, error)) (stat.Result, error) {
-	if err := preHook.Run(path); err != nil {
+	return PrePostHookContext(context.Background(), fs, path, preHook, postHook, fn)
+}
+
+func PrePostHookContext(ctx context.Context, fs afero.Fs, path string, preHook hooks.OpenInputFileHook, postHook hooks.CloseInputFileHook, fn func(fs afero.Fs, path string) (stat.Result, error)) (stat.Result, error) {
+	if err := preHook.RunContext(ctx, path); err != nil {
 		if errors.Is(err, ErrSkipFile) {
 			return nil, err
 		}
@@ -50,9 +64,16 @@ func PrePostHook(fs afero.Fs, path string, preHook hooks.OpenInputFileHook, post
 
 	result, resultErr := fn(fs, path)
 
-	if err := postHook.Run(path, result, resultErr); err != nil {
-		return nil, fmt.Errorf("failed to run close input file hook: %w", err)
+	if err := postHook.RunContext(ctx, path, result, resultErr); err != nil {
+		return result, errors.Join(resultErr, fmt.Errorf("failed to run close input file hook: %w", err))
 	}
 
 	return result, resultErr
+}
+
+func CheckpointKey(fs afero.Fs, path string) (string, error) {
+	if f, ok := fs.(*sourceFS); ok && len(f.roots) > 0 {
+		return SourceLocator(fs, path)
+	}
+	return path, nil
 }

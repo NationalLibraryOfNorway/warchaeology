@@ -1,3 +1,6 @@
+// Copyright 2021 National Library of Norway.
+// SPDX-License-Identifier: Apache-2.0
+
 package filewalker_test
 
 import (
@@ -5,17 +8,35 @@ import (
 	"bytes"
 	"context"
 	"path/filepath"
+	"reflect"
 	"testing"
 
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/filewalker"
 	"github.com/spf13/afero"
-	"github.com/stretchr/testify/assert"
 )
 
 var (
 	testDir  = filepath.Join("testdata", "testdir")
 	testDir2 = filepath.Join("testdata", "testdir2")
 )
+
+func TestWalkSkipsUnrelatedNonUTF8Filename(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	for _, name := range []string{"/a-\xff.txt", "/z.warc"} {
+		if err := afero.WriteFile(fs, name, nil, 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	w := filewalker.New(filewalker.WithFs(fs), filewalker.WithSuffixes([]string{".warc"}))
+	var got []string
+	err := w.WalkInputs(t.Context(), []string{"/"}, false, func(_ afero.Fs, path string) error {
+		got = append(got, path)
+		return nil
+	})
+	if err != nil || !reflect.DeepEqual(got, []string{"/z.warc"}) {
+		t.Fatalf("visited %v, error %v", got, err)
+	}
+}
 
 func TestFilewalker_Walk(t *testing.T) {
 	tests := []struct {
@@ -70,7 +91,9 @@ func TestFilewalker_Walk(t *testing.T) {
 				}
 			}
 
-			assert.Equal(t, tt.expected, got)
+			if !reflect.DeepEqual(tt.expected, got) {
+				t.Errorf("paths = %v, want %v", got, tt.expected)
+			}
 		})
 	}
 }
@@ -97,10 +120,10 @@ func TestFilewalker_Walk_ResolvesWACZAsFilesystem(t *testing.T) {
 
 	fw := filewalker.New(
 		filewalker.WithFs(memfs),
-		filewalker.WithRecursive(true),
 		filewalker.WithSuffixes([]string{".txt"}),
 	)
 
+	t.Cleanup(func() { _ = fw.Close() })
 	var got []string
 	err = fw.Walk(context.Background(), "/sample.wacz", func(wfs afero.Fs, path string, err error) error {
 		if err != nil {
@@ -116,5 +139,7 @@ func TestFilewalker_Walk_ResolvesWACZAsFilesystem(t *testing.T) {
 		t.Fatalf("Walk() error = %v", err)
 	}
 
-	assert.Equal(t, []string{"/nested/record.txt"}, got)
+	if !reflect.DeepEqual([]string{"/nested/record.txt"}, got) {
+		t.Errorf("paths = %v, want /nested/record.txt", got)
+	}
 }
