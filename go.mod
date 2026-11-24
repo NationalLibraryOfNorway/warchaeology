@@ -11,7 +11,7 @@ require (
 	github.com/jackc/puddle/v2 v2.2.4
 	github.com/jlaffaye/ftp v0.2.4
 	github.com/julienschmidt/httprouter v1.3.0
-	github.com/klauspost/compress v1.20.4
+	github.com/klauspost/compress v1.20.5
 	github.com/nationallibraryofnorway/gowarc/v3 v3.2.1
 	github.com/nationallibraryofnorway/whatwg-url v0.9.1
 	github.com/spf13/afero v1.15.0
