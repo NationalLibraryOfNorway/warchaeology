@@ -44,6 +44,8 @@ jobs:
   build:
     runs-on: ubuntu-latest
     name: Build
+    env:
+      UPLOAD_ARTIFACTS: ${{ github.ref == format('refs/heads/{0}', github.event.repository.default_branch) || startsWith(github.ref, 'refs/tags/v') }}
     steps:
       - name: Detect snapshot
         if: ${{ !startsWith(github.ref, 'refs/tags/v') }}
@@ -63,59 +65,73 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       # This should have been a matrix, but building separate targets is a paid feature in `goreleaser`
-      - uses: actions/upload-artifact@v7
+      - if: env.UPLOAD_ARTIFACTS == 'true'
+        uses: actions/upload-artifact@v7
         with:
           name: darwin-x86_64
           path: dist/warchaeology_Darwin_x86_64*.tar.gz
-      - uses: actions/upload-artifact@v7
+      - if: env.UPLOAD_ARTIFACTS == 'true'
+        uses: actions/upload-artifact@v7
         with:
           name: linux-x86_64
           path: dist/warchaeology_Linux_x86_64.tar.gz
-      - uses: actions/upload-artifact@v7
+      - if: env.UPLOAD_ARTIFACTS == 'true'
+        uses: actions/upload-artifact@v7
         with:
           name: linux-i386
           path: dist/warchaeology_Linux_i386.tar.gz
-      - uses: actions/upload-artifact@v7
+      - if: env.UPLOAD_ARTIFACTS == 'true'
+        uses: actions/upload-artifact@v7
         with:
           name: windows-x86_64
           path: dist/warchaeology_Windows_x86_64.zip
-      - uses: actions/upload-artifact@v7
+      - if: env.UPLOAD_ARTIFACTS == 'true'
+        uses: actions/upload-artifact@v7
         with:
           name: windows-i386
           path: dist/warchaeology_Windows_i386.zip
-      - uses: actions/upload-artifact@v7
+      - if: env.UPLOAD_ARTIFACTS == 'true'
+        uses: actions/upload-artifact@v7
         with:
           name: deb-amd64
           path: dist/warchaeology_*amd64.deb
-      - uses: actions/upload-artifact@v7
+      - if: env.UPLOAD_ARTIFACTS == 'true'
+        uses: actions/upload-artifact@v7
         with:
           name: deb-i386
           path: dist/warchaeology_*i386.deb
-      - uses: actions/upload-artifact@v7
+      - if: env.UPLOAD_ARTIFACTS == 'true'
+        uses: actions/upload-artifact@v7
         with:
           name: rpm-x86_64
           path: dist/warchaeology-*x86_64.rpm
-      - uses: actions/upload-artifact@v7
+      - if: env.UPLOAD_ARTIFACTS == 'true'
+        uses: actions/upload-artifact@v7
         with:
           name: rpm-i386
           path: dist/warchaeology-*i386.rpm
-      - uses: actions/upload-artifact@v7
+      - if: env.UPLOAD_ARTIFACTS == 'true'
+        uses: actions/upload-artifact@v7
         with:
           name: darwin-arm64
           path: dist/warchaeology_Darwin_arm64.tar.gz
-      - uses: actions/upload-artifact@v7
+      - if: env.UPLOAD_ARTIFACTS == 'true'
+        uses: actions/upload-artifact@v7
         with:
           name: linux-arm64
           path: dist/warchaeology_Linux_arm64.tar.gz
-      - uses: actions/upload-artifact@v7
+      - if: env.UPLOAD_ARTIFACTS == 'true'
+        uses: actions/upload-artifact@v7
         with:
           name: windows-arm64
           path: dist/warchaeology_Windows_arm64.zip
-      - uses: actions/upload-artifact@v7
+      - if: env.UPLOAD_ARTIFACTS == 'true'
+        uses: actions/upload-artifact@v7
         with:
           name: deb-arm64
           path: dist/warchaeology_*arm64.deb
-      - uses: actions/upload-artifact@v7
+      - if: env.UPLOAD_ARTIFACTS == 'true'
+        uses: actions/upload-artifact@v7
         with:
           name: rpm-aarch64
           path: dist/warchaeology-*aarch64.rpm
