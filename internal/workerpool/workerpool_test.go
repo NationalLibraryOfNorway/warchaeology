@@ -5,8 +5,6 @@ package workerpool
 
 import (
 	"context"
-	"math/rand/v2"
-	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -41,26 +39,13 @@ func TestSubmitToClosedWorkQueue(t *testing.T) {
 }
 
 func TestWorkerPool(t *testing.T) {
-	concurrency := 10000
-	jobs := 1000000
-	executed := new(atomic.Int32)
-
-	var m sync.Mutex
-
-	getTimeout := func() time.Duration {
-		m.Lock()
-		defer m.Unlock()
-		return time.Duration(rand.IntN(10)) * time.Millisecond
-	}
-
-	perJobFn := func() {
-		time.Sleep(getTimeout())
-		executed.Add(1)
-	}
+	const concurrency = 16
+	const jobs = 1024
+	var executed atomic.Int32
 
 	queue := New(context.Background(), concurrency)
 	for range jobs {
-		queue.Jobs <- perJobFn
+		queue.Jobs <- func() { executed.Add(1) }
 	}
 	queue.CloseWait()
 

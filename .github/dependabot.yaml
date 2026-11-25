@@ -29,3 +29,23 @@ updates:
       commit-message:
           prefix: "build"
           include: "scope"
+
+    - package-ecosystem: "npm"
+      directory: "/website"
+      schedule:
+          interval: "weekly"
+      groups:
+          website-dependencies:
+              applies-to: "version-updates"
+              patterns:
+                  - "*"
+          website-security:
+              applies-to: "security-updates"
+              patterns:
+                  - "*"
+      labels:
+          - "dependencies"
+          - "javascript"
+      commit-message:
+          prefix: "build"
+          include: "scope"
