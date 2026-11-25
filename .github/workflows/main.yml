@@ -5,6 +5,10 @@ on:
     paths-ignore:
       - 'website/**'
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref_type == 'branch' }}
+
 permissions:
   contents: write
 
