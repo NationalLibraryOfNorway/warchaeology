@@ -1,6 +1,9 @@
 name: Main
 
-on: [push]
+on:
+  push:
+    paths-ignore:
+      - 'website/**'
 
 permissions:
   contents: write
@@ -33,7 +36,10 @@ jobs:
       - uses: actions/setup-go@v7
         with:
           go-version: '1.27.3'
-      - run: go test ./...
+      - if: runner.os == 'Windows'
+        run: go test -json ./...
+      - if: runner.os != 'Windows'
+        run: go test ./...
 
   build:
     runs-on: ubuntu-latest
