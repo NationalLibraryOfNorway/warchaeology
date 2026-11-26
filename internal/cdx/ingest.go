@@ -21,39 +21,46 @@ import (
 
 // CaptureURLKey is shared by ingestion, deletion and POST-aware queries.
 func CaptureURLKey(raw, method, body string) (string, error) {
+	if err := validateCaptureURL(raw, method, body); err != nil {
+		return "", err
+	}
+
+	c := &Capture{Uri: raw, Ssu: CanonicalKey(raw)}
+	Augment(c, method, body)
+	return c.GetSsu(), nil
+}
+
+// Embedded CDXJ supplies the lookup key. Validate its fields without
+// constructing a second potentially large POST-aware key.
+func validateCaptureURL(raw, method, body string) error {
 	if raw == "" || strings.ContainsFunc(raw, unicode.IsControl) {
-		return "", fmt.Errorf("invalid original URL")
+		return fmt.Errorf("invalid original URL")
 	}
 	u, err := url.Parse(raw)
 	if err != nil || u.Scheme == "" {
-		return "", fmt.Errorf("absolute original URL required")
+		return fmt.Errorf("absolute original URL required")
 	}
 	if strings.EqualFold(u.Scheme, "http") || strings.EqualFold(u.Scheme, "https") {
 		if u.Hostname() == "" {
-			return "", fmt.Errorf("HTTP URL requires a host")
+			return fmt.Errorf("HTTP URL requires a host")
 		}
 		if port := u.Port(); port != "" {
 			if _, err := strconv.ParseUint(port, 10, 16); err != nil {
-				return "", fmt.Errorf("invalid HTTP port")
+				return fmt.Errorf("invalid HTTP port")
 			}
 		}
 	}
 	if method != "" {
 		for _, r := range method {
 			if r < 'A' || r > 'Z' {
-				return "", fmt.Errorf("method must be an uppercase HTTP token")
+				return fmt.Errorf("method must be an uppercase HTTP token")
 			}
 		}
 	}
 	if body != "" && method != http.MethodPost && method != http.MethodPut {
-		return "", fmt.Errorf("requestBody requires POST or PUT")
+		return fmt.Errorf("requestBody requires POST or PUT")
 	}
-	c := &Capture{Uri: raw, Ssu: CanonicalKey(raw)}
-	Augment(c, method, body)
-	if len(c.GetSsu()) > 60000 {
-		return "", fmt.Errorf("canonical URL key exceeds 60000 bytes")
-	}
-	return c.GetSsu(), nil
+	return nil
 }
 
 var exactNumbers = json.WithUnmarshalers(json.UnmarshalFromFunc(func(d *jsontext.Decoder, value *any) error {
@@ -160,12 +167,12 @@ func parseCaptureLine(line []byte, retainKey, replay bool) (*Capture, error) {
 	c.Hsc = int32(status)
 	if retainKey {
 		if !replay {
-			if _, err = CaptureURLKey(c.GetUri(), c.GetMethod(), c.GetRequestBody()); err != nil {
+			if err = validateCaptureURL(c.GetUri(), c.GetMethod(), c.GetRequestBody()); err != nil {
 				return nil, err
 			}
 		}
 		key := string(parts[0])
-		if len(key) > 60000 || strings.ContainsFunc(key, unicode.IsControl) {
+		if strings.ContainsFunc(key, unicode.IsControl) {
 			return nil, fmt.Errorf("invalid stored URL key")
 		}
 		c.Ssu = key

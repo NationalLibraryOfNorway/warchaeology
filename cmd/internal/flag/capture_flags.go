@@ -63,5 +63,5 @@ func (CaptureDatabaseFlags) ToOptions() (cdxstore.Options, error) {
 	}
 	dir = filepath.Join(dir, viper.GetString("badger-database"))
 
-	return cdxstore.Options{Format: format, Dir: dir}, nil
+	return cdxstore.Options{Format: format, Dir: dir, TempDir: viper.GetString("index-tmp-dir")}, nil
 }

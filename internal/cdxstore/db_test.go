@@ -14,10 +14,13 @@ import (
 	"testing"
 	"time"
 
+	"github.com/dgraph-io/badger/v4"
 	index "github.com/nationallibraryofnorway/warchaeology/v5/internal/cdx"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/cdx/schema"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/server/api"
+	"github.com/nationallibraryofnorway/warchaeology/v5/internal/storagecodec"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/testcheck"
+	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
@@ -453,4 +456,68 @@ func TestReadOnlyLock(t *testing.T) {
 	blocked(false)
 	testcheck.Close(t, second)
 	testcheck.Close(t, open(false))
+}
+
+func TestLegacyInlineAndOverflowCoexist(t *testing.T) {
+	ctx := t.Context()
+	d, err := Open(ctx, Options{Dir: t.TempDir(), Format: badgerFormat})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer testcheck.Close(t, d)
+	key := "com,example)/" + strings.Repeat("x", InlineURLKeyLimit)
+	legacy := &index.Capture{Ssu: key, Uri: "https://example.com/", Sts: timestamppb.New(time.Unix(100, 0)), Filename: "f.warc", Rid: "old", Ref: "old"}
+	raw, err := storagecodec.Encode(legacy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Reproduce the previous native writer: a 60,013-byte URL fits Badger inline.
+	err = d.kv.(*badgerKV).db.Update(func(tx *badger.Txn) error {
+		if err := tx.Set([]byte(captureKey(legacy)), raw); err != nil {
+			return err
+		}
+		return tx.Set([]byte(countKey), []byte("1"))
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d.Capabilities()["format"] != formatVersion {
+		t.Fatal("old catalogue marked as upgraded")
+	}
+	newer := proto.CloneOf(legacy)
+	newer.Sts = timestamppb.New(time.Unix(101, 0))
+	newer.Rid = "new"
+	newer.Ref = "new"
+	if err := d.WriteCapture(ctx, newer); err != nil {
+		t.Fatal(err)
+	}
+	visits := func(c *index.Capture) error {
+		if c.GetRid() != "new" || c.GetSsu() != key {
+			return errors.New("incorrect target capture")
+		}
+		return nil
+	}
+	got, err := d.CaptureByID(ctx, "new")
+	if err != nil || got == nil || visits(got) != nil {
+		t.Fatalf("ID lookup failed: %v", err)
+	}
+	count := 0
+	if err := d.VisitCapturesByTarget(ctx, newer.Uri, newer.Sts.AsTime(), func(c *index.Capture) error { count++; return visits(c) }); err != nil || count != 1 {
+		t.Fatalf("revisit candidate count %d, error %v", count, err)
+	}
+	scan := func() {
+		var ids []string
+		q := index.Query{Key: key, Lower: key + " ", Upper: key + "!", Order: "reverse"}
+		if err := d.ScanOrdered(ctx, q, func(c *index.Capture) error { ids = append(ids, c.Rid); return nil }); err != nil || strings.Join(ids, ",") != "new,old" {
+			t.Fatalf("mixed ordered scan: %v %v", ids, err)
+		}
+	}
+	scan()
+	if err := d.WriteCapture(ctx, legacy); err != nil {
+		t.Fatal(err)
+	}
+	scan()
+	if n, err := d.count(ctx); err != nil || n != 2 {
+		t.Fatalf("legacy replacement count %d, %v", n, err)
+	}
 }

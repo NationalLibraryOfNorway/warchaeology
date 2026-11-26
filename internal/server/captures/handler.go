@@ -28,7 +28,7 @@ import (
 )
 
 type Options struct {
-	Directory, Prefix               string
+	Directory, Prefix, TempDir      string
 	ReadOnly                        bool
 	MaxBytes                        int64
 	MaxLine, ScanLimit, ResultLimit int
@@ -83,6 +83,7 @@ func New(ctx context.Context, o Options, single *cdxstore.DB) (*Handler, error) 
 				Dir:       filepath.Join(o.Directory, e.Name()),
 				ReadOnly:  o.ReadOnly,
 				IndexOnly: true,
+				TempDir:   o.TempDir,
 			})
 			if err != nil {
 				_ = h.Close()
@@ -164,7 +165,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 							_ = os.RemoveAll(dir)
 						}
 					}()
-					db, err = cdxstore.Open(r.Context(), cdxstore.Options{Format: "badger", Dir: dir, IndexOnly: true})
+					db, err = cdxstore.Open(r.Context(), cdxstore.Options{Format: "badger", Dir: dir, TempDir: h.TempDir, IndexOnly: true})
 				}
 				if err != nil {
 					h.mu.Unlock()
