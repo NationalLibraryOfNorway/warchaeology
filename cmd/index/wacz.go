@@ -110,12 +110,15 @@ func (o *IndexOptions) indexWACZ(ctx context.Context, fs afero.Fs, name string, 
 		return err
 	}
 	digest := sha256.New()
-	_, _ = fmt.Fprintf(digest, "wacz-10/%d/%d/%s", version.Size, version.Modified.UnixNano(), o.WaczIndex)
+	_, _ = fmt.Fprintf(digest, "wacz-11/%d/%d/%s", version.Size, version.Modified.UnixNano(), o.WaczIndex)
 	if outer != nil {
 		_, _ = fmt.Fprintf(digest, "/%d/%d", outer.Size, outer.Modified.UnixNano())
 	}
 	_, _ = fmt.Fprintf(digest, "/%#v/%t/%t/%d/%d/%d/%s/%t", o.Filter, o.DefaultRecords, o.Force, o.Offset, o.Nth, o.Limit, o.DirRoot, o.PostAppend)
 	digest.Write([]byte(o.WaczConfig))
+	if o.LongURLKeys == "skip" || o.LongURLKeys == "error" {
+		digest.Write([]byte("/long-url-keys=" + o.LongURLKeys))
+	}
 	if o.PostAppend {
 		digest.Write([]byte("/post-append-v2"))
 	}
@@ -260,7 +263,7 @@ func readWACZManifest(manifest *zip.File, metadata *waczManifest) ([]byte, error
 func (o *IndexOptions) stageWACZ(ctx context.Context, pkg *waczPackage, mounted afero.Fs, stage *cdxstore.CaptureStage) error {
 	if len(pkg.indexes) > 0 && o.WaczIndex != waczRawIndex {
 		for _, index := range pkg.indexes {
-			if err := pkg.stageCDX(ctx, index, stage); err != nil {
+			if err := pkg.stageCDX(ctx, index, stage, o.LongURLKeys); err != nil {
 				return fmt.Errorf("%s: %w", index.Name, err)
 			}
 		}
@@ -269,14 +272,14 @@ func (o *IndexOptions) stageWACZ(ctx context.Context, pkg *waczPackage, mounted 
 		copyOptions.Sink = stage
 		for _, name := range pkg.names {
 			if _, err := copyOptions.handleFile(ctx, mounted, "/"+name, nil); err != nil {
-				return err
+				return fmt.Errorf("%s: %w", name, err)
 			}
 		}
 	}
 	return stage.Flush(ctx)
 }
 
-func (p *waczPackage) stageCDX(ctx context.Context, index *zip.File, stage *cdxstore.CaptureStage) (err error) {
+func (p *waczPackage) stageCDX(ctx context.Context, index *zip.File, stage *cdxstore.CaptureStage, policy string) (err error) {
 	r, err := index.Open()
 	if err != nil {
 		return err
@@ -293,7 +296,20 @@ func (p *waczPackage) stageCDX(ctx context.Context, index *zip.File, stage *cdxs
 	}
 	scanner := bufio.NewScanner(input)
 	scanner.Buffer(make([]byte, 4096), 1<<20)
+	source, err := p.sourceFor(index.Name)
+	if err != nil {
+		return err
+	}
+	report := longKeyReport{source: source, position: "line", policy: policy}
+	defer report.summary()
+	var line int64
+	defer func() {
+		if err != nil && line > 0 {
+			err = fmt.Errorf("line %d: %w", line, err)
+		}
+	}()
 	for scanner.Scan() {
+		line++
 		if err := ctx.Err(); err != nil {
 			return err
 		}
@@ -309,12 +325,24 @@ func (p *waczPackage) stageCDX(ctx context.Context, index *zip.File, stage *cdxs
 		if err != nil {
 			return err
 		}
+		if skip, err := report.check(capture.GetSsu(), line); err != nil {
+			return err
+		} else if skip {
+			continue
+		}
 		capture.Ref = fmt.Sprintf("warcfile:%s#%d", capture.GetSource(), capture.GetOffset())
 		if err := stage.WriteCapture(ctx, capture); err != nil {
 			return err
 		}
 	}
-	return scanner.Err()
+	if err := scanner.Err(); err != nil {
+		line++
+		if errors.Is(err, bufio.ErrTooLong) {
+			return fmt.Errorf("embedded CDXJ row exceeds the 1 MiB input limit: %w", err)
+		}
+		return err
+	}
+	return nil
 }
 
 func (p *waczPackage) warcMember(c *cdx.Capture) (string, error) {

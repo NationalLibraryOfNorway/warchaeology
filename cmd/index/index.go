@@ -84,6 +84,7 @@ type IndexOptions struct {
 	TextDir                string
 	format, output, tmpDir string
 	WaczIndex              string
+	LongURLKeys            string
 	WarnValidation         bool
 	WaczConfig             string
 	sort                   bool
@@ -138,6 +139,11 @@ func (o *IndexOptions) Validate() error {
 	if err := o.validateWaczIndex(); err != nil {
 		return err
 	}
+	switch o.LongURLKeys {
+	case "", "preserve", "skip", "error":
+	default:
+		return errors.New("long-url-keys must be preserve, skip, or error")
+	}
 	if o.TextRebuild && !o.Fulltext {
 		return errors.New("fulltext-rebuild requires fulltext")
 	}
@@ -184,6 +190,12 @@ func (o *IndexOptions) Run(ctx context.Context) error {
 			return err
 		}
 	}
+	// Apply storage policy only to persistent ingestion. Pywb uses a scratch DB.
+	if _, persistent := o.Sink.(*cdxstore.DB); !persistent || o.pywb {
+		effective := *o
+		effective.LongURLKeys = "preserve"
+		o = &effective
+	}
 	if o.Fulltext {
 		db, ok := o.Sink.(*cdxstore.DB)
 		if !ok || db.IndexOnly() {
@@ -208,8 +220,9 @@ func (o *IndexOptions) Run(ctx context.Context) error {
 	for _, path := range o.Paths {
 		e := o.FileWalker.Walk(ctx, path, func(fs afero.Fs, path string, e error) error {
 			if e != nil {
+				e = fmt.Errorf("%s: %w", path, e)
 				if o.ContinueOnError && ctx.Err() == nil {
-					fail(fmt.Errorf("%s: %w", path, e))
+					fail(e)
 					return nil
 				}
 				return e
@@ -267,7 +280,7 @@ func (o *IndexOptions) openSink(ctx context.Context) error {
 			if err != nil {
 				return err
 			}
-			o.Sink, err = cdxstore.Open(ctx, cdxstore.Options{Format: badgerFormat, Dir: o.pywbDir, Scratch: true})
+			o.Sink, err = cdxstore.Open(ctx, cdxstore.Options{Format: badgerFormat, Dir: o.pywbDir, TempDir: o.pywbDir, Scratch: true})
 			break
 		}
 		fallthrough
@@ -370,11 +383,15 @@ func (o *IndexOptions) handleFile(ctx context.Context, fs afero.Fs, path string,
 		}
 	}()
 
+	report := longKeyReport{source: source, position: "offset", policy: o.LongURLKeys}
+	defer report.summary()
 	var pending *cdx.Capture
 	pendingAccept := false
 	pendingMethod, pendingQuery := "", ""
-	var accepted, written int
-	done := func() bool { return (o.Nth > 0 && written > 0) || (o.Limit > 0 && written >= o.Limit) }
+	var accepted int
+	done := func() bool {
+		return (o.Nth > 0 && accepted >= o.Nth) || (o.Nth <= 0 && o.Limit > 0 && accepted >= o.Limit)
+	}
 	emit := func(c *cdx.Capture, accept bool) error {
 		if c == nil {
 			return nil
@@ -393,11 +410,11 @@ func (o *IndexOptions) handleFile(ctx context.Context, fs afero.Fs, path string,
 			// response and revisit records still participate in donor lookup.
 			c.ExtraJson = []byte("{}")
 		}
-		if err := o.Sink.WriteCapture(ctx, c); err != nil {
+		if skip, err := report.check(c.GetSsu(), c.GetOffset()); skip || err != nil {
 			return err
 		}
-		if selected {
-			written++
+		if err := o.Sink.WriteCapture(ctx, c); err != nil {
+			return fmt.Errorf("offset %d: %w", c.GetOffset(), err)
 		}
 		return nil
 	}
@@ -437,7 +454,7 @@ func (o *IndexOptions) handleFile(ctx context.Context, fs afero.Fs, path string,
 		result.IncrRecords()
 		c, accept, method, query, e := o.captureRecord(positional, rec, source, filename)
 		if e != nil {
-			return result, e
+			return result, fmt.Errorf("offset %d: %w", rec.Offset, e)
 		}
 		paired := o.PostAppend && pair(pending, c, pendingMethod, pendingQuery, method, query)
 

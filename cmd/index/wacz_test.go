@@ -10,10 +10,12 @@ import (
 	"context"
 	"encoding/json/v2"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
 	"runtime"
+	"sort"
 	"strings"
 	"testing"
 
@@ -357,5 +359,119 @@ func TestWACZInputHooks(t *testing.T) {
 				t.Fatalf("unexpected close hook: %q, %v", closed, err)
 			}
 		})
+	}
+}
+
+func TestWACZLongURLPolicies(t *testing.T) {
+	fixture := fixtures(t)[0]
+	dir := t.TempDir()
+	name := filepath.Join(dir, "outer.wacz")
+	var rows strings.Builder
+	var keys []string
+	for _, size := range []int{10, 59999, 60000, 60001, 100000, 100000} {
+		key := strings.Repeat("x", size-1) + string(rune('a'+len(keys)))
+		keys = append(keys, key)
+		row := map[string]any{"url": "https://example.org/", "filename": fixture.Name, "offset": "0", "length": "1", "method": "POST", "requestBody": "x=" + strings.Repeat("a", 100000)}
+		b, err := json.Marshal(row)
+		if err != nil {
+			t.Fatal(err)
+		}
+		rows.WriteString(key + " 20200101000000 " + string(b) + "\n")
+	}
+	var compressed bytes.Buffer
+	gz := gzip.NewWriter(&compressed)
+	if _, err := gz.Write([]byte(rows.String())); err != nil {
+		t.Fatal(err)
+	}
+	if err := gz.Close(); err != nil {
+		t.Fatal(err)
+	}
+	leaf := packageBytes(t, map[string][]byte{"archive/" + fixture.Name: fixture.Warc, "indexes/index.cdx.gz": compressed.Bytes()})
+	if err := os.WriteFile(name, packageBytes(t, map[string][]byte{"leaf.wacz": leaf}), 0600); err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	sink, err := cdx.NewOutput(&out, "-", "cdxj", "", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer testcheck.Close(t, sink)
+	opts := options(sink, name)
+	opts.LongURLKeys = "skip"
+	if err := errors.Join(opts.Run(t.Context()), opts.Close()); err != nil {
+		t.Fatal(err)
+	}
+	got := strings.Split(strings.TrimSuffix(out.String(), "\n"), "\n")
+	if len(got) != len(keys) {
+		t.Fatalf("exported %d keys", len(got))
+	}
+	sort.Strings(keys)
+	for i, row := range got {
+		if !strings.HasPrefix(row, keys[i]+" ") {
+			t.Fatalf("changed key at row %d", i+1)
+		}
+	}
+	db, err := cdxstore.Open(t.Context(), cdxstore.Options{Dir: t.TempDir(), Format: "badger"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer testcheck.Close(t, db)
+	for _, tc := range []struct {
+		policy string
+		want   int
+	}{{"error", 0}, {"skip", 3}, {"preserve", 6}, {"skip", 3}} {
+		o := options(db, name)
+		o.LongURLKeys = tc.policy
+		err := errors.Join(o.Run(t.Context()), o.Close())
+		if tc.policy == "error" {
+			if err == nil {
+				t.Fatal("strict import succeeded")
+			}
+			for _, part := range []string{"outer.wacz", "leaf.wacz", "indexes/index.cdx.gz", "line 4", "60001"} {
+				if !strings.Contains(err.Error(), part) {
+					t.Fatalf("missing %s in %v", part, err)
+				}
+			}
+		} else if err != nil {
+			t.Fatal(err)
+		}
+		if n := captureCount(t, db); n != tc.want {
+			t.Fatalf("%s imported %d, want %d", tc.policy, n, tc.want)
+		}
+	}
+}
+
+func TestWACZDictionarySpillsInIndexTempDir(t *testing.T) {
+	fixture := fixtures(t)[0]
+	dir := t.TempDir()
+	scratch := t.TempDir()
+	var rows strings.Builder
+	for i := range 90 {
+		fmt.Fprintf(&rows, "%03d%s 20200101000000 {\"url\":\"https://example.org/\",\"filename\":%q,\"offset\":0,\"length\":1}\n", 89-i, strings.Repeat("x", 100000), fixture.Name)
+	}
+	name := filepath.Join(dir, "long.wacz")
+	if err := os.WriteFile(name, packageBytes(t, map[string][]byte{"archive/" + fixture.Name: fixture.Warc, "indexes/index.cdxj": []byte(rows.String())}), 0600); err != nil {
+		t.Fatal(err)
+	}
+	for _, env := range []string{"TMPDIR", "TMP", "TEMP"} {
+		t.Setenv(env, filepath.Join(dir, "missing"))
+	}
+	var out bytes.Buffer
+	sink, err := cdx.NewOutput(&out, "-", "cdxj", scratch, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer testcheck.Close(t, sink)
+	opts := options(sink, name)
+	opts.tmpDir = scratch
+	if err := errors.Join(opts.Run(t.Context()), opts.Close()); err != nil {
+		t.Fatal(err)
+	}
+	lines := strings.Split(strings.TrimSpace(out.String()), "\n")
+	if len(lines) != 90 || !sort.StringsAreSorted(lines) {
+		t.Fatal("incomplete or unordered export")
+	}
+	if entries, err := os.ReadDir(scratch); err != nil || len(entries) != 0 {
+		t.Fatalf("scratch directory after export: %v, %v", entries, err)
 	}
 }
