@@ -22,6 +22,46 @@ import (
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/warcdigest"
 )
 
+func legacyDonor(e *entry) bool {
+	return e != nil && e.Issue == "" && !e.Truncated && !e.Segmented && e.Audit.Issue == "donor payload digest mismatch" && matchesDigest(e.Audit.Stored, e.Audit.Declared)
+}
+
+type labelRepair struct {
+	ID          string
+	Old         string
+	New         string
+	Fingerprint string
+}
+
+func (a *collection) planLegacyLabel(ctx context.Context, e *entry, file string) error {
+	donor, _, err := a.resolve(ctx, e, map[string]bool{})
+	if err != nil {
+		return err
+	}
+	label := donor.Audit.Declared
+	if legacyDonor(donor) {
+		label = "sha256:" + donor.Audit.Payload["sha256"]
+	}
+	if e.Audit.Declared == label {
+		return nil
+	}
+	ref := e.Capture.GetRef()
+	record, err := (loader.FileStorageLoader{}).RecordByStorageRef(ctx, ref)
+	if err != nil {
+		return err
+	}
+	record.WarcHeader().Set(gowarc.WarcPayloadDigest, label)
+	fingerprint, err := warcdigest.RecordFingerprint(record)
+	if err = errors.Join(err, record.Close()); err != nil {
+		return err
+	}
+	fix := labelRepair{e.Capture.GetRid(), e.Audit.Declared, label, fingerprint}
+	if err = a.put("x/label/"+hashString(ref), fix); err != nil {
+		return err
+	}
+	return a.put("x/rewrite/"+hashString(file), true)
+}
+
 func validFull(e *entry) bool {
 	return e != nil && !e.Truncated && !e.Segmented && e.Issue == "" && e.Audit.Issue == "" && e.Audit.Payload["sha256"] != ""
 }
@@ -131,6 +171,29 @@ func (o auditOptions) recoverCollection(ctx context.Context, root, work string, 
 	}); err != nil {
 		return err
 	}
+	if err = a.scan("x/label/", func(data []byte) error {
+		var fix labelRepair
+		if err := json.Unmarshal(data, &fix); err != nil {
+			return err
+		}
+		got, err := verified.byID(ctx, fix.ID)
+		if err != nil {
+			return err
+		}
+		if got != nil && got.Fingerprint == fix.Fingerprint && got.Audit.Declared == fix.New {
+			if got.Capture.GetSrt() != actionRevisit {
+				return nil
+			}
+			record, err := verified.reconstruct(ctx, got)
+			if err == nil {
+				return record.Close()
+			}
+		}
+		verified.failed = true
+		return verified.finding(auditFinding{Status: "corrected-record-mismatch", ID: fix.ID})
+	}); err != nil {
+		return err
+	}
 	a.summary.Verified = &verified.summary
 	a.failed = verified.failed
 	if verified.failed {
@@ -161,6 +224,9 @@ func (o auditOptions) recoverCollection(ctx context.Context, root, work string, 
 	return publication.SyncDir(filepath.Dir(o.repair))
 }
 func (a *collection) planRecovery(ctx context.Context, e *entry, f auditFinding, original *entry, backups *collection) error {
+	if f.Status == "legacy-chunked-digest" && (original == nil || original.Capture.GetSrt() == actionRevisit) {
+		return a.planLegacyLabel(ctx, e, f.File)
+	}
 	if good(f.Status) || e.Capture.GetSrt() != actionRevisit || f.Status == "conflicting-id" {
 		return nil
 	}
@@ -331,7 +397,21 @@ func (a *collection) stageFile(ctx context.Context, path, rel, stage string) (er
 		action := "copied-record"
 		switch {
 		case errors.Is(err, badger.ErrKeyNotFound):
-			_, err = io.CopyN(out, src, c.GetRle())
+			var fix labelRepair
+			err = a.get("x/label/"+hashString(ref), &fix)
+			if errors.Is(err, badger.ErrKeyNotFound) {
+				_, err = io.CopyN(out, src, c.GetRle())
+				break
+			}
+			if err != nil {
+				return err
+			}
+			err = writeRecoveryRecord(ctx, out, ref, strings.HasSuffix(strings.ToLower(rel), ".gz"), fix.New)
+			if err == nil {
+				_, err = src.Seek(c.GetRle(), io.SeekCurrent)
+			}
+			action = "corrected-legacy-chunked-digest"
+			replacement = fix.Old + " -> " + fix.New
 		case err == nil:
 			compressed := strings.HasSuffix(strings.ToLower(rel), ".gz")
 			var backup entry

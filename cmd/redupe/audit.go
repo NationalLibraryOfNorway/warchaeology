@@ -23,6 +23,7 @@ import (
 	"github.com/dgraph-io/badger/v4"
 	"github.com/nationallibraryofnorway/gowarc/v4"
 	cdx "github.com/nationallibraryofnorway/warchaeology/v5/internal/cdx"
+	"github.com/nationallibraryofnorway/warchaeology/v5/internal/loader"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/warcdigest"
 	"github.com/spf13/afero"
 	"github.com/spf13/cobra"
@@ -40,11 +41,16 @@ func (e *missingTarget) target() string {
 }
 
 type auditEvidence struct {
-	BlockVerified bool              `json:"blockVerified,omitzero"`
-	Header        string            `json:"header,omitempty"`
-	Payload       map[string]string `json:"payload,omitempty"`
-	Declared      string            `json:"declared,omitempty"`
-	Issue         string            `json:"issue,omitempty"`
+	ResponseFramingError string            `json:"responseFramingError,omitempty"`
+	ResponseEntityLength *int64            `json:"responseEntityLength,omitzero"`
+	ResourceFramingError string            `json:"resourceFramingError,omitempty"`
+	ResourceEntityLength *int64            `json:"resourceEntityLength,omitzero"`
+	Stored               map[string]string `json:"storedBody,omitempty"`
+	BlockVerified        bool              `json:"blockVerified,omitzero"`
+	Header               string            `json:"header,omitempty"`
+	Payload              map[string]string `json:"payload,omitempty"`
+	Declared             string            `json:"declared,omitempty"`
+	Issue                string            `json:"issue,omitempty"`
 }
 
 func measureRecord(r gowarc.WarcRecord) (*auditEvidence, error) {
@@ -56,6 +62,19 @@ func measureRecord(r gowarc.WarcRecord) (*auditEvidence, error) {
 		ev.BlockVerified = warcdigest.Equal(d, r.Block().BlockDigest())
 		if !ev.BlockVerified {
 			ev.Issue = "block digest mismatch"
+		}
+	}
+	if r.Type() == gowarc.Revisit {
+		if n, err := loader.ResponseRevisitLength(r); err != nil {
+			ev.ResponseFramingError = err.Error()
+		} else if n >= 0 {
+			ev.ResponseEntityLength = &n
+		}
+		framing, err := loader.ParseResourceRevisitFraming(r)
+		if err != nil {
+			ev.ResourceFramingError = err.Error()
+		} else if framing.ContentLength >= 0 {
+			ev.ResourceEntityLength = &framing.ContentLength
 		}
 	}
 	if r.Type() != gowarc.Response && r.Type() != gowarc.Resource {
@@ -71,19 +90,41 @@ func measureRecord(r gowarc.WarcRecord) (*auditEvidence, error) {
 	if err != nil {
 		return nil, err
 	}
-	m, a, b, c := md5.New(), sha1.New(), sha256.New(), sha512.New()
-	if _, err = io.Copy(io.MultiWriter(m, a, b, c), raw); err != nil {
+	ev.Payload, err = auditDigests(raw)
+	if err != nil {
 		return nil, err
 	}
-	ev.Payload = map[string]string{"md5": hex.EncodeToString(m.Sum(nil)), "sha1": hex.EncodeToString(a.Sum(nil)), "sha256": hex.EncodeToString(b.Sum(nil)), "sha512": hex.EncodeToString(c.Sum(nil))}
+	if b, ok := r.Block().(gowarc.HttpBlock); ok && b.PayloadLength() >= 0 && b.PayloadLength() < b.Size()-int64(len(b.ProtocolHeaderBytes())) {
+		stored, err := b.RawBytes()
+		if err != nil {
+			return nil, err
+		}
+		if _, err = io.CopyN(io.Discard, stored, int64(len(b.ProtocolHeaderBytes()))); err != nil {
+			return nil, err
+		}
+		ev.Stored, err = auditDigests(stored)
+		if err != nil {
+			return nil, err
+		}
+	}
 	if ev.Issue == "" && ev.Declared != "" && !ev.matches(ev.Declared) {
 		ev.Issue = "donor payload digest mismatch"
 	}
 	return ev, nil
 }
+func auditDigests(raw io.Reader) (map[string]string, error) {
+	m, a, b, c := md5.New(), sha1.New(), sha256.New(), sha512.New()
+	if _, err := io.Copy(io.MultiWriter(m, a, b, c), raw); err != nil {
+		return nil, err
+	}
+	return map[string]string{"md5": hex.EncodeToString(m.Sum(nil)), "sha1": hex.EncodeToString(a.Sum(nil)), "sha256": hex.EncodeToString(b.Sum(nil)), "sha512": hex.EncodeToString(c.Sum(nil))}, nil
+}
 func (e *auditEvidence) matches(label string) bool {
+	return matchesDigest(e.Payload, label)
+}
+func matchesDigest(values map[string]string, label string) bool {
 	alg, b, err := warcdigest.Parse(label)
-	return err == nil && e.Payload[alg] == hex.EncodeToString(b)
+	return err == nil && values[alg] == hex.EncodeToString(b)
 }
 
 type auditFinding struct {
@@ -207,6 +248,13 @@ func (a *collection) assess(ctx context.Context, e *entry, originals *collection
 		return f, nil, nil
 	}
 	if c.GetSrt() != actionRevisit {
+		if legacyDonor(e) {
+			f.Status = "legacy-chunked-digest"
+			f.Digest = e.Audit.Declared
+		} else if len(e.Audit.Stored) > 0 && (e.Audit.Issue != "" || e.Issue != "") {
+			f.Status = "invalid-record"
+			f.Detail = strings.TrimSpace(e.Issue + " " + e.Audit.Issue)
+		}
 		return f, nil, nil
 	}
 	f.Digest = e.Audit.Declared
@@ -224,18 +272,30 @@ func (a *collection) assess(ctx context.Context, e *entry, originals *collection
 	} else {
 		f.Status = "output-consistent"
 		for _, link := range append([]*entry{e}, chain...) {
-			if link.Capture.GetSrt() == actionRevisit && ((donor.Capture.GetSrt() == "response") != (link.Audit.Header != "") || (donor.Capture.GetSrt() == "response" && (link.Capture.GetHsc() == 0 || link.Capture.GetHsc() == 304))) {
-				f.Status = "unverifiable"
-				f.Detail = "incompatible capture-specific HTTP headers"
-				break
-			}
-			if link.Issue != "" || link.Audit.Issue != "" {
+			if link.Issue != "" || (link.Audit.Issue != "" && !(link == donor && legacyDonor(donor))) {
 				f.Status = "invalid-record"
 				f.Detail = strings.TrimSpace(link.Issue + " " + link.Audit.Issue)
 				break
 			}
 			if link.Capture.GetSrt() != actionRevisit {
 				continue
+			}
+			switch donor.Capture.GetSrt() {
+			case "response":
+				if link.Audit.ResponseFramingError != "" {
+					f.Status, f.Detail = "unverifiable", link.Audit.ResponseFramingError
+				} else if n := link.Audit.ResponseEntityLength; n != nil && *n != donor.Capture.GetPle() {
+					f.Status, f.Detail = "unverifiable", fmt.Sprintf("response revisit expects %d payload bytes, donor supplied %d", *n, donor.Capture.GetPle())
+				}
+			case "resource":
+				if link.Audit.ResourceFramingError != "" {
+					f.Status, f.Detail = "unverifiable", link.Audit.ResourceFramingError
+				} else if n := link.Audit.ResourceEntityLength; n != nil && *n != donor.Capture.GetPle() {
+					f.Status, f.Detail = "unverifiable", "resource revisit length differs from donor payload"
+				}
+			}
+			if f.Status == "unverifiable" {
+				break
 			}
 			label := link.Audit.Declared
 			if _, _, err := warcdigest.Parse(label); err != nil {
@@ -244,11 +304,18 @@ func (a *collection) assess(ctx context.Context, e *entry, originals *collection
 				break
 			}
 			if !donor.Audit.matches(label) {
+				if matchesDigest(donor.Audit.Stored, label) && donor.Audit.Declared != "" {
+					f.Status = "legacy-chunked-digest"
+					continue
+				}
 				f.Status = "digest-mismatch"
 				f.Detail = link.Capture.GetRid()
 				break
 			}
 		}
+	}
+	if f.Status == "output-consistent" && legacyDonor(donor) {
+		f.Status = "legacy-chunked-digest"
 	}
 	var original *entry
 	if originals != nil {

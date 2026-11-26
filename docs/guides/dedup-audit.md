@@ -48,3 +48,25 @@ Supply whichever evidence you have. A verified original can replace a bad revisi
 Recovery copies surviving WARCs into a sibling staging directory, retaining relative paths and copying unaffected WARCs byte-for-byte. Its output consists of WARC files. Supply a fresh destination outside all inputs. The JSON records restorations and changed offsets. The command reopens staged files and verifies chains against staged donors before publication. It checks restored full captures against the expected payload and protocol headers. Inspect `summary.afterRecovery` for the resulting counts. A partial result stays in the reported `.incomplete-` directory and exits nonzero. With incomplete input coverage the command reports the issue before staging.
 
 Rebuild CDX, capture databases, and other offset-based indexes from the published WARCs before switching replay. Test a recovered capture's date, response headers, and body with the backups disconnected. Retain the originals, manifests, and audit reports as evidence.
+
+## Recover historical chunked payload digests
+
+Some older writers included HTTP chunk framing in the payload digest. For example,
+a response storing the entity `hello` in one chunk could have a digest covering
+the chunk size, delimiters, and terminator as well as those five bytes. Gowarc v4
+computes the payload digest over the five entity bytes.
+
+For a standalone full capture, `warc convert warc --repair` can recalculate the
+digest from its stored body. For deduplicated WARCs, supply the directory
+containing the full donor and its revisits together:
+
+```sh
+warc audit surviving/ --repair-to recovered/ --report recovery.json
+```
+
+A `legacy-chunked-digest` finding means the old label matched the stored HTTP
+body including its framing. Recovery checks the donor, follows the references,
+and writes matching entity digest labels to the affected records. The report
+records each correction as `corrected-legacy-chunked-digest`. Recovery also
+handles revisits whose donor already has the corrected digest. After verified
+publication, rebuild the replay indexes against the recovered files.
