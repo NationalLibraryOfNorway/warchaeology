@@ -95,6 +95,8 @@ func TestCaptureCommandValidation(t *testing.T) {
 		want string
 	}{
 		{"readonly inputs", []string{"serve", "--read-only", "capture.warc"}, nil, "rejects ingestion"},
+		{"zipnum skips overflow", []string{"serve", "--index-format=zipnum", "--skip-overflow-scans"}, nil, "requires a Badger catalogue"},
+		{"direct skips overflow", []string{"serve", "--wacz-index=direct", "a.wacz"}, map[string]string{"WARC_SKIP_OVERFLOW_SCANS": "true"}, "requires a Badger catalogue"},
 		{"zipnum inputs", []string{"serve", "--index-format", "zipnum", "capture.warc"}, nil, "does not accept ingestion"},
 		{"zipnum database flag", []string{"serve", "--index-format", "zipnum", "--index-dir", "db"}, nil, "index-dir is not valid"},
 		{"zipnum database environment", []string{"serve", "--index-format", "zipnum"}, map[string]string{"WARC_INDEX_DIR": "db"}, "index-dir is not valid"},
@@ -350,7 +352,7 @@ func TestIndexDirRoot(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer testcheck.Close(t, db)
-	archives := archiveapi.New(db, 100, 100)
+	archives := archiveapi.New(db, cdx.HTTPQueryOptions{ScanLimit: 100, ResultLimit: 100})
 	get := func(handler http.Handler, path string) []byte {
 		t.Helper()
 		w := httptest.NewRecorder()

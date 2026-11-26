@@ -46,6 +46,7 @@ type OrderedQuerySource interface {
 	ScanOrdered(context.Context, Query, func(*Capture) error) error
 }
 type Query struct {
+	scanInline                                                 func(context.Context, string, string, func(*Capture) error) error
 	preferredExactKey                                          string
 	ScanLimit                                                  int
 	State                                                      *QueryState
@@ -413,6 +414,9 @@ func (q Query) Run(ctx context.Context, src QuerySource, emit func(*Capture) err
 			if canOrder {
 				return ordered.ScanOrdered(ctx, candidate, visit)
 			}
+			if candidate.scanInline != nil {
+				return candidate.scanInline(ctx, candidate.Lower, candidate.Upper, visit)
+			}
 			return src.Scan(ctx, candidate.Lower, candidate.Upper, visit)
 		}
 		if q.preferredExactKey == "" {
@@ -489,40 +493,40 @@ func (q Query) Run(ctx context.Context, src QuerySource, emit func(*Capture) err
 
 func CDXHandler(src QuerySource) http.HandlerFunc { return CDXHandlerWithLimits(src, 10000, 10000) }
 func CDXHandlerWithLimits(src QuerySource, scanLimit, resultLimit int) http.HandlerFunc {
-	return CDXHandlerWithTransform(src, scanLimit, resultLimit, nil)
+	return HTTPQueryOptions{ScanLimit: scanLimit, ResultLimit: resultLimit}.Handler(src)
 }
 
-// CDXHandlerWithTransform projects serialized fields without changing stored
-// captures, query matching, or exported archive locations.
-func CDXHandlerWithTransform(src QuerySource, scanLimit, resultLimit int, transform func(context.Context, *Capture, map[string]any) error) http.HandlerFunc {
-	return cdxHandler(src, scanLimit, resultLimit, transform, false)
+type HTTPQueryOptions struct {
+	ScanLimit, ResultLimit int
+	Console                bool
+	ScanInline             func(context.Context, string, string, func(*Capture) error) error
+	Transform              func(context.Context, *Capture, map[string]any) error
 }
 
-// ConsoleCDXHandler appends query completion metadata for browser clients.
-func ConsoleCDXHandler(src QuerySource, scanLimit, resultLimit int) http.HandlerFunc {
-	return cdxHandler(src, scanLimit, resultLimit, nil, true)
-}
-
-func cdxHandler(src QuerySource, scanLimit, resultLimit int, transform func(context.Context, *Capture, map[string]any) error, console bool) http.HandlerFunc {
+func (o HTTPQueryOptions) Handler(src QuerySource) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		q, e := ParseQuery(r.URL.Query())
 		if e != nil {
 			http.Error(w, e.Error(), http.StatusBadRequest)
 			return
 		}
-		if console {
+		if o.Console {
 			q.Output = outputJSON
 			if q.ShowPages {
 				http.Error(w, "page counts unavailable in console", http.StatusBadRequest)
 				return
 			}
 		}
-		q.ScanLimit = scanLimit
-		if q.Limit == 0 || q.Limit > resultLimit {
-			q.Limit = resultLimit
+		q.ScanLimit = o.ScanLimit
+		if q.Limit == 0 || q.Limit > o.ResultLimit {
+			q.Limit = o.ResultLimit
 		}
 		q.State = &QueryState{}
-		if !console {
+		if o.ScanInline != nil && q.Match != matchExact && !q.Paginate {
+			q.scanInline = o.ScanInline
+			w.Header().Set("X-CDX-Overflow-Skipped", "true")
+		}
+		if !o.Console {
 			w.Header().Set("Trailer", "X-Cdx-Truncated, X-Cdx-Scanned, X-Cdx-Returned, X-Cdx-Error")
 			defer func() {
 				w.Header().Set("X-Cdx-Truncated", strconv.FormatBool(q.State.Truncated))
@@ -541,8 +545,8 @@ func cdxHandler(src QuerySource, scanLimit, resultLimit int, transform func(cont
 			if e != nil {
 				return e
 			}
-			if transform != nil {
-				if e := transform(ctx, c, m); e != nil {
+			if o.Transform != nil {
+				if e := o.Transform(ctx, c, m); e != nil {
 					return e
 				}
 			}
@@ -571,8 +575,11 @@ func cdxHandler(src QuerySource, scanLimit, resultLimit int, transform func(cont
 			_, e = w.Write(append(b, '\n'))
 			return e
 		})
-		if console {
+		if o.Console {
 			status := map[string]any{"scanned": q.State.Scanned, "returned": q.State.Returned, "truncated": q.State.Truncated}
+			if q.scanInline != nil {
+				status["overflowSkipped"] = true
+			}
 			if e != nil {
 				status["error"] = e.Error()
 			}

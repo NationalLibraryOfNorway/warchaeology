@@ -76,7 +76,7 @@ func TestVirtualArchiveRangeAndCDX(t *testing.T) {
 				t.Fatal(e)
 			}
 			container := finishMountedArchive(t, db, generation, locator)
-			h := New(db, 100, 100)
+			h := New(db, cdx.HTTPQueryOptions{ScanLimit: 100, ResultLimit: 100})
 			w := httptest.NewRecorder()
 			h.ServeHTTP(w, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/archives/cdx?url=https://example.org/", nil))
 			if w.Code != 200 {
@@ -194,7 +194,7 @@ func TestRangeVersionAfterCaptureDeletion(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	handler := New(db, 100, 100)
+	handler := New(db, cdx.HTTPQueryOptions{ScanLimit: 100, ResultLimit: 100})
 	request := func(etag string) *httptest.ResponseRecorder {
 		r := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/archives/"+id+"/"+archive.Generation+"/capture.warc", nil)
 		r.Header.Set("Range", "bytes=0-1")
@@ -292,7 +292,7 @@ func TestSortedCDXRetainsGeneration(t *testing.T) {
 	old := index("ab", 0)
 	var fresh string
 	w := &reindexWriter{httptest.NewRecorder(), func() { fresh = index("xyz", 1) }}
-	h := New(db, 100, 100)
+	h := New(db, cdx.HTTPQueryOptions{ScanLimit: 100, ResultLimit: 100})
 	query := "/archives/cdx?url=https://example.org/&matchType=prefix&sort=reverse"
 	h.ServeHTTP(w, httptest.NewRequestWithContext(ctx, "GET", query, nil))
 	if strings.Count(w.Body.String(), old) != 2 {
@@ -346,7 +346,7 @@ func TestArchiveScanLimitCountsUploads(t *testing.T) {
 	for _, order := range []string{"", "&sort=reverse", "&sort=closest&closest=2021"} {
 		for _, limit := range []int{1, 3} {
 			w := httptest.NewRecorder()
-			New(db, limit, 10).ServeHTTP(w, httptest.NewRequestWithContext(ctx, "GET", "/archives/cdx?url=https://example.org/"+order, nil))
+			New(db, cdx.HTTPQueryOptions{ScanLimit: limit, ResultLimit: 10}).ServeHTTP(w, httptest.NewRequestWithContext(ctx, "GET", "/archives/cdx?url=https://example.org/"+order, nil))
 			r := w.Result()
 			testcheck.Close(t, r.Body)
 			if r.StatusCode != 200 || r.Trailer.Get("X-Cdx-Scanned") != fmt.Sprint(limit) {

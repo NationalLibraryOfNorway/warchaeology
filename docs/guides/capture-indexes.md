@@ -381,6 +381,15 @@ path, archive members, CDXJ line or WARC offset, and key length. Re-ingesting
 with `preserve` recovers previously skipped captures. These settings apply to
 file ingestion into a persistent catalogue. File exports always preserve keys.
 
+For faster interactive prefix, host, and domain CDX searches on a Badger
+catalogue, start the server with `warc serve --index-dir ./catalogue --skip-overflow-scans`.
+These searches read only inline rows. For example, a host search for
+`example.org` can omit an overflow capture that an exact search for its
+full URL returns. Affected responses carry `X-CDX-Overflow-Skipped: true`,
+even for empty results. The console displays “Overflow keys excluded”.
+Exact replay and administrative exports retain full coverage. The default
+includes overflow rows in interactive searches.
+
 The first persistent overflow write upgrades the catalogue format marker.
 Older binaries reject that catalogue. To roll back, restore a backup made
 before the upgrade or rebuild from source with the older binary.

@@ -164,7 +164,7 @@ func (d *DB) VisitCapturesByTarget(ctx context.Context, uri string, date time.Ti
 	d.visibility.RLock()
 	defer d.visibility.RUnlock()
 	key := cdx.CanonicalKey(uri) + " " + timestamp.Format14(date) + "."
-	if err := d.scan(ctx, key, key+"\xff", collect); err != nil {
+	if err := d.scan(ctx, key, key+"\xff", collect, d.kv.Scan); err != nil {
 		return err
 	}
 	return d.scanCaptureRefs(ctx, targetPrefix(uri, date), collect)

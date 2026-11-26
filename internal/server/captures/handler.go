@@ -28,12 +28,22 @@ import (
 )
 
 type Options struct {
+	SkipOverflowScans               bool
 	Directory, Prefix, TempDir      string
 	ReadOnly                        bool
 	MaxBytes                        int64
 	MaxLine, ScanLimit, ResultLimit int
 	UploadTimeout                   time.Duration
 }
+
+func (o Options) QueryOptions(db *cdxstore.DB) cdx.HTTPQueryOptions {
+	query := cdx.HTTPQueryOptions{ScanLimit: o.ScanLimit, ResultLimit: o.ResultLimit}
+	if o.SkipOverflowScans {
+		query.ScanInline = db.ScanInline
+	}
+	return query
+}
+
 type Handler struct {
 	Options
 
@@ -186,7 +196,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	switch {
 	case route == cdxRoute && r.Method == http.MethodGet:
-		cdx.CDXHandlerWithLimits(db, h.ScanLimit, h.ResultLimit)(w, r)
+		h.QueryOptions(db).Handler(db)(w, r)
 	case (route == cdxRoute || route == deleteRoute) && r.Method == http.MethodPost:
 		h.upload(w, r, db, route == deleteRoute)
 	case route == "/export" && r.Method == http.MethodGet:

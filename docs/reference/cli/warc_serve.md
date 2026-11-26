@@ -68,6 +68,7 @@ warc serve [FILE/DIR...] [flags]
                                                     200-300    - records with response codes between 200 (inclusive) and 300 (exclusive)
                                                     500-    - response codes from 500 and above
                                                     -400    - all response codes below 400
+      --skip-overflow-scans[=true|false]        use only inline Badger rows for prefix, host and domain CDX queries
       --sort[=true|false]                       sort and deduplicate stdout CDXJ
       --source-file-list string                 path to a file listing input paths, one per line
       --strict[=true|false]                     fail on the first validation error

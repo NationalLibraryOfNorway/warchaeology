@@ -120,11 +120,19 @@ func (b *badgerKV) Delete(ctx context.Context, k string) error {
 }
 
 func (b *badgerKV) Scan(ctx context.Context, lo, hi string, fn func(string, []byte) error) error {
+	if ns, ok := captureNamespace(lo); ok && hi != "" && hi <= ns+"c0" {
+		return b.db.View(func(tx *badger.Txn) error { return scanCaptures(ctx, tx, ns, lo, hi, b.tempDir, fn) })
+	}
+	return b.scanPhysical(ctx, lo, hi, fn)
+}
+
+func (b *badgerKV) scanPhysical(ctx context.Context, lo, hi string, fn func(string, []byte) error) error {
 	return b.db.View(func(tx *badger.Txn) error {
-		if ns, ok := captureNamespace(lo); ok && hi != "" && hi <= ns+"c0" {
-			return scanCaptures(ctx, tx, ns, lo, hi, b.tempDir, fn)
+		opts := badger.DefaultIteratorOptions
+		if strings.HasPrefix(lo, "c/") && hi != "" && hi <= "c0" {
+			opts.Prefix = []byte("c/")
 		}
-		it := tx.NewIterator(badger.DefaultIteratorOptions)
+		it := tx.NewIterator(opts)
 		defer it.Close()
 		for it.Seek([]byte(lo)); it.Valid(); it.Next() {
 			if e := ctx.Err(); e != nil {

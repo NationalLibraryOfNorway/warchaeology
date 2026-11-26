@@ -141,8 +141,11 @@ func TestCollectionOverflowSortDirectory(t *testing.T) {
 				if w.Code != http.StatusOK {
 					t.Fatal(w.Body.String())
 				}
+				if err := h.dbs["a"].WriteCapture(t.Context(), &cdx.Capture{Ssu: "0-inline", Uri: "https://example.com/inline", Sts: timestamppb.Now()}); err != nil {
+					t.Fatal(err)
+				}
 				for i := range 9 {
-					c := &cdx.Capture{Ssu: strconv.Itoa(i) + strings.Repeat("x", 1<<20), Uri: "https://example.com/", Sts: timestamppb.Now()}
+					c := &cdx.Capture{Ssu: "0" + strconv.Itoa(i) + strings.Repeat("x", 1<<20), Uri: "https://example.com/", Sts: timestamppb.Now()}
 					if err := h.dbs["a"].WriteCapture(t.Context(), c); err != nil {
 						t.Fatal(err)
 					}
@@ -150,9 +153,32 @@ func TestCollectionOverflowSortDirectory(t *testing.T) {
 			}
 			count := 0
 			err := h.dbs["a"].Scan(t.Context(), "", "", func(*cdx.Capture) error { count++; return nil })
-			if err != nil || count != 9 {
+			if err != nil || count != 10 {
 				t.Fatalf("create=%v: scanned %d captures, error %v", create, count, err)
 			}
 		}()
 	}
+	// Reopen with an unusable sorter directory. Only the full scan needs to spill.
+	opts.TempDir = missing
+	opts.ReadOnly = true
+	opts.SkipOverflowScans = true
+	h, err := New(t.Context(), opts, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer testcheck.Close(t, h)
+	request := func() *httptest.ResponseRecorder {
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, httptest.NewRequestWithContext(t.Context(), "GET", "/collections/a/cdx?urlkey=0&matchType=prefix", nil))
+		return w
+	}
+	w := request()
+	if w.Code != 200 || !strings.HasPrefix(w.Body.String(), "0-inline ") || strings.Count(w.Body.String(), "\n") != 1 || w.Header().Get("X-CDX-Overflow-Skipped") != "true" {
+		t.Fatal("expected single inline result with coverage header")
+	}
+	h.SkipOverflowScans = false
+	if w := request(); w.Code != http.StatusInternalServerError || !strings.Contains(w.Body.String(), missing) {
+		t.Fatal("expected spill failure from full scan", w.Code)
+	}
+
 }

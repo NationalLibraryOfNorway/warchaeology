@@ -491,6 +491,10 @@ func TestLegacyInlineAndOverflowCoexist(t *testing.T) {
 	if err := d.WriteCapture(ctx, newer); err != nil {
 		t.Fatal(err)
 	}
+	var inlineIDs []string
+	if err := d.ScanInline(ctx, "", "", func(c *index.Capture) error { inlineIDs = append(inlineIDs, c.Rid); return nil }); err != nil || strings.Join(inlineIDs, ",") != "old" {
+		t.Fatalf("legacy inline scan: %v, %v", inlineIDs, err)
+	}
 	visits := func(c *index.Capture) error {
 		if c.GetRid() != "new" || c.GetSsu() != key {
 			return errors.New("incorrect target capture")

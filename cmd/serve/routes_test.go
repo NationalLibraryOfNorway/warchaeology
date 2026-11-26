@@ -591,3 +591,79 @@ func TestFreshFulltextDatabaseMode(t *testing.T) {
 		t.Fatal("fresh fulltext database is index-only")
 	}
 }
+
+func TestSkipOverflowScansRoutes(t *testing.T) {
+	ctx := t.Context()
+	db, err := cdxstore.Open(ctx, cdxstore.Options{Format: badgerFormat, Dir: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer testcheck.Close(t, db)
+	source := "sample.warc"
+	g, err := db.BeginFile(ctx, source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	long := "https://example.org/" + strings.Repeat("x", 70000)
+	for i, raw := range []string{"https://example.org/a", long} {
+		c := &cdx.Capture{Uri: raw, Ssu: cdx.CanonicalKey(raw), Source: source, Filename: source, Ref: fmt.Sprintf("warcfile:%s#%d", source, i), Offset: int64(i), Sts: timestamppb.Now()}
+		if err := db.WriteCapture(g, c); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := db.FinishFile(g, source, 100, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	o := ServeOptions{fulltext: true}
+	o.httpOptions.SkipOverflowScans = true
+	h := o.databaseHandler(ctx, db)
+	get := func(path string) *httptest.ResponseRecorder {
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, httptest.NewRequestWithContext(ctx, "GET", path, nil))
+		if w.Code != 200 {
+			t.Fatal(w.Code)
+		}
+		return w
+	}
+	for _, route := range []string{"/cdx", "/search/cdx", "/archives/cdx"} {
+		for _, q := range []string{"url=example.org&matchType=host", "url=example.org&matchType=domain", "url=https://example.org/*", "url=*.example.org"} {
+			w := get(route + "?" + q)
+			if w.Header().Get("X-CDX-Overflow-Skipped") != "true" || strings.Contains(w.Body.String(), long) || !strings.Contains(w.Body.String(), "example.org/a") {
+				t.Fatalf("%s %s: incorrect broad results", route, q)
+			}
+			if route == "/search/cdx" && !strings.Contains(w.Body.String(), `"overflowSkipped":true`) {
+				t.Fatal("missing console status")
+			}
+		}
+		for _, order := range []string{"", "&sort=reverse", "&sort=closest&closest=2020"} {
+			w := get(route + "?url=" + long + order)
+			if w.Header().Get("X-CDX-Overflow-Skipped") != "" || !strings.Contains(w.Body.String(), long) {
+				t.Fatalf("%s %s: missing exact capture", route, order)
+			}
+		}
+	}
+	if !strings.Contains(get("/export").Body.String(), long) {
+		t.Fatal("missing overflow capture in export")
+	}
+	row := `ignored 20260101000000 {"url":"https://new.example.org/path","filename":"f","offset":0,"length":1,"mime":"original"}`
+	upload := func(line string, remove bool) {
+		t.Helper()
+		if _, err := db.Upload(ctx, strings.NewReader(line), cdxstore.UploadOptions{Delete: remove}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	upload(row, false)
+	upload(strings.Replace(row, "original", "replacement", 1), false)
+	broad := "/cdx?url=*.example.org"
+	if w := get(broad + "&limit=1"); w.Result().Trailer.Get("X-Cdx-Truncated") != "true" {
+		t.Fatal("missing result limit signal")
+	}
+	if body := get(broad).Body.String(); !strings.Contains(body, "replacement") || strings.Contains(body, "original") {
+		t.Fatal("incorrect replacement visibility")
+	}
+	upload(row, true)
+	if strings.Contains(get(broad).Body.String(), "new.example.org/path") {
+		t.Fatal("deleted capture still visible")
+	}
+
+}

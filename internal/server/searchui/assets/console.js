@@ -169,6 +169,7 @@ form.addEventListener('submit', async event => {
       for (const line of rows) renderCapture(JSON.parse(line), true, line);
       $('cdx-count').textContent = rows.length + (rows.length === 1 ? ' capture' : ' captures') + ' returned (limit ' + cdxLimit + ')';
       $('cdx-count').hidden = false;
+      if (summary.overflowSkipped) $('cdx-count').textContent += ' · Overflow keys excluded';
       if (summary.truncated) {
         $('cdx-count').textContent += ' · Search limit reached after scanning ' + summary.scanned + ' captures. Narrow the query.';
         $('status').textContent = 'PARTIAL RESULTS';

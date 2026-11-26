@@ -111,6 +111,9 @@ func (o *ServeOptions) Complete(cmd *cobra.Command, args []string) error {
 }
 
 func (o *ServeOptions) Validate() error {
+	if o.httpOptions.SkipOverflowScans && (o.format == zipnumFormat || o.waczMode == directWacz) {
+		return errors.New("skip-overflow-scans requires a Badger catalogue")
+	}
 	if o.playbackURLBase != "" {
 		base, err := url.Parse(o.playbackURLBase)
 		if err != nil || (base.Scheme != "https" && base.Scheme != "http") || base.Hostname() == "" || base.User != nil || strings.ContainsAny(o.playbackURLBase, "?#\\") {
@@ -359,8 +362,10 @@ func (o *ServeOptions) databaseHandler(ctx context.Context, db *cdxstore.DB) htt
 	opts.Prefix = o.prefix
 	opts.ReadOnly = o.readOnly
 	native, _ := captures.New(ctx, opts, db)
-	consoleCDX := cdx.ConsoleCDXHandler(db, native.ScanLimit, native.ResultLimit)
-	archives := archiveapi.New(db, native.ScanLimit, native.ResultLimit)
+	queryOptions := native.QueryOptions(db)
+	archives := archiveapi.New(db, queryOptions)
+	queryOptions.Console = true
+	consoleCDX := queryOptions.Handler(db)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		path, ok := strings.CutPrefix(r.URL.Path, o.prefix)
 		if !ok || !strings.HasPrefix(path, "/") {
