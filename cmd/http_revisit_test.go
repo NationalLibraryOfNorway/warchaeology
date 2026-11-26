@@ -14,6 +14,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -86,15 +87,89 @@ func TestHTTPRevisitFramingAndTrailers(t *testing.T) {
 		t.Fatalf("audit plan: %+v", p)
 	}
 
-	for _, command := range []string{"dedup", "redupe"} {
-		t.Run(command, func(t *testing.T) {
+	var cleanManifest []map[string]any
+	for _, mode := range []string{"dedup", "redupe", "inventory", "verified-plan"} {
+		command := mode
+		if mode == "inventory" || mode == "verified-plan" {
+			command = "redupe"
+		}
+		t.Run(mode, func(t *testing.T) {
 			out := t.TempDir()
-			args := []string{command, "--output-dir", out, "--index-dir", t.TempDir(), "--min-size-gain=0", "--compress=false", "--concurrent-writers=1", source}
-			if err := executeCaptureCommand(t, args...); err != nil {
+			work := t.TempDir()
+			args := []string{command, "--output-dir", out, "--index-dir", work, "--min-size-gain=0", "--compress=false", "--concurrent-writers=1", source}
+			if mode != command {
+				reportFile := filepath.Join(t.TempDir(), "preview.json")
+				preview := append(append([]string{}, args...), "--audit", "--report", reportFile, "--output-dir", t.TempDir())
+				if mode == "verified-plan" {
+					preview = append(preview, "--verify-payloads")
+				}
+				if err := executeCaptureCommand(t, preview...); err != nil {
+					t.Fatal(err)
+				}
+				readReport := func() redupe.Report {
+					data, err := os.ReadFile(reportFile)
+					if err != nil {
+						t.Fatal(err)
+					}
+					var r redupe.Report
+					if err := json.Unmarshal(data, &r); err != nil {
+						t.Fatal(err)
+					}
+					return r
+				}
+				if r := readReport(); r.RetainedType != mode || r.RetainedBytes <= 0 {
+					t.Fatalf("retention: %+v", r)
+				}
+				reportFile = filepath.Join(t.TempDir(), "execution.json")
+				args = append(args, "--report", reportFile)
+				if err := executeCaptureCommand(t, args...); err != nil {
+					t.Fatal(err)
+				}
+				phases := []string{"inventory", "sort"}
+				if mode == "verified-plan" {
+					phases = append(phases, "verified planning")
+				}
+				if r := readReport(); !reflect.DeepEqual(r.Reused, phases) {
+					t.Fatalf("reuse: %+v", r)
+				}
+			} else if err := executeCaptureCommand(t, args...); err != nil {
 				t.Fatal(err)
 			}
 			if command == "redupe" {
 				out = filepath.Join(out, "2026")
+				raw, err := os.ReadFile(filepath.Join(out, "manifest.jsonl"))
+				if err != nil {
+					t.Fatal(err)
+				}
+				var entries []map[string]any
+				for line := range strings.Lines(string(raw)) {
+					var entry map[string]any
+					if err := json.Unmarshal([]byte(line), &entry); err != nil {
+						t.Fatal(err)
+					}
+					// Generated warcinfo changes physical locations. Check each
+					// mapping in its own output before comparing provenance.
+					loc := entry["output"].(map[string]any)
+					data, err := os.ReadFile(filepath.Join(out, loc["file"].(string)))
+					if err != nil {
+						t.Fatal(err)
+					}
+					offset := int(loc["offset"].(float64))
+					if offset < 0 || offset >= len(data) {
+						t.Fatal(loc)
+					}
+					header, _, _ := bytes.Cut(data[offset:], []byte("\r\n\r\n"))
+					if !bytes.HasPrefix(header, []byte("WARC/")) || !bytes.Contains(header, []byte(fmt.Sprintf("WARC-Record-ID: <%s>", entry["recordId"]))) {
+						t.Fatal("invalid output mapping", entry)
+					}
+					delete(entry, "output")
+					entries = append(entries, entry)
+				}
+				if mode == "redupe" {
+					cleanManifest = entries
+				} else if !reflect.DeepEqual(cleanManifest, entries) {
+					t.Fatal("manifest differs from clean rewrite", entries)
+				}
 			}
 			dir := t.TempDir()
 			if err := executeCaptureCommand(t, "index", "--index-format=badger", "--index-dir", dir, out); err != nil {

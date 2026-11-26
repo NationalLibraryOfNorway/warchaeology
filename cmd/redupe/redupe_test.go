@@ -22,6 +22,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/dgraph-io/badger/v4"
 	"github.com/nationallibraryofnorway/gowarc/v4"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/filewalker"
 	archivefs "github.com/nationallibraryofnorway/warchaeology/v5/internal/fs"
@@ -431,6 +432,15 @@ func TestOutputFailureAndResume(t *testing.T) {
 	b := revisit(t, "b", "2023-01-01T00:00:00Z", a)
 	source := fixtureFile(t, a, b)
 	o := testOptions(t, source)
+	preview := testOptions(t, source)
+	preview.Audit, preview.VerifyPayloads = true, true
+	preview.IndexDir = o.IndexDir
+	if err := preview.Run(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if err := preview.Close(); err != nil {
+		t.Fatal(err)
+	}
 	hookDir := t.TempDir()
 	hook := filepath.Join(hookDir, "hook")
 	// The second close fails once. Completed 2022 must remain available.
@@ -776,6 +786,14 @@ func TestRecoverRecordedInventory(t *testing.T) {
 	if err := o.Close(); err != nil {
 		t.Fatal(err)
 	}
+	interrupted := testOptions(t, "unused.warc")
+	interrupted.IndexDir = o.IndexDir
+	if err := interrupted.open(t.Context()); err == nil || !strings.Contains(err.Error(), "fresh preview") {
+		t.Fatalf("interrupted preview accepted: %v", err)
+	}
+	if err := interrupted.Close(); err != nil {
+		t.Fatal(err)
+	}
 	retry := testOptions(t)
 	retry.Audit = true
 	retry.IndexDir = o.IndexDir
@@ -981,6 +999,24 @@ func TestReportPathAliases(t *testing.T) {
 	after, err := os.ReadFile(marker)
 	if err != nil || !bytes.Equal(before, after) {
 		t.Fatal("findings truncated published manifest")
+	}
+}
+
+func TestOlderLedgerRequiresFreshPreview(t *testing.T) {
+	o := testOptions(t, "unused.warc")
+	if err := o.open(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if err := o.state.Update(func(tx *badger.Txn) error { return tx.Set([]byte("!format"), []byte("redupe-ledger-v2")) }); err != nil {
+		t.Fatal(err)
+	}
+	if err := o.Close(); err != nil {
+		t.Fatal(err)
+	}
+	retry := testOptions(t, "unused.warc")
+	retry.IndexDir = o.IndexDir
+	if err := retry.open(t.Context()); err == nil || !strings.Contains(err.Error(), "fresh preview") {
+		t.Fatal(err)
 	}
 }
 

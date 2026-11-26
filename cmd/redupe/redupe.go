@@ -128,8 +128,11 @@ func (f *RedupeFlags) ToRedupeOptions() (_ *RedupeOptions, err error) {
 		}
 	}
 	o.configuration = map[string]any{
-		"recursive": o.FileWalker.Recursive, "symlinks": o.FileWalker.FollowSymlinks, "suffixes": o.FileWalker.Suffixes,
-		"input_hook": f.InputHookFlags.OpenInputFileHook(), "close_input_hook": f.InputHookFlags.CloseInputFileHook(),
+		"recursive":          o.FileWalker.Recursive,
+		"symlinks":           o.FileWalker.FollowSymlinks,
+		"suffixes":           o.FileWalker.Suffixes,
+		"input_hook":         f.InputHookFlags.OpenInputFileHook(),
+		"close_input_hook":   f.InputHookFlags.CloseInputFileHook(),
 		"policy":             "utc-period-preserve-all-v2",
 		"min_size_gain":      o.MinimumSizeGain,
 		"compress":           f.WriterFlags.Compress(),
@@ -183,6 +186,23 @@ func (o *RedupeOptions) Complete(cmd *cobra.Command, args []string) error {
 }
 
 func (o *RedupeOptions) checkReportPaths(ctx context.Context) error {
+	if o.ReportPath != "" && o.IndexDir != "" {
+		root, err := resolvedPath(o.IndexDir)
+		if err != nil {
+			return err
+		}
+		dest, err := resolvedPath(o.ReportPath)
+		if err != nil {
+			return err
+		}
+		rel, err := filepath.Rel(root, dest)
+		if err == nil {
+			first, _, _ := strings.Cut(rel, string(filepath.Separator))
+			if first == "run-state" || strings.HasPrefix(first, "inventory-") || rel == "findings.jsonl" {
+				return errors.New("report overlaps managed working files")
+			}
+		}
+	}
 	if o.OutputDir != "" {
 		root, err := resolvedPath(o.OutputDir)
 		if err != nil {
@@ -386,7 +406,7 @@ func (o *RedupeOptions) open(ctx context.Context) (err error) {
 		return errors.New("invalid recorded inventory directory")
 	}
 	if o.preview.Kind != "" {
-		if o.preview.Kind != "inventory" || stale == "" {
+		if (o.preview.Kind != "inventory" && o.preview.Kind != "verified-plan") || stale == "" {
 			return errors.New("incomplete or incompatible preview; run a fresh preview")
 		}
 		o.workDir, o.keepInventory = stale, true

@@ -22,6 +22,7 @@ import (
 	"github.com/nationallibraryofnorway/gowarc/v4"
 	cdx "github.com/nationallibraryofnorway/warchaeology/v5/internal/cdx"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/loader"
+	"github.com/nationallibraryofnorway/warchaeology/v5/internal/publication"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/timestamp"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/version"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/warc"
@@ -55,10 +56,12 @@ type PeriodReport struct {
 }
 
 type previewState struct {
-	OrderedSHA256 string
-	Kind          string
-	Settings      string
-	Fingerprint   string
+	OrderedSHA256      string
+	PlanReportSHA256   string
+	PlanFindingsSHA256 string
+	Kind               string
+	Settings           string
+	Fingerprint        string
 }
 type Report struct {
 	Reused           []string                 `json:"reusedPhases,omitempty"`
@@ -192,9 +195,6 @@ func (o *RedupeOptions) Run(ctx context.Context) (err error) {
 		}
 		o.report.Fingerprint = o.preview.Fingerprint
 		o.report.Reused = []string{"inventory", "sort"}
-		if err = o.clearPlan(); err != nil {
-			return err
-		}
 	} else {
 		if _, err = o.inventory(ctx); err != nil {
 			return err
@@ -203,7 +203,87 @@ func (o *RedupeOptions) Run(ctx context.Context) (err error) {
 			return err
 		}
 	}
-	if err = orderedRecords(ordered, func(ref string) error {
+	if o.preview.Kind == "verified-plan" {
+		if err = o.restorePlanReport(); err != nil {
+			return fmt.Errorf("run a fresh preview: %w", err)
+		}
+		o.report.Reused = append(o.report.Reused, "verified planning")
+	} else {
+		if o.keepInventory {
+			if err = o.clearPlan(); err != nil {
+				return err
+			}
+		}
+		if err = o.planOrdered(ctx, ordered); err != nil {
+			return err
+		}
+	}
+	if err = o.checkSources(ctx); err != nil {
+		return err
+	}
+	if !o.Audit {
+		if err = o.publish(ctx); err != nil {
+			return err
+		}
+	}
+	for _, yr := range o.report.Periods {
+		if yr.Failed > 0 {
+			return errors.New("blocking findings prevent complete reconstruction; see report")
+		}
+	}
+	if o.Audit && !o.temporaryIndex {
+		return o.retainPreview(ctx, settings)
+	}
+	return nil
+}
+
+func (o *RedupeOptions) retainPreview(ctx context.Context, settings string) error {
+	var err error
+	if err = o.checkSelection(ctx); err != nil {
+		return err
+	}
+	o.report.RetainedType = "inventory"
+	if o.VerifyPayloads {
+		o.report.RetainedType = "verified-plan"
+		if err = o.savePlanReport(); err != nil {
+			return err
+		}
+	} else if err = o.clearPlan(); err != nil {
+		return err
+	}
+	err = errors.Join(o.findings.Sync(), o.findings.Close(), o.FileWalker.Close(), o.scratch.Close())
+	o.findings, o.scratch = nil, nil
+	if err != nil {
+		return err
+	}
+	o.report.RetainedPath = o.workDir
+	err = filepath.WalkDir(o.workDir, func(path string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return err
+		}
+		info, err := d.Info()
+		if err == nil {
+			o.report.RetainedBytes += info.Size()
+		}
+		return err
+	})
+	if err != nil {
+		return err
+	}
+	if err = publication.SyncDir(o.workDir); err != nil {
+		return err
+	}
+	if err = publication.SyncDir(o.IndexDir); err != nil {
+		return err
+	}
+	o.preview.Kind = o.report.RetainedType
+	o.preview.Settings = settings
+	o.preview.Fingerprint = o.report.Fingerprint
+	return nil
+}
+
+func (o *RedupeOptions) planOrdered(ctx context.Context, ordered string) error {
+	return orderedRecords(ordered, func(ref string) error {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
@@ -223,53 +303,63 @@ func (o *RedupeOptions) Run(ctx context.Context) (err error) {
 		}
 		// Selected is the ordinal within this period in the sorted inventory.
 		return o.put(fmt.Sprintf("x/plan/%s/%020d", p.Period, yr.Selected), p)
-	}); err != nil {
+	})
+}
+
+func (o *RedupeOptions) savePlanReport() error {
+	path := filepath.Join(o.workDir, "plan-report.json")
+	if err := writeJSON(path, o.report); err != nil {
 		return err
 	}
-	if err = o.checkSources(ctx); err != nil {
+	sum, err := fileChecksum(path)
+	if err != nil {
 		return err
 	}
-	if !o.Audit {
-		if err = o.publish(ctx); err != nil {
-			return err
-		}
+	o.preview.PlanReportSHA256 = sum
+	if err := o.findings.Sync(); err != nil {
+		return err
 	}
-	for _, yr := range o.report.Periods {
-		if yr.Failed > 0 {
-			return errors.New("blocking findings prevent complete reconstruction; see report")
-		}
+	f, err := os.Create(filepath.Join(o.workDir, "plan-findings.jsonl"))
+	if err != nil {
+		return err
 	}
-	if o.Audit && !o.temporaryIndex {
-		if err = o.checkSelection(ctx); err != nil {
-			return err
-		}
-		if err = o.clearPlan(); err != nil {
-			return err
-		}
-		if err = o.scratch.Close(); err != nil {
-			return err
-		}
-		o.scratch = nil
-		o.report.RetainedType = "inventory"
-		o.report.RetainedPath = o.workDir
-		err = filepath.WalkDir(o.workDir, func(path string, d fs.DirEntry, err error) error {
-			if err != nil || d.IsDir() {
-				return err
-			}
-			info, err := d.Info()
-			if err == nil {
-				o.report.RetainedBytes += info.Size()
-			}
-			return err
-		})
-		if err != nil {
-			return err
-		}
-		o.preview.Kind = o.report.RetainedType
-		o.preview.Settings = settings
-		o.preview.Fingerprint = o.report.Fingerprint
+	o.preview.PlanFindingsSHA256, err = copyFindings(f, o.report.FindingsArtifact)
+	return errors.Join(err, f.Sync(), f.Close())
+}
+
+func (o *RedupeOptions) restorePlanReport() error {
+	var saved Report
+	data, err := os.ReadFile(filepath.Join(o.workDir, "plan-report.json"))
+	if err != nil {
+		return err
 	}
+	if sum := sha256.Sum256(data); hex.EncodeToString(sum[:]) != o.preview.PlanReportSHA256 {
+		return errors.New("plan report checksum mismatch")
+	}
+	if err := json.Unmarshal(data, &saved); err != nil {
+		return err
+	}
+	sum, err := copyFindings(o.findings, filepath.Join(o.workDir, "plan-findings.jsonl"))
+	if err == nil && sum != o.preview.PlanFindingsSHA256 {
+		err = errors.New("plan findings checksum mismatch")
+	}
+	if err != nil {
+		// Discard the unverified copy before Run records the failure.
+		_, seekErr := o.findings.Seek(0, io.SeekStart)
+		return errors.Join(err, seekErr, o.findings.Truncate(0))
+	}
+	o.report.Findings, o.report.FindingCount, o.report.Periods = saved.Findings, saved.FindingCount, saved.Periods
 	return nil
+}
+
+func copyFindings(dst io.Writer, path string) (string, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return "", err
+	}
+	h := sha256.New()
+	_, err = io.Copy(io.MultiWriter(dst, h), f)
+	return hex.EncodeToString(h.Sum(nil)), errors.Join(err, f.Close())
 }
 
 func (o *RedupeOptions) clearPlan() error {
