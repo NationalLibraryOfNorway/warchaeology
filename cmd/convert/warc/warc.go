@@ -168,9 +168,7 @@ func newConversion(repair bool) *cobra.Command {
 
 	var cmd = &cobra.Command{
 		Use:   "warc FILE/DIR ...",
-		Short: "Convert WARC file into WARC file",
-		Long: `The WARC to WARC converter can be used to reorganize, convert or repair WARC-records.
-This is an experimental feature.`,
+		Short: "Rewrite WARCs with different output settings",
 		RunE: func(cmd *cobra.Command, args []string) (runErr error) {
 			if repair && !flag.Explicit(cmd, flag.OutputDir) {
 				return errors.New("repair requires --output-dir")

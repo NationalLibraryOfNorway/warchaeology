@@ -11,7 +11,7 @@ import (
 
 const (
 	Repair     = "repair"
-	RepairHelp = `attempt to repair malformed records when possible`
+	RepairHelp = `deprecated: attempt record repair (see warc repair and dedup --add-missing-digests)`
 )
 
 type RepairFlags struct {

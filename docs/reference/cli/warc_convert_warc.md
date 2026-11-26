@@ -3,12 +3,11 @@ title: "warc convert warc"
 ---
 ## warc convert warc
 
-Convert WARC file into WARC file
+Rewrite WARCs with different output settings
 
 ### Synopsis
 
-The WARC to WARC converter can be used to reorganize, convert or repair WARC-records.
-This is an experimental feature.
+Rewrite WARC files with the selected output settings, including compression.
 
 ```
 warc convert warc FILE/DIR ... [flags]
@@ -37,7 +36,7 @@ warc convert warc FILE/DIR ... [flags]
   -C, --concurrent-writers int           maximum number of WARC files written concurrently.
                                          This may create at least this many output files even with a single input file. (default 16)
       --continue-on-error[=true|false]   continue processing remaining files and directories after errors
-      --default-date string              fallback date used when records are missing WARC-Date metadata (time is set to 12:00 UTC) (default "2026-11-18")
+      --default-date string              fallback date used when records are missing WARC-Date metadata (time is set to 12:00 UTC) (default "2026-11-26")
       --file-size string                 maximum size of each WARC output file (default "1GB")
       --flush[=true|false]               sync each WARC file to disk after every record
   -f, --force[=true|false]               continue iterating even when record read errors occur
@@ -76,7 +75,7 @@ warc convert warc FILE/DIR ... [flags]
   -w, --output-dir string                output directory for generated WARC files (must already exist) (default ".")
   -p, --prefix string                    filename prefix for generated WARC files
   -r, --recursive[=true|false]           walk input directories recursively
-  -R, --repair[=true|false]              attempt to repair malformed records when possible
+  -R, --repair[=true|false]              deprecated: attempt record repair (see warc repair and dedup --add-missing-digests)
       --source-file-list string          path to a file listing input paths, one per line
       --strict[=true|false]              fail on the first validation error
       --subdir-pattern string            pattern used to create output subdirectories.
@@ -102,4 +101,3 @@ warc convert warc FILE/DIR ... [flags]
 ### SEE ALSO
 
 * [warc convert](warc_convert.md)     - Convert web archive files to WARC files. Use subcommands for the supported formats
-

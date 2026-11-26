@@ -38,7 +38,10 @@ func NewWarcCommand() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "warc",
 		Short: "A tool for handling warc files",
-		Long:  ``,
+		Long: `Validate records with validate, or inspect revisit resolution across a collection with audit.
+Use convert warc to rewrite with different output settings, repair to correct individual records,
+and recover to stage and verify a recovered collection. Dedup writes eligible captures as revisits.
+Redupe builds independently replayable periods. Preview with redupe --audit and retain work with --index-dir.`,
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
 			err := loadConfig(cmd.Flags())
 			if err != nil {

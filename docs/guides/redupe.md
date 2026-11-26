@@ -12,16 +12,23 @@ independently.
 | `month` | `YYYY-MM` | `2025-03` |
 | `day` | `YYYY-MM-DD` | `2025-03-14` |
 
+## Example: preview and build a yearly collection
+
 ```sh
-warc redupe --interval month --audit --report audit.json --recursive sources/
-warc redupe --interval month --output-dir monthly --index-dir working-index \
-  --report transformation.json --recursive sources/
+warc redupe --audit --verify-payloads --recursive \
+  --index-dir work/ --report preview.json sources/
+
+warc redupe --recursive --index-dir work/ \
+  --output-dir yearly/ --report execution.json sources/
 ```
 
-Use the same interval when restarting a run. Changing it requires a new working
-index and output directory. Reports group results under `periods`; manifest and
-completion records identify their `period`. Cross-period payload references are
-counted as `crossPeriodPayloadDependencies`.
+For a December response and a January revisit to that response, inspect the January period's cross-period dependency and full-record counts. With no earlier January donor, the plan materializes the January capture as a full record so January can replay independently. Execution reads the required bodies, writes the periods, and checks their output.
+
+Keep `work/` between commands. The JSON report is for inspection. A plain preview retains the Badger source manifest, inventory, record fingerprints, lookup indexes and sorted order. Execution skips inventory and sorting and computes a verified plan. A verified preview also retains period actions, donor choices, verified identities and report data. Its rewrite skips verified planning as well. Neither mode caches payload bodies. A direct rewrite in a fresh working directory runs all phases.
+
+Check `retainedState`, `retainedPath` and `retainedBytes` in the preview report. The byte count sums the retained generation's file sizes after sort cleanup and database close. Peak working space also includes intermediate sort files, live databases and planning scratch. As a sizing example, an earlier synthetic metadata preview of 10,000 records in a 96 MiB compressed WARC reached about 21 MiB of sampled working space. Measure your own generation because record count, identifiers and reference patterns affect the footprint.
+
+Keep sources immutable until execution finishes. Reuse re-enumerates selected inputs and compares their locators, sizes, modification times and enclosing archive metadata. A replacement preserving those values can escape detection. Reuse checks the retained format and effective settings, including interval, traversal, minimum savings and writer options. Report and initial output destinations can change. On mismatch, run a fresh preview. See `reusedPhases` in the execution report.
 
 The first eligible occurrence of a payload in each period is a full record.
 Later occurrences refer to that record, subject to `--min-size-gain`.
@@ -110,9 +117,7 @@ block lengths and digests are recomputed. Eligible output payload digest labels
 are normalized to SHA-256 so mixed or missing source digest labels do not affect
 replay or deduplication. Source files are never rewritten.
 
-Repeat the same command with the same `--index-dir` to restart. The entire source
-inventory is rebuilt and must match the effective configuration and recorded
-source size/modification metadata. Completed periods are checksum-checked and kept;
+Repeat the same command with the same `--index-dir` to restart. A compatible retained preview supplies the inventory. A direct rewrite rebuilds it on restart. Completed periods are checksum-checked and kept;
 an interrupted period is rebuilt from its beginning. Changed inputs or configuration
 require a new index/output destination. Sources must remain immutable during a run;
 metadata is rechecked before publication. Omitting `--index-dir` uses a temporary

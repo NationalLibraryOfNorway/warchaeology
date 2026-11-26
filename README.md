@@ -18,6 +18,8 @@ The installer verifies the release checksum.
 
 ## Usage
 
+[Choose a command for validation, audit, conversion, repair, recovery, or deduplication](docs/index.md#choose-a-command).
+
 ### Inspect and validate
 
 ```sh
@@ -153,11 +155,11 @@ present. Restore recovers both. Keep the original WARC and WACZ files separately
 
 ### Repair WARC records
 
-`--repair` (`-R`) rewrites recoverable records into new WARC files:
+`warc repair` writes corrected records and can still report the original input defect.
 
 ```sh
 mkdir -p repaired
-warc convert warc --repair --output-dir repaired capture.warc.gz
+warc repair --output-dir repaired capture.warc.gz
 warc validate --recursive repaired/
 ```
 
@@ -242,7 +244,7 @@ warc serve --index-format zipnum --zipnum-dir cluster
 
 ```sh
 # Audit revisit dependencies
-warc redupe --audit --report audit.json --recursive sources/
+warc redupe --audit --verify-payloads --index-dir working-index --report preview.json --recursive sources/
 
 # Resolve revisits and deduplicate within each year (default interval)
 warc redupe --output-dir yearly --index-dir working-index \

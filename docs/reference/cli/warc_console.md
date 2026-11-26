@@ -29,4 +29,3 @@ warc console DIR/FILE [flags]
 ### SEE ALSO
 
 * [warc](warc.md)     - A tool for handling warc files
-

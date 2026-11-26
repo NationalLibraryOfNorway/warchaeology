@@ -155,7 +155,8 @@ func NewCmdRedupe() *cobra.Command {
 		Short: "Reorganize WARC records by year, month or day",
 		Long: `Group records by their WARC-Date, using UTC and --interval (year, month or day).
 Resolve revisits and deduplicate within each period so each collection can be
-replayed independently. Use --audit to check the source collection before rewriting.`,
+replayed independently. Use --audit for a rewrite preview. With --index-dir, a preview retains
+the inventory and sorted order. Add --verify-payloads to retain the verified plan for execution.`,
 		ValidArgsFunction: flag.SuffixCompletionFn,
 		RunE: func(cmd *cobra.Command, args []string) (err error) {
 			o, err := f.ToRedupeOptions()

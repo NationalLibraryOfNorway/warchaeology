@@ -74,4 +74,3 @@ warc cat -n4 -P file1.warc.gz | feh -
 ### SEE ALSO
 
 * [warc](warc.md)     - A tool for handling warc files
-
