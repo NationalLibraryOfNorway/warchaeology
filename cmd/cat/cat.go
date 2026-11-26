@@ -14,7 +14,7 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/nationallibraryofnorway/gowarc/v3"
+	"github.com/nationallibraryofnorway/gowarc/v4"
 	"github.com/nationallibraryofnorway/warchaeology/v5/cmd/internal/flag"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/filewalker"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/filter"
@@ -312,7 +312,7 @@ func (c *writer) writeWarcRecord(w io.Writer, warcRecord gowarc.WarcRecord) erro
 		}
 	}
 
-	if c.showProtocolHeader {
+	if c.showProtocolHeader && !c.showPayload {
 		if headerBlock, ok := warcRecord.Block().(gowarc.ProtocolHeaderBlock); ok {
 			_, err := w.Write(headerBlock.ProtocolHeaderBytes())
 			if err != nil {
@@ -322,7 +322,7 @@ func (c *writer) writeWarcRecord(w io.Writer, warcRecord gowarc.WarcRecord) erro
 	}
 
 	if c.showPayload {
-		if payloadBlock, ok := warcRecord.Block().(gowarc.PayloadBlock); ok {
+		if payloadBlock, ok := warcRecord.Block().(gowarc.PayloadBlock); ok && !c.showProtocolHeader {
 			reader, err := payloadBlock.PayloadBytes()
 			if err != nil {
 				return fmt.Errorf("failed to read payload: %w", err)

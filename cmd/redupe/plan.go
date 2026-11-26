@@ -12,17 +12,18 @@ import (
 	"encoding/json/v2"
 	"errors"
 	"fmt"
-	"github.com/nationallibraryofnorway/warchaeology/v5/internal/warcdigest"
 	"io"
 	"os"
 	"strings"
 
 	"github.com/dgraph-io/badger/v4"
-	"github.com/nationallibraryofnorway/gowarc/v3"
+	"github.com/nationallibraryofnorway/gowarc/v4"
 	cdx "github.com/nationallibraryofnorway/warchaeology/v5/internal/cdx"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/loader"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/timestamp"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/version"
+	"github.com/nationallibraryofnorway/warchaeology/v5/internal/warc"
+	"github.com/nationallibraryofnorway/warchaeology/v5/internal/warcdigest"
 )
 
 const (
@@ -268,7 +269,7 @@ func (o *RedupeOptions) plan(ctx context.Context, e *entry) (_ *planned, resultE
 	}
 
 	identity := donor.Capture.GetDig()
-	size := donor.PayloadLength
+	size := donor.StoredBodyLength
 	var wr gowarc.WarcRecord
 	if !o.Audit || o.VerifyPayloads {
 		wr, err = o.reconstruct(ctx, e)
@@ -279,7 +280,8 @@ func (o *RedupeOptions) plan(ctx context.Context, e *entry) (_ *planned, resultE
 		if err = verifyRecord(wr); err != nil {
 			return nil, err
 		}
-		p.PayloadSHA256, size, err = payloadHash(wr)
+		size = warc.StoredBodyLength(wr)
+		p.PayloadSHA256, err = payloadHash(wr)
 		if err != nil {
 			return nil, err
 		}
@@ -302,7 +304,7 @@ func (o *RedupeOptions) plan(ctx context.Context, e *entry) (_ *planned, resultE
 		if err != nil && !errors.Is(err, badger.ErrKeyNotFound) {
 			return nil, err
 		}
-		if err == nil && referenceSize(&target) < size-o.MinimumSizeGain {
+		if err == nil && !e.HasTrailers && referenceSize(&target) < size-o.MinimumSizeGain {
 			p.Action, p.Target = actionRevisit, &target
 			yr.Revisits++
 		} else {
@@ -323,7 +325,7 @@ func (o *RedupeOptions) plan(ctx context.Context, e *entry) (_ *planned, resultE
 		yr.Full++
 	}
 	if c.GetSrt() == actionRevisit && p.Action == actionFull {
-		yr.Expansion += size
+		yr.Expansion += donor.Capture.GetPle()
 	}
 	if err = o.put(aliasKey, p.Ref); err != nil {
 		return nil, err
@@ -493,14 +495,14 @@ func payloadReader(wr gowarc.WarcRecord) (io.Reader, error) {
 	return wr.Block().RawBytes()
 }
 
-func payloadHash(wr gowarc.WarcRecord) (string, int64, error) {
+func payloadHash(wr gowarc.WarcRecord) (string, error) {
 	r, err := payloadReader(wr)
 	if err != nil {
-		return "", 0, err
+		return "", err
 	}
 	h := sha256.New()
-	n, err := io.Copy(h, r)
-	return hex.EncodeToString(h.Sum(nil)), n, err
+	_, err = io.Copy(h, r)
+	return hex.EncodeToString(h.Sum(nil)), err
 }
 
 func verifyBlock(wr gowarc.WarcRecord) error {

@@ -13,7 +13,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/nationallibraryofnorway/gowarc/v3"
+	"github.com/nationallibraryofnorway/gowarc/v4"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/testcheck"
 )
 
@@ -183,5 +183,37 @@ func TestCompressedRecordReturnsFinalizationError(t *testing.T) {
 	err := o.handleRecord(&dst, gowarc.Record{})
 	if !errors.Is(err, io.ErrClosedPipe) || dst.Len() != 10 {
 		t.Fatalf("wrote %d bytes, got %v", dst.Len(), err)
+	}
+}
+
+func TestChunkedOutput(t *testing.T) {
+	const header = "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\nTrailer: X-End\r\n\r\n"
+	const body = "2\r\nab\r\n1\r\nc\r\n0\r\nX-End: yes\r\n\r\n"
+	b := gowarc.NewRecordBuilder(gowarc.Response)
+	b.AddWarcHeader(gowarc.WarcTargetURI, "https://example.org/")
+	b.AddWarcHeader(gowarc.ContentType, "application/http; msgtype=response")
+	if _, err := b.WriteString(header + body); err != nil {
+		t.Fatal(err)
+	}
+	rec, _, err := b.Build()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer testcheck.Close(t, rec)
+	for _, tc := range []struct {
+		writer writer
+		want   string
+	}{
+		{writer{showProtocolHeader: true, showPayload: true}, header + body},
+		{writer{showProtocolHeader: true}, header},
+		{writer{showPayload: true}, "abc"},
+	} {
+		var out bytes.Buffer
+		if err := tc.writer.writeWarcRecord(&out, rec); err != nil {
+			t.Fatal(err)
+		}
+		if out.String() != tc.want+CRLF+CRLF {
+			t.Errorf("writer %+v: got %q", tc.writer, out.String())
+		}
 	}
 }

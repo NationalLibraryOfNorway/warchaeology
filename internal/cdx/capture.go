@@ -15,7 +15,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/nationallibraryofnorway/gowarc/v3"
+	"github.com/nationallibraryofnorway/gowarc/v4"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/cdx/schema"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/timestamp"
 	"github.com/nationallibraryofnorway/whatwg-url/surt"
@@ -64,14 +64,23 @@ func NewCapture(rec gowarc.Record, source, filename string) (*Capture, error) {
 	c.Ref = "warcfile:" + source + "#" + strconv.FormatInt(rec.Offset, 10)
 	c.Ssu = CanonicalKey(c.GetUri())
 	c.Cle, _ = h.GetInt64(gowarc.ContentLength)
-	// Use the measured block size when available. Reading an uncached block
-	// here would consume the payload needed for digest or request extraction.
 	c.Ple = max(0, c.Cle)
-	if wr.Block().IsCached() {
+	if b, ok := wr.Block().(gowarc.HttpBlock); ok {
+		// Measuring or hashing an uncached request would consume the POST body
+		// before RequestMetadata can extract its query.
+		if wr.Type() == gowarc.Request {
+			if err := b.Cache(); err != nil {
+				return nil, err
+			}
+		}
+		if c.Dig != "" {
+			c.Ple = b.PayloadLength()
+			if c.Ple < 0 {
+				return nil, fmt.Errorf("invalid HTTP payload framing in record %s", c.Rid)
+			}
+		}
+	} else if wr.Block().IsCached() {
 		c.Ple = wr.Block().Size()
-	}
-	if b, ok := wr.Block().(gowarc.ProtocolHeaderBlock); ok {
-		c.Ple = max(0, c.Ple-int64(len(b.ProtocolHeaderBytes())))
 	}
 	if b, ok := wr.Block().(gowarc.HttpResponseBlock); ok {
 		c.Hsc = int32(b.HttpStatusCode())

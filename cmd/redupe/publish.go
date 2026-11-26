@@ -19,7 +19,7 @@ import (
 	"strings"
 
 	"github.com/dgraph-io/badger/v4"
-	"github.com/nationallibraryofnorway/gowarc/v3"
+	"github.com/nationallibraryofnorway/gowarc/v4"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/loader"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/publication"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/version"
@@ -354,7 +354,7 @@ func (o *RedupeOptions) verifyPeriod(ctx context.Context, dir, y string) error {
 				if err := verifyRecord(wr); err != nil {
 					return err
 				}
-				actual, _, err := payloadHash(wr)
+				actual, err := payloadHash(wr)
 				if err != nil {
 					return err
 				}
@@ -391,7 +391,7 @@ func (o *RedupeOptions) writePlanned(ctx context.Context, config *warcwriterconf
 			return loc, err
 		}
 		defer func(original gowarc.WarcRecord) { resultErr = errors.Join(resultErr, original.Close()) }(wr)
-		digest, _, err := payloadHash(wr)
+		digest, err := payloadHash(wr)
 		if err != nil {
 			return loc, err
 		}

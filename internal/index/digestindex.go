@@ -12,7 +12,7 @@ import (
 	"sync"
 
 	"github.com/dgraph-io/badger/v4"
-	"github.com/nationallibraryofnorway/gowarc/v3"
+	"github.com/nationallibraryofnorway/gowarc/v4"
 )
 
 type DigestIndex struct {
@@ -49,7 +49,7 @@ func NewDigestIndex(indexDir string, keepIndex bool, newIndex bool) (*DigestInde
 		item, e := tx.Get([]byte("!format"))
 		if e == nil {
 			return item.Value(func(b []byte) error {
-				if string(b) != "dedup-v4" {
+				if string(b) != "dedup-v5" {
 					return fmt.Errorf("incompatible donor index; reprocess with fresh donor and processed-file indexes and a fresh output directory")
 				}
 				return nil
@@ -64,7 +64,7 @@ func NewDigestIndex(indexDir string, keepIndex bool, newIndex bool) (*DigestInde
 		if it.Valid() {
 			return fmt.Errorf("legacy donor index; reprocess with fresh donor and processed-file indexes and a fresh output directory")
 		}
-		return tx.Set([]byte("!format"), []byte("dedup-v4"))
+		return tx.Set([]byte("!format"), []byte("dedup-v5"))
 	}); err != nil {
 		_ = db.Close()
 		return nil, err

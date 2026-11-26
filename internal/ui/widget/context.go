@@ -5,7 +5,7 @@ package widget
 
 import (
 	"github.com/awesome-gocui/gocui"
-	"github.com/nationallibraryofnorway/gowarc/v3"
+	"github.com/nationallibraryofnorway/gowarc/v4"
 )
 
 // Controller is the single interface that the application implements and all

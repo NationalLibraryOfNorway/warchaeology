@@ -7,9 +7,12 @@ import (
 	"archive/zip"
 	"bytes"
 	"context"
+	"crypto/sha1"
+	"encoding/base32"
 	"encoding/base64"
 	"encoding/json/v2"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -17,7 +20,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/nationallibraryofnorway/gowarc/v3"
+	"github.com/nationallibraryofnorway/gowarc/v4"
 	"github.com/nationallibraryofnorway/warchaeology/v5/cmd/internal/flag"
 	cdx "github.com/nationallibraryofnorway/warchaeology/v5/internal/cdx"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/cdxstore"
@@ -297,5 +300,42 @@ func TestInflatedMemberReusesPrefix(t *testing.T) {
 				t.Fatalf("inflated %d bytes after %d records", consumed, i+1)
 			}
 		}
+	}
+}
+
+func TestChunkedPostPayloadLength(t *testing.T) {
+	const entity = "a=1&b=2"
+	const block = "POST / HTTP/1.1\r\nHost: example.org\r\nContent-Type: application/x-www-form-urlencoded\r\nTransfer-Encoding: chunked\r\n\r\n3\r\na=1\r\n4\r\n&b=2\r\n0\r\nX-End: yes\r\n\r\n"
+	sum := sha1.Sum([]byte(entity))
+	digest := "sha1:" + base32.StdEncoding.WithPadding(base32.NoPadding).EncodeToString(sum[:])
+	var source strings.Builder
+	var lengths []int
+	for _, field := range []string{"WARC-Payload-Digest: " + digest + "\r\n", ""} {
+		start := source.Len()
+		fmt.Fprintf(&source, "WARC/1.1\r\nWARC-Type: request\r\nWARC-Record-ID: <urn:uuid:20add669-b781-4c66-977c-000000000001>\r\nWARC-Date: 2026-01-01T00:00:00Z\r\nWARC-Target-URI: https://example.org/\r\n%sContent-Type: application/http; msgtype=request\r\nContent-Length: %d\r\n\r\n%s", field, len(block), block)
+		lengths = append(lengths, source.Len()-start)
+		source.WriteString("\r\n\r\n")
+	}
+	file := strings.NewReader(source.String())
+	reader, err := gowarc.NewWarcFileReaderFromStream(file, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer testcheck.Close(t, reader)
+	o := IndexOptions{PostAppend: true}
+	var offset int64
+	for _, length := range lengths {
+		rec, err := reader.Next()
+		if err != nil {
+			t.Fatal(err)
+		}
+		c, _, method, query, err := o.captureRecord(file, rec, "input.warc", "input.warc")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if c.Ple != int64(len(entity)) || c.Dig != digest || c.Cle != int64(len(block)) || c.Rle != int64(length) || c.Offset != offset || method != "POST" || query != entity {
+			t.Fatalf("capture %v, request %s %q", c, method, query)
+		}
+		offset += int64(length + 4)
 	}
 }

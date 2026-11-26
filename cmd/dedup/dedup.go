@@ -15,7 +15,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/nationallibraryofnorway/gowarc/v3"
+	"github.com/nationallibraryofnorway/gowarc/v4"
 	"github.com/nationallibraryofnorway/warchaeology/v5/cmd/internal/flag"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/bytesize"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/diskspace"
@@ -591,7 +591,10 @@ func (o *DedupOptions) handleRecord(registry donors, writer *gowarc.WarcFileWrit
 		if revisitReference == nil || (revisitRef.TargetRecordId != "" && revisitReference.TargetRecordId == revisitRef.TargetRecordId) {
 			return writeRecord(writer, warcRecord)
 		}
-		if int64(revisitRefSize(revisitReference)) >= payloadLength(warcRecord)-o.MinimumSizeGain {
+		if block, ok := warcRecord.Block().(gowarc.HttpBlock); ok && block.HasTrailers() {
+			return writeRecord(writer, warcRecord)
+		}
+		if int64(revisitRefSize(revisitReference)) >= warc.StoredBodyLength(warcRecord)-o.MinimumSizeGain {
 			return writeRecord(writer, warcRecord)
 		}
 		revisit, err := warcRecord.ToRevisitRecord(revisitReference)
@@ -708,14 +711,6 @@ func getDigest(r gowarc.WarcRecord) (string, error) {
 		h.Set(gowarc.WarcPayloadDigest, label)
 	}
 	return r.Type().String() + "/" + label, nil
-}
-
-func payloadLength(r gowarc.WarcRecord) int64 {
-	size := r.Block().Size()
-	if b, ok := r.Block().(gowarc.ProtocolHeaderBlock); ok {
-		size -= int64(len(b.ProtocolHeaderBytes()))
-	}
-	return size
 }
 
 func revisitRefSize(revisitReference *gowarc.RevisitRef) int {

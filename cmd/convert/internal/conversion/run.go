@@ -13,7 +13,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/nationallibraryofnorway/gowarc/v3"
+	"github.com/nationallibraryofnorway/gowarc/v4"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/diskspace"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/filewalker"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/hooks"

@@ -6,7 +6,7 @@ package warc
 import (
 	"time"
 
-	"github.com/nationallibraryofnorway/gowarc/v3"
+	"github.com/nationallibraryofnorway/gowarc/v4"
 	"github.com/nationallibraryofnorway/whatwg-url/url"
 )
 
@@ -94,4 +94,13 @@ func StatusCode(wr gowarc.WarcRecord) int {
 		return httpResponseBlock.HttpStatusCode()
 	}
 	return 0
+}
+
+// StoredBodyLength counts stored body bytes, including HTTP transfer framing and trailers.
+func StoredBodyLength(r gowarc.WarcRecord) int64 {
+	size := r.Block().Size()
+	if b, ok := r.Block().(gowarc.ProtocolHeaderBlock); ok {
+		size -= int64(len(b.ProtocolHeaderBytes()))
+	}
+	return size
 }

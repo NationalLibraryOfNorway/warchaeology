@@ -13,7 +13,7 @@ import (
 	"log/slog"
 	"strings"
 
-	"github.com/nationallibraryofnorway/gowarc/v3"
+	"github.com/nationallibraryofnorway/gowarc/v4"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/filter"
 )
 

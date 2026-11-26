@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/nationallibraryofnorway/gowarc/v3"
+	"github.com/nationallibraryofnorway/gowarc/v4"
 	"github.com/nationallibraryofnorway/warchaeology/v5/cmd/convert/internal/conversion"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/testcheck"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/warcwriterconfig"

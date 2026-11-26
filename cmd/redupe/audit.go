@@ -21,7 +21,7 @@ import (
 	"strings"
 
 	"github.com/dgraph-io/badger/v4"
-	"github.com/nationallibraryofnorway/gowarc/v3"
+	"github.com/nationallibraryofnorway/gowarc/v4"
 	cdx "github.com/nationallibraryofnorway/warchaeology/v5/internal/cdx"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/warcdigest"
 	"github.com/spf13/afero"
