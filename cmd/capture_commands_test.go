@@ -1617,3 +1617,85 @@ func TestSkippedLongKeyStopsAtSelectedRecord(t *testing.T) {
 		})
 	}
 }
+
+func TestDedupMissingDigestModes(t *testing.T) {
+	for _, mode := range []string{"default", "--add-missing-digests", "-R", "both", "config"} {
+		t.Run(mode, func(t *testing.T) {
+			out, work := t.TempDir(), t.TempDir()
+			path := filepath.Join(t.TempDir(), "source.warc")
+			originalDigest := sha1.Sum([]byte(strings.Repeat("payload", 500)))
+			declared := []byte("WARC-Payload-Digest: sha1:" + base32.StdEncoding.EncodeToString(originalDigest[:]))
+			var input []byte
+			for id := 1; id <= 5; id++ {
+				rec := resourceBytes(id)
+				switch id {
+				case 1, 2:
+					start := bytes.Index(rec, []byte("WARC-Payload-Digest:"))
+					end := start + bytes.Index(rec[start:], []byte("\r\n")) + 2
+					rec = append(rec[:start], rec[end:]...)
+				case 5:
+					rec = bytes.Replace(rec, []byte("payloadpayload"), []byte("alteredpayload"), 1)
+				}
+				input = append(input, rec...)
+			}
+			if err := os.WriteFile(path, input, 0600); err != nil {
+				t.Fatal(err)
+			}
+			args := []string{"dedup", "--one-to-one", "--compress=false", "--deterministic", "--min-size-gain=0", "--index-dir", work, "--output-dir", out, path}
+			switch mode {
+			case "both":
+				args = append(args, "-R", "--add-missing-digests")
+			case "config":
+				cfg := filepath.Join(work, "config.yaml")
+				if err := os.WriteFile(cfg, []byte("repair: true\n"), 0600); err != nil {
+					t.Fatal(err)
+				}
+				args = append(args, "--config", cfg)
+			case "default":
+			default:
+				args = append(args, mode)
+			}
+			viper.Reset()
+			t.Cleanup(viper.Reset)
+			command := NewWarcCommand()
+			var diagnostics bytes.Buffer
+			command.SetErr(&diagnostics)
+			command.SetArgs(args)
+			command.SetOut(io.Discard)
+			if err := command.Execute(); err == nil {
+				t.Fatal("contradictory digest passed")
+			}
+			legacy := mode == "-R" || mode == "both" || mode == "config"
+			if strings.Contains(diagnostics.String(), "deprecated:") != legacy {
+				t.Fatalf("unexpected diagnostic %s", diagnostics.String())
+			}
+			data, err := os.ReadFile(filepath.Join(out, "source.warc"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			records := bytes.Split(data, []byte("WARC/1.1\r\n"))
+			types := map[int]string{}
+			for _, rec := range records {
+				for id := 1; id <= 5; id++ {
+					if bytes.Contains(rec, []byte(fmt.Sprintf("WARC-Record-ID: <urn:uuid:20add669-b781-4c66-977c-%012d>", id))) {
+						if bytes.Contains(rec, []byte("WARC-Type: revisit")) {
+							types[id] = "revisit"
+						} else {
+							types[id] = "full"
+						}
+						if id == 5 && (!bytes.Contains(rec, []byte("alteredpayload")) || !bytes.Contains(rec, declared)) {
+							t.Fatal("contradictory label or body lost")
+						}
+					}
+				}
+			}
+			second := "revisit"
+			if mode == "default" {
+				second = "full"
+			}
+			if len(types) != 5 || types[1] != "full" || types[2] != second || types[4] != "revisit" || types[5] != "full" {
+				t.Fatal(types)
+			}
+		})
+	}
+}

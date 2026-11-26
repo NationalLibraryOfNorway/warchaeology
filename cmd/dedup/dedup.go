@@ -53,7 +53,7 @@ const (
 
 type DedupOptions struct {
 	runStarted, runSucceeded bool
-	repair                   bool
+	addMissingDigests        bool
 	Paths                    []string
 	Concurrency              int
 	DigestIndex              *index.DigestIndex
@@ -129,6 +129,7 @@ func (f DedupFlags) AddFlags(cmd *cobra.Command) {
 	f.WarcWriterConfigFlags.AddFlags(cmd)
 	f.UtilFlags.AddFlags(cmd)
 	f.RepairFlags.AddFlags(cmd)
+	cmd.Flags().Bool("add-missing-digests", false, "calculate absent digest labels before checking donor eligibility")
 	f.WarcRecordOptionFlags.AddFlags(cmd)
 	f.IndexFlags.AddFlags(cmd)
 	f.ConcurrencyFlags.AddFlags(cmd)
@@ -187,7 +188,8 @@ func (f DedupFlags) ToDedupOptions() (_ *DedupOptions, err error) {
 	warcRecordOptions = append(warcRecordOptions, f.RepairFlags.ToWarcRecordOptions()...)
 	warcRecordOptions = append(warcRecordOptions, f.WarcRecordOptionFlags.ToWarcRecordOptions()...)
 
-	if f.RepairFlags.Repair() {
+	addMissing := f.RepairFlags.Repair() || viper.GetBool("add-missing-digests")
+	if addMissing {
 		// gowarc uses the block digest to fill both resource headers and can
 		// overwrite an existing payload label. Preserve it for verification.
 		warcRecordOptions = append(warcRecordOptions, gowarc.WithAddMissingDigest(false), gowarc.WithFixDigest(false))
@@ -210,7 +212,7 @@ func (f DedupFlags) ToDedupOptions() (_ *DedupOptions, err error) {
 
 	o := &DedupOptions{
 		Paths:              fileList,
-		repair:             f.RepairFlags.Repair(),
+		addMissingDigests:  addMissing,
 		Concurrency:        concurrency,
 		MinimumSizeGain:    f.DedupSizeGain(),
 		MinWARCDiskFree:    f.UtilFlags.MinFreeDisk(),
@@ -547,7 +549,7 @@ func (o *DedupOptions) handleRecord(registry donors, writer *gowarc.WarcFileWrit
 	result.IncrRecords()
 
 	warcRecord := record.WarcRecord
-	if o.repair {
+	if o.addMissingDigests {
 		if err := addMissingDigests(warcRecord); err != nil {
 			return err
 		}
