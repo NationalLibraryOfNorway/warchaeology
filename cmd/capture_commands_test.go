@@ -21,6 +21,7 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/julienschmidt/httprouter"
 	"github.com/nationallibraryofnorway/warchaeology/v5/cmd/validate"
@@ -1613,6 +1614,89 @@ func TestSkippedLongKeyStopsAtSelectedRecord(t *testing.T) {
 			defer testcheck.Close(t, db)
 			if err := db.Scan(t.Context(), "", "", func(*cdx.Capture) error { return fmt.Errorf("unexpected capture") }); err != nil {
 				t.Fatal(err)
+			}
+		})
+	}
+}
+
+func TestPreviewRejectsTruncatedOrderedInventory(t *testing.T) {
+	src, work, out := t.TempDir(), t.TempDir(), t.TempDir()
+	path := filepath.Join(src, "a.warc")
+	if err := os.WriteFile(path, append(resourceBytes(1), resourceBytes(2)...), 0600); err != nil {
+		t.Fatal(err)
+	}
+	args := []string{"redupe", "--index-dir", work, "--output-dir", out, path}
+	if err := executeCaptureCommand(t, append(args, "--audit")...); err != nil {
+		t.Fatal(err)
+	}
+	files, err := filepath.Glob(filepath.Join(work, "inventory-*", "ordered"))
+	if err != nil || len(files) != 1 {
+		t.Fatalf("ordered inventory: %v, %v", files, err)
+	}
+	data, err := os.ReadFile(files[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	lines := bytes.SplitAfter(data, []byte("\n"))
+	if len(lines) != 3 {
+		t.Fatalf("expected two inventory rows, got %q", data)
+	}
+	if err := os.WriteFile(files[0], lines[0], 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := executeCaptureCommand(t, args...); err == nil || !strings.Contains(err.Error(), "sorted inventory checksum mismatch") {
+		t.Fatalf("execution returned %v", err)
+	}
+	if items, err := os.ReadDir(out); err != nil || len(items) != 0 {
+		t.Fatalf("published %v: %v", items, err)
+	}
+}
+
+func TestPreviewRejectsChangedInputs(t *testing.T) {
+	for _, change := range []string{"added", "removed", "modified", "container", "interval", "selection", "failed preview"} {
+		t.Run(change, func(t *testing.T) {
+			src, work, out := t.TempDir(), t.TempDir(), t.TempDir()
+			path := filepath.Join(src, "a.warc")
+			data := resourceBytes(1)
+			if change == "container" {
+				path = filepath.Join(src, "inputs.zip")
+				data = zipWithMembers(t, map[string][]byte{"a.warc": data})
+			}
+			if err := os.WriteFile(path, data, 0600); err != nil {
+				t.Fatal(err)
+			}
+			args := []string{"redupe", "--index-dir", work, "--output-dir", out, src}
+			if err := executeCaptureCommand(t, append(args, "--audit", "--verify-payloads")...); err != nil {
+				t.Fatal(err)
+			}
+			var err error
+			switch change {
+			case "added":
+				err = os.WriteFile(filepath.Join(src, "b.warc"), resourceBytes(2), 0600)
+			case "removed":
+				err = os.Remove(path)
+			case "modified", "container":
+				err = os.Chtimes(path, time.Unix(123, 0), time.Unix(123, 0))
+			case "interval":
+				args = append(args, "--interval=month")
+			case "selection":
+				args = append(args, "--recursive")
+			case "failed preview":
+				err = executeCaptureCommand(t, append(args, "--audit", "--report", filepath.Join(work, "absent", "bad.json"))...)
+				if err == nil {
+					t.Fatal("failed preview returned success")
+				}
+				err = nil
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err = executeCaptureCommand(t, args...); err == nil || !strings.Contains(err.Error(), "fresh preview") {
+				t.Fatalf("unexpected rewrite result %v", err)
+			}
+			items, err := os.ReadDir(out)
+			if err != nil || len(items) != 0 {
+				t.Fatalf("published %v: %v", items, err)
 			}
 		})
 	}

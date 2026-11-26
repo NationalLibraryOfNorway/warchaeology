@@ -70,6 +70,8 @@ type RedupeOptions struct {
 	scratch                         *badger.DB
 	findings                        *os.File
 	state                           *badger.DB
+	preview                         previewState
+	keepInventory                   bool
 	workDir                         string
 	temporaryIndex                  bool
 	report                          Report
@@ -126,6 +128,8 @@ func (f *RedupeFlags) ToRedupeOptions() (_ *RedupeOptions, err error) {
 		}
 	}
 	o.configuration = map[string]any{
+		"recursive": o.FileWalker.Recursive, "symlinks": o.FileWalker.FollowSymlinks, "suffixes": o.FileWalker.Suffixes,
+		"input_hook": f.InputHookFlags.OpenInputFileHook(), "close_input_hook": f.InputHookFlags.CloseInputFileHook(),
 		"policy":             "utc-period-preserve-all-v2",
 		"min_size_gain":      o.MinimumSizeGain,
 		"compress":           f.WriterFlags.Compress(),
@@ -291,7 +295,7 @@ func (o *RedupeOptions) Close() error {
 		err = errors.Join(err, o.scratch.Close())
 		o.scratch = nil
 	}
-	if o.workDir != "" {
+	if o.workDir != "" && !o.keepInventory {
 		if e := os.RemoveAll(o.workDir); e != nil {
 			err = errors.Join(err, e)
 		} else {
@@ -341,8 +345,8 @@ func (o *RedupeOptions) open(ctx context.Context) (err error) {
 		item, e := tx.Get([]byte("!format"))
 		if e == nil {
 			return item.Value(func(b []byte) error {
-				if string(b) != "redupe-ledger-v2" {
-					return errors.New("incompatible redupe ledger; use a new index directory")
+				if string(b) != "redupe-ledger-v3" {
+					return errors.New("incompatible redupe ledger; run a fresh preview in a new index directory")
 				}
 				return nil
 			})
@@ -354,9 +358,9 @@ func (o *RedupeOptions) open(ctx context.Context) (err error) {
 		defer it.Close()
 		it.Rewind()
 		if it.Valid() {
-			return errors.New("legacy redupe ledger; use a new index directory")
+			return errors.New("legacy redupe ledger; run a fresh preview in a new index directory")
 		}
-		return tx.Set([]byte("!format"), []byte("redupe-ledger-v2"))
+		return tx.Set([]byte("!format"), []byte("redupe-ledger-v3"))
 	}); err != nil {
 		return err
 	}
@@ -364,31 +368,48 @@ func (o *RedupeOptions) open(ctx context.Context) (err error) {
 	if err != nil {
 		return err
 	}
-	var stale string
-	if err = o.get("!inventory", &stale); err == nil {
-		if filepath.Clean(stale) != stale || filepath.Dir(stale) != parent || !strings.HasPrefix(filepath.Base(stale), "inventory-") {
-			return errors.New("invalid recorded inventory directory")
-		}
-		if err = os.RemoveAll(stale); err != nil {
+	if o.Audit && !o.temporaryIndex {
+		// Invalidate the previous generation before touching its files.
+		if err = o.put("!preview", previewState{Kind: "incomplete"}); err != nil {
 			return err
 		}
-	} else if !errors.Is(err, badger.ErrKeyNotFound) {
+	} else if err = o.get("!preview", &o.preview); err != nil && !errors.Is(err, badger.ErrKeyNotFound) {
 		return err
 	}
-	// Journal the unique path before creating anything a crash could orphan.
-	next := filepath.Join(parent, "inventory-"+rand.Text())
-	if _, err := os.Lstat(next); err == nil {
-		return os.ErrExist
-	} else if !errors.Is(err, os.ErrNotExist) {
+
+	var stale string
+	err = o.get("!inventory", &stale)
+	if err != nil && !errors.Is(err, badger.ErrKeyNotFound) {
 		return err
 	}
-	if err = o.put("!inventory", next); err != nil {
-		return err
+	if stale != "" && (filepath.Clean(stale) != stale || filepath.Dir(stale) != parent || !strings.HasPrefix(filepath.Base(stale), "inventory-")) {
+		return errors.New("invalid recorded inventory directory")
 	}
-	if err = os.Mkdir(next, 0700); err != nil {
-		return errors.Join(err, o.clearInventory())
+	if o.preview.Kind != "" {
+		if o.preview.Kind != "inventory" || stale == "" {
+			return errors.New("incomplete or incompatible preview; run a fresh preview")
+		}
+		o.workDir, o.keepInventory = stale, true
+		for _, file := range []string{"ordered", "scratch/MANIFEST"} {
+			if _, err := os.Stat(filepath.Join(stale, file)); err != nil {
+				return fmt.Errorf("run a fresh preview: %w", err)
+			}
+		}
+	} else {
+		if stale != "" {
+			if err = os.RemoveAll(stale); err != nil {
+				return err
+			}
+		}
+		next := filepath.Join(parent, "inventory-"+rand.Text())
+		if err = o.put("!inventory", next); err != nil {
+			return err
+		}
+		if err = os.Mkdir(next, 0700); err != nil {
+			return errors.Join(err, o.clearInventory())
+		}
+		o.workDir = next
 	}
-	o.workDir = next
 	o.scratch, err = badger.Open(badger.DefaultOptions(filepath.Join(o.workDir, "scratch")).WithLogger(nil).WithSyncWrites(false))
 	if err != nil {
 		return err

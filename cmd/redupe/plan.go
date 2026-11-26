@@ -13,7 +13,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/dgraph-io/badger/v4"
@@ -52,7 +54,17 @@ type PeriodReport struct {
 	Completed   bool      `json:"completed"`
 }
 
+type previewState struct {
+	OrderedSHA256 string
+	Kind          string
+	Settings      string
+	Fingerprint   string
+}
 type Report struct {
+	Reused           []string                 `json:"reusedPhases,omitempty"`
+	RetainedType     string                   `json:"retainedState,omitempty"`
+	RetainedPath     string                   `json:"retainedPath,omitempty"`
+	RetainedBytes    int64                    `json:"retainedBytes,omitzero"`
 	FindingsArtifact string                   `json:"findingsArtifact,omitempty"`
 	FindingCount     int64                    `json:"findingCount"`
 	Version          string                   `json:"toolVersion"`
@@ -148,41 +160,49 @@ func (o *RedupeOptions) Run(ctx context.Context) (err error) {
 		} else if o.reportWriter != nil {
 			err = errors.Join(err, json.MarshalEncode(jsontext.NewEncoder(o.reportWriter), o.report))
 		}
+		if err == nil && o.Audit && !o.temporaryIndex {
+			if err = ctx.Err(); err == nil {
+				err = o.put("!preview", o.preview)
+			}
+			o.keepInventory = err == nil
+		}
 	}()
 	if err = o.open(ctx); err != nil {
 		return err
 	}
-	ordered, err := o.inventory(ctx)
-	if err != nil {
-		return err
-	}
-	h := sha256.New()
 	config, err := json.Marshal(o.configuration, json.Deterministic(true))
 	if err != nil {
 		return err
 	}
-	_, _ = h.Write(config)
-	for _, prefix := range []string{"x/source/", "x/record/"} {
-		if err = o.scan(prefix, func(data []byte) error {
-			if prefix == "x/record/" {
-				var e entry
-				if err := decodeEntry(data, &e); err != nil {
-					return err
-				}
-				e.Capture.Generation = ""
-				var err error
-				data, err = json.Marshal(e, json.Deterministic(true))
-				if err != nil {
-					return err
-				}
-			}
-			_, err := h.Write(data)
+	settings := hashString(string(config))
+	ordered := filepath.Join(o.workDir, "ordered")
+	if o.keepInventory {
+		sum, err := fileChecksum(ordered)
+		if err != nil {
+			return fmt.Errorf("run a fresh preview: %w", err)
+		}
+		if sum != o.preview.OrderedSHA256 {
+			return errors.New("sorted inventory checksum mismatch; run a fresh preview")
+		}
+		if settings != o.preview.Settings {
+			return errors.New("effective settings changed; run a fresh preview")
+		}
+		if err = o.checkSelection(ctx); err != nil {
+			return fmt.Errorf("run a fresh preview: %w", err)
+		}
+		o.report.Fingerprint = o.preview.Fingerprint
+		o.report.Reused = []string{"inventory", "sort"}
+		if err = o.clearPlan(); err != nil {
 			return err
-		}); err != nil {
+		}
+	} else {
+		if _, err = o.inventory(ctx); err != nil {
+			return err
+		}
+		if err = o.fingerprint(config); err != nil {
 			return err
 		}
 	}
-	o.report.Fingerprint = hex.EncodeToString(h.Sum(nil))
 	if err = orderedRecords(ordered, func(ref string) error {
 		if err := ctx.Err(); err != nil {
 			return err
@@ -219,6 +239,68 @@ func (o *RedupeOptions) Run(ctx context.Context) (err error) {
 			return errors.New("blocking findings prevent complete reconstruction; see report")
 		}
 	}
+	if o.Audit && !o.temporaryIndex {
+		if err = o.checkSelection(ctx); err != nil {
+			return err
+		}
+		if err = o.clearPlan(); err != nil {
+			return err
+		}
+		if err = o.scratch.Close(); err != nil {
+			return err
+		}
+		o.scratch = nil
+		o.report.RetainedType = "inventory"
+		o.report.RetainedPath = o.workDir
+		err = filepath.WalkDir(o.workDir, func(path string, d fs.DirEntry, err error) error {
+			if err != nil || d.IsDir() {
+				return err
+			}
+			info, err := d.Info()
+			if err == nil {
+				o.report.RetainedBytes += info.Size()
+			}
+			return err
+		})
+		if err != nil {
+			return err
+		}
+		o.preview.Kind = o.report.RetainedType
+		o.preview.Settings = settings
+		o.preview.Fingerprint = o.report.Fingerprint
+	}
+	return nil
+}
+
+func (o *RedupeOptions) clearPlan() error {
+	return o.scratch.DropPrefix([]byte("x/plan/"), []byte("x/alias/"), []byte("x/referenced/"), []byte("x/target/"))
+}
+
+func (o *RedupeOptions) fingerprint(config []byte) error {
+	h := sha256.New()
+	var err error
+	_, _ = h.Write(config)
+	for _, prefix := range []string{"x/source/", "x/record/"} {
+		if err = o.scan(prefix, func(data []byte) error {
+			if prefix == "x/record/" {
+				var e entry
+				if err := decodeEntry(data, &e); err != nil {
+					return err
+				}
+				e.Capture.Generation = ""
+				var err error
+				data, err = json.Marshal(e, json.Deterministic(true))
+				if err != nil {
+					return err
+				}
+			}
+			_, err := h.Write(data)
+			return err
+		}); err != nil {
+			return err
+		}
+	}
+	o.report.Fingerprint = hex.EncodeToString(h.Sum(nil))
 	return nil
 }
 
