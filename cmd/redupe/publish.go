@@ -222,20 +222,24 @@ func directoryChecksums(dir string) (map[string]string, error) {
 		if rel == "completion.json" {
 			return nil
 		}
-		f, err := os.Open(path)
+		sum, err := fileChecksum(path)
 		if err != nil {
 			return err
 		}
-		h := sha256.New()
-		_, err = io.Copy(h, f)
-		err = errors.Join(err, f.Close())
-		if err != nil {
-			return err
-		}
-		sums[filepath.ToSlash(rel)] = hex.EncodeToString(h.Sum(nil))
+		sums[filepath.ToSlash(rel)] = sum
 		return nil
 	})
 	return sums, err
+}
+
+func fileChecksum(path string) (string, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return "", err
+	}
+	h := sha256.New()
+	_, err = io.Copy(h, f)
+	return hex.EncodeToString(h.Sum(nil)), errors.Join(err, f.Close())
 }
 
 func verifyCompletion(dir, fingerprint string) error {

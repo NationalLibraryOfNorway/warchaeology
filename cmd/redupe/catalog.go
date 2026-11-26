@@ -10,6 +10,7 @@ import (
 	"encoding/json/v2"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -149,7 +150,17 @@ func (o *RedupeOptions) inventory(ctx context.Context) (_ string, resultErr erro
 	if err != nil {
 		return "", err
 	}
-	err = errors.Join(sorter.WriteTo(ctx, f), f.Close())
+	if o.Audit && !o.temporaryIndex {
+		h := sha256.New()
+		err = sorter.WriteTo(ctx, io.MultiWriter(f, h))
+		if err == nil {
+			err = f.Sync()
+			o.preview.OrderedSHA256 = hex.EncodeToString(h.Sum(nil))
+		}
+	} else {
+		err = sorter.WriteTo(ctx, f)
+	}
+	err = errors.Join(err, f.Close())
 	return ordered, err
 }
 
@@ -273,14 +284,8 @@ func (o *RedupeOptions) checkSources(ctx context.Context) error {
 		if err := json.Unmarshal(data, &source); err != nil {
 			return err
 		}
-		if source.Container != nil {
-			info, err := os.Stat(source.Container.Locator)
-			if err != nil {
-				return err
-			}
-			if info.Size() != source.Container.Size || !info.ModTime().Equal(source.Container.Modified) {
-				return fmt.Errorf("source container changed: %s", source.Container.Locator)
-			}
+		if err := source.checkContainer(); err != nil {
+			return err
 		}
 		f, err := filewalker.OpenSource(ctx, source.Locator)
 		if err != nil {
@@ -291,11 +296,68 @@ func (o *RedupeOptions) checkSources(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
-		if info.Size() != source.Size || !info.ModTime().Equal(source.Modified) {
+		if !source.matches(info) {
 			return fmt.Errorf("source changed: %s", source.Locator)
 		}
 		return nil
 	})
+}
+
+func (s sourceInfo) matches(info os.FileInfo) bool {
+	return info.Size() == s.Size && info.ModTime().Equal(s.Modified)
+}
+
+func (s sourceInfo) checkContainer() error {
+	if s.Container == nil {
+		return nil
+	}
+	info, err := os.Stat(s.Container.Locator)
+	if err != nil {
+		return err
+	}
+	if !s.Container.matches(info) {
+		return fmt.Errorf("source container changed: %s", s.Container.Locator)
+	}
+	return nil
+}
+
+// Walk the selected inputs again, including archive members. The walker deduplicates locators.
+func (o *RedupeOptions) checkSelection(ctx context.Context) error {
+	probe := filewalker.New(filewalker.WithRecursive(o.FileWalker.Recursive), filewalker.WithFollowSymlinks(o.FileWalker.FollowSymlinks), filewalker.WithSuffixes(o.FileWalker.Suffixes))
+	probe.Fs, probe.SourceRoot = o.FileWalker.Fs, o.FileWalker.SourceRoot
+	probe.WaitForReaders = func() {}
+	defer probe.Close()
+	var count int
+	if err := probe.WalkInputs(ctx, o.Paths, false, func(fs afero.Fs, path string) error {
+		locator, err := filewalker.SourceLocator(fs, path)
+		if err != nil {
+			return err
+		}
+		var source sourceInfo
+		if err = o.get("x/source/"+hashString(locator), &source); errors.Is(err, badger.ErrKeyNotFound) {
+			return fmt.Errorf("added source: %s", locator)
+		} else if err != nil {
+			return err
+		}
+		info, err := fs.Stat(path)
+		if err != nil {
+			return err
+		}
+		if source.Locator != locator || !source.matches(info) {
+			return fmt.Errorf("source changed: %s", locator)
+		}
+		count++
+		return source.checkContainer()
+	}); err != nil {
+		return err
+	}
+	if err := o.scan("x/source/", func([]byte) error { count--; return nil }); err != nil {
+		return err
+	}
+	if count != 0 {
+		return errors.New("source removed from selection")
+	}
+	return ctx.Err()
 }
 
 func sourceContainer(locator string) (*sourceInfo, error) {
