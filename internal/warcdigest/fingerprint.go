@@ -10,7 +10,7 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/nationallibraryofnorway/gowarc/v3"
+	"github.com/nationallibraryofnorway/gowarc/v4"
 )
 
 // RecordFingerprint hashes the WARC version, headers and complete raw block.

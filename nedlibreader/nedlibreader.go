@@ -14,7 +14,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/nationallibraryofnorway/gowarc/v3"
+	"github.com/nationallibraryofnorway/gowarc/v4"
 	"github.com/spf13/afero"
 )
 

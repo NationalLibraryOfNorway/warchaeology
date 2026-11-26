@@ -13,7 +13,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/nationallibraryofnorway/gowarc/v3"
+	"github.com/nationallibraryofnorway/gowarc/v4"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/bytesize"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/hooks"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/publication"

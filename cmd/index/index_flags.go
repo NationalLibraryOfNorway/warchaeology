@@ -6,7 +6,7 @@ package index
 import (
 	"fmt"
 
-	"github.com/nationallibraryofnorway/gowarc/v3"
+	"github.com/nationallibraryofnorway/gowarc/v4"
 	"github.com/nationallibraryofnorway/warchaeology/v5/cmd/internal/flag"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"

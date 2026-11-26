@@ -4,7 +4,7 @@
 package warc
 
 import (
-	"github.com/nationallibraryofnorway/gowarc/v3"
+	"github.com/nationallibraryofnorway/gowarc/v4"
 )
 
 func ErrorFrom(record gowarc.Record, err error) RecordError {

@@ -10,7 +10,7 @@ import (
 	"strings"
 
 	"github.com/awesome-gocui/gocui"
-	"github.com/nationallibraryofnorway/gowarc/v3"
+	"github.com/nationallibraryofnorway/gowarc/v4"
 )
 
 var (

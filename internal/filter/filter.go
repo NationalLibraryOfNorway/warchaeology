@@ -7,7 +7,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/nationallibraryofnorway/gowarc/v3"
+	"github.com/nationallibraryofnorway/gowarc/v4"
 )
 
 type RecordFilter struct {

@@ -6,7 +6,7 @@ package dedup
 import (
 	"testing"
 
-	"github.com/nationallibraryofnorway/gowarc/v3"
+	"github.com/nationallibraryofnorway/gowarc/v4"
 )
 
 func TestVerifiedPayloadKey(t *testing.T) {

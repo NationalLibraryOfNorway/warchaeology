@@ -19,7 +19,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/nationallibraryofnorway/gowarc/v3"
+	"github.com/nationallibraryofnorway/gowarc/v4"
 	cdx "github.com/nationallibraryofnorway/warchaeology/v5/internal/cdx"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/cdxstore"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/filewalker"

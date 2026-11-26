@@ -17,7 +17,7 @@ import (
 	"time"
 
 	"github.com/dgraph-io/badger/v4"
-	"github.com/nationallibraryofnorway/gowarc/v3"
+	"github.com/nationallibraryofnorway/gowarc/v4"
 	cdx "github.com/nationallibraryofnorway/warchaeology/v5/internal/cdx"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/filewalker"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/stat"
@@ -31,15 +31,16 @@ import (
 const invalidRevisitDate = "invalid revisit target date"
 
 type entry struct {
-	Audit         *auditEvidence `json:"audit,omitzero"`
-	Capture       *cdx.Capture   `json:"capture"`
-	Fingerprint   string         `json:"fingerprint"`
-	Profile       string         `json:"profile,omitempty"`
-	Truncated     bool           `json:"truncated,omitzero"`
-	Segmented     bool           `json:"segmented,omitzero"`
-	PayloadLength int64          `json:"payloadLength"`
-	Context       []string       `json:"context,omitempty"`
-	Issue         string         `json:"issue,omitempty"`
+	Audit            *auditEvidence `json:"audit,omitzero"`
+	Capture          *cdx.Capture   `json:"capture"`
+	Fingerprint      string         `json:"fingerprint"`
+	Profile          string         `json:"profile,omitempty"`
+	Truncated        bool           `json:"truncated,omitzero"`
+	Segmented        bool           `json:"segmented,omitzero"`
+	HasTrailers      bool           `json:"hasTrailers,omitzero"`
+	StoredBodyLength int64          `json:"payloadLength"`
+	Context          []string       `json:"context,omitempty"`
+	Issue            string         `json:"issue,omitempty"`
 }
 
 type sourceInfo struct {
@@ -234,7 +235,7 @@ func inventoryRecord(rec gowarc.Record, source, path string) (*entry, error) {
 	if err != nil {
 		return nil, fmt.Errorf("%s at %d: invalid capture metadata: %w", source, rec.Offset, err)
 	}
-	e := &entry{Capture: c, Profile: wr.WarcHeader().Get(gowarc.WarcProfile), PayloadLength: wr.Block().Size()}
+	e := &entry{Capture: c, Profile: wr.WarcHeader().Get(gowarc.WarcProfile), StoredBodyLength: warc.StoredBodyLength(wr)}
 	e.Truncated = wr.Type() != gowarc.Revisit && wr.WarcHeader().Has(gowarc.WarcTruncated)
 	for _, h := range *wr.WarcHeader() {
 		if strings.HasPrefix(strings.ToLower(h.Name), "warc-segment-") {
@@ -256,8 +257,8 @@ func inventoryRecord(rec gowarc.Record, source, path string) (*entry, error) {
 	if wr.RecordId() == "" {
 		e.Issue = "missing record ID"
 	}
-	if b, ok := wr.Block().(gowarc.ProtocolHeaderBlock); ok {
-		e.PayloadLength -= int64(len(b.ProtocolHeaderBytes()))
+	if b, ok := wr.Block().(gowarc.HttpBlock); ok {
+		e.HasTrailers = b.HasTrailers()
 	}
 	e.Fingerprint, err = warcdigest.RecordFingerprint(wr)
 	return e, err

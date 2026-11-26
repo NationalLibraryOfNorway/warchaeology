@@ -114,8 +114,8 @@ github.com/modern-go/reflect2 v1.0.2 h1:xBagoLtFs94CBntxluKeaWgTMpvLxC4ur3nMaC9G
 github.com/modern-go/reflect2 v1.0.2/go.mod h1:yWuevngMOJpCy52FWWMvUC8ws7m/LJsjYzDa0/r8luk=
 github.com/mschoch/smat v0.2.0 h1:8imxQsjDm8yFEAVBe7azKmKSgzSkZXDuKkSq9374khM=
 github.com/mschoch/smat v0.2.0/go.mod h1:kc9mz7DoBKqDyiRL7VZN8KvXQMWeTaVnttLRXOlotKw=
-github.com/nationallibraryofnorway/gowarc/v3 v3.2.1 h1:B4HxMLx2wJ59wFXH9aVWU4kyOrLE4S0Jayr6F0XlW/g=
-github.com/nationallibraryofnorway/gowarc/v3 v3.2.1/go.mod h1:AA9wP4mCHaUq7Jj7x3J65FCAuvUkbN9ov4JJaFdzL38=
+github.com/nationallibraryofnorway/gowarc/v4 v4.0.1 h1:B9p6C1PoT8EFiONpoa4PVBlClOE32o9ipx/1s3wE3/k=
+github.com/nationallibraryofnorway/gowarc/v4 v4.0.1/go.mod h1:HgfF45Xz9dUUi6FQ5h1rzVHgIjbx5kQ6tHah77rFhsk=
 github.com/nationallibraryofnorway/whatwg-url v0.9.1 h1:kGyhz2uSi70VS1JxgSZwZjpmrV8bM5PercNlxhMlls8=
 github.com/nationallibraryofnorway/whatwg-url v0.9.1/go.mod h1:3KSm5/kiby6KExnnCXZ1Vmdwc+pLZokAdtJavchDKwg=
 github.com/pelletier/go-toml/v2 v2.4.3 h1:GTRvJQutkOSftxIFD5xw9aepkYNuPWmVJpffdDPYVpY=

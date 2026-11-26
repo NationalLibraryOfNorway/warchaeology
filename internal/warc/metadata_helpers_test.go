@@ -6,7 +6,7 @@ package warc
 import (
 	"testing"
 
-	"github.com/nationallibraryofnorway/gowarc/v3"
+	"github.com/nationallibraryofnorway/gowarc/v4"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/testcheck"
 )
 

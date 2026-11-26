@@ -7,7 +7,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json/v2"
-	"github.com/nationallibraryofnorway/gowarc/v3"
+	"github.com/nationallibraryofnorway/gowarc/v4"
 	"os"
 	"path/filepath"
 	"testing"

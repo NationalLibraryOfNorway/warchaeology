@@ -9,7 +9,7 @@ import (
 	"io"
 	"net/http"
 
-	"github.com/nationallibraryofnorway/gowarc/v3"
+	"github.com/nationallibraryofnorway/gowarc/v4"
 )
 
 // RenderRecord renders gowarc.WarcRecord rec as a binary stream.

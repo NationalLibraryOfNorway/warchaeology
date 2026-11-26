@@ -17,7 +17,7 @@ import (
 	"sync"
 	"syscall"
 
-	"github.com/nationallibraryofnorway/gowarc/v3"
+	"github.com/nationallibraryofnorway/gowarc/v4"
 	"github.com/nationallibraryofnorway/warchaeology/v5/cmd/index/reset"
 	"github.com/nationallibraryofnorway/warchaeology/v5/cmd/internal/flag"
 	cdx "github.com/nationallibraryofnorway/warchaeology/v5/internal/cdx"

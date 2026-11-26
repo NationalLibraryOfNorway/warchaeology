@@ -22,7 +22,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nationallibraryofnorway/gowarc/v3"
+	"github.com/nationallibraryofnorway/gowarc/v4"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/filewalker"
 	archivefs "github.com/nationallibraryofnorway/warchaeology/v5/internal/fs"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/loader"
@@ -981,5 +981,60 @@ func TestReportPathAliases(t *testing.T) {
 	after, err := os.ReadFile(marker)
 	if err != nil || !bytes.Equal(before, after) {
 		t.Fatal("findings truncated published manifest")
+	}
+}
+
+func resourceCapture(t *testing.T, id, contentType, block string) gowarc.WarcRecord {
+	t.Helper()
+	b := gowarc.NewRecordBuilder(gowarc.Resource, gowarc.WithAddMissingDigest(true))
+	b.AddWarcHeader(gowarc.WarcRecordID, "<urn:uuid:"+id+">")
+	b.AddWarcHeader(gowarc.WarcTargetURI, "https://example.org/"+id)
+	b.AddWarcHeader(gowarc.WarcDate, "2022-01-01T00:00:00Z")
+	b.AddWarcHeader(gowarc.ContentType, contentType)
+	if _, err := b.WriteString(block); err != nil {
+		t.Fatal(err)
+	}
+	r, _, err := b.Build()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { testcheck.Close(t, r) })
+	return r
+}
+
+func TestResourceRevisitUsesCaptureFraming(t *testing.T) {
+	const entity = "hello"
+	const httpBlock = "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\nX-Capture: two\r\n\r\n5\r\nhello\r\n0\r\n\r\n"
+	plain := resourceCapture(t, "one", "text/plain", entity)
+	framed := resourceCapture(t, "two", "application/http; msgtype=response", httpBlock)
+	for _, tc := range []struct {
+		donor, capture gowarc.WarcRecord
+		want           string
+	}{{plain, framed, httpBlock}, {framed, plain, entity}} {
+		ref, err := tc.donor.CreateRevisitRef(gowarc.ProfileIdenticalPayloadDigestV1_1)
+		if err != nil {
+			t.Fatal(err)
+		}
+		link, err := tc.capture.ToRevisitRecord(ref)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer testcheck.Close(t, link)
+		got, err := loader.ReconstructIdentical(link, tc.donor)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer testcheck.Close(t, got)
+		raw, err := got.Block().RawBytes()
+		if err != nil {
+			t.Fatal(err)
+		}
+		data, err := io.ReadAll(raw)
+		if err != nil || string(data) != tc.want {
+			t.Fatalf("reconstructed block %q, error %v", data, err)
+		}
+		if err := verifyRecord(got); err != nil {
+			t.Fatal(err)
+		}
 	}
 }

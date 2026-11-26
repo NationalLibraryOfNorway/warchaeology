@@ -126,7 +126,7 @@ func (f *RedupeFlags) ToRedupeOptions() (_ *RedupeOptions, err error) {
 		}
 	}
 	o.configuration = map[string]any{
-		"policy":             "utc-period-preserve-all-v1",
+		"policy":             "utc-period-preserve-all-v2",
 		"min_size_gain":      o.MinimumSizeGain,
 		"compress":           f.WriterFlags.Compress(),
 		"compression_level":  f.WriterFlags.CompressionLevel(),

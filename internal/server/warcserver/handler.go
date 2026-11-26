@@ -13,7 +13,7 @@ import (
 	"time"
 
 	"github.com/julienschmidt/httprouter"
-	"github.com/nationallibraryofnorway/gowarc/v3"
+	"github.com/nationallibraryofnorway/gowarc/v4"
 	index "github.com/nationallibraryofnorway/warchaeology/v5/internal/cdx"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/cdxstore"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/loader"

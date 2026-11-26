@@ -6,7 +6,7 @@ package flag
 import (
 	"os"
 
-	"github.com/nationallibraryofnorway/gowarc/v3"
+	"github.com/nationallibraryofnorway/gowarc/v4"
 	"github.com/nationallibraryofnorway/whatwg-url/url"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"

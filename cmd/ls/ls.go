@@ -12,7 +12,7 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/nationallibraryofnorway/gowarc/v3"
+	"github.com/nationallibraryofnorway/gowarc/v4"
 	"github.com/nationallibraryofnorway/warchaeology/v5/cmd/internal/flag"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/filewalker"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/filter"

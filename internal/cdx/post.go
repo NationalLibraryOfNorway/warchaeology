@@ -19,7 +19,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"github.com/nationallibraryofnorway/gowarc/v3"
+	"github.com/nationallibraryofnorway/gowarc/v4"
 )
 
 // RequestQuery follows the pinned cdxj-indexer extraction rules. AMF is treated
