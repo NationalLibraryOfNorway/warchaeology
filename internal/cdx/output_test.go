@@ -285,7 +285,7 @@ func TestConsoleCDXCompletion(t *testing.T) {
 				return nil
 			})
 			w := httptest.NewRecorder()
-			ConsoleCDXHandler(src, tc.scan, tc.limit)(w, httptest.NewRequest("GET", "/search/cdx?url=example.com"+tc.query, nil))
+			HTTPQueryOptions{ScanLimit: tc.scan, ResultLimit: tc.limit, Console: true}.Handler(src)(w, httptest.NewRequest("GET", "/search/cdx?url=example.com"+tc.query, nil))
 			rows := strings.Split(strings.TrimSpace(w.Body.String()), "\n")
 			var status []struct {
 				Scanned, Returned int

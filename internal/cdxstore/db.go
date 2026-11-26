@@ -211,7 +211,19 @@ func (d *DB) WriteCapture(ctx context.Context, c *index.Capture) error {
 	}
 	return d.batch(ctx, ops)
 }
+
+type scanRange func(context.Context, string, string, func(string, []byte) error) error
+
 func (d *DB) Scan(ctx context.Context, lower, upper string, emit func(*index.Capture) error) error {
+	return d.scanVisible(ctx, lower, upper, emit, d.kv.Scan)
+}
+
+// ScanInline visits only inline capture rows, including those written by legacy catalogues.
+func (d *DB) ScanInline(ctx context.Context, lower, upper string, emit func(*index.Capture) error) error {
+	return d.scanVisible(ctx, lower, upper, emit, d.kv.(*badgerKV).scanPhysical)
+}
+
+func (d *DB) scanVisible(ctx context.Context, lower, upper string, emit func(*index.Capture) error, scan scanRange) error {
 	ctx, done, e := d.operation(ctx)
 	if e != nil {
 		return e
@@ -219,10 +231,10 @@ func (d *DB) Scan(ctx context.Context, lower, upper string, emit func(*index.Cap
 	defer done()
 	d.visibility.RLock()
 	defer d.visibility.RUnlock()
-	return d.scan(ctx, lower, upper, emit)
+	return d.scan(ctx, lower, upper, emit, scan)
 }
 
-func (d *DB) scan(ctx context.Context, lower, upper string, emit func(*index.Capture) error) error {
+func (d *DB) scan(ctx context.Context, lower, upper string, emit func(*index.Capture) error, scan scanRange) error {
 	if upper == "" {
 		upper = "\xff"
 	}
@@ -234,7 +246,7 @@ func (d *DB) scan(ctx context.Context, lower, upper string, emit func(*index.Cap
 		}
 		return nil
 	}
-	err := d.kv.Scan(ctx, "c/"+lower, "c/"+upper, func(k string, v []byte) error {
+	err := scan(ctx, "c/"+lower, "c/"+upper, func(k string, v []byte) error {
 		c, e := decodeCapture(k, v)
 		if e != nil {
 			return e

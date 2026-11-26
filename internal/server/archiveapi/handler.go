@@ -34,15 +34,15 @@ func (s source) Available(ctx context.Context, c *cdx.Capture) (bool, error) {
 	}
 	return err == nil, err
 }
-func New(db *cdxstore.DB, scanLimit, resultLimit int) http.Handler {
-	if scanLimit <= 0 {
-		scanLimit = 10000
+func New(db *cdxstore.DB, options cdx.HTTPQueryOptions) http.Handler {
+	if options.ScanLimit <= 0 {
+		options.ScanLimit = 10000
 	}
-	if resultLimit <= 0 {
-		resultLimit = 10000
+	if options.ResultLimit <= 0 {
+		options.ResultLimit = 10000
 	}
 	mux := http.NewServeMux()
-	mux.HandleFunc("GET /archives/cdx", cdx.CDXHandlerWithTransform(source{db}, scanLimit, resultLimit, func(ctx context.Context, c *cdx.Capture, fields map[string]any) error {
+	options.Transform = func(ctx context.Context, c *cdx.Capture, fields map[string]any) error {
 		id := cdxstore.ArchiveID(c.GetSource())
 		fields["filename"] = VirtualFilename(id, c.GetGeneration(), c.GetFilename())
 		if filename, ok := fields["orig.filename"].(string); ok && filename != "" && filename != "-" {
@@ -57,7 +57,8 @@ func New(db *cdxstore.DB, scanLimit, resultLimit int) http.Handler {
 			fields["orig.filename"] = VirtualFilename(cdxstore.ArchiveID(donor.GetPath()), donor.Generation, donor.GetName())
 		}
 		return nil
-	}))
+	}
+	mux.HandleFunc("GET /archives/cdx", options.Handler(source{db}))
 	mux.HandleFunc("GET /archives/{id}/{generation}/{name}", func(w http.ResponseWriter, r *http.Request) {
 		info, err := db.ArchiveSource(r.Context(), r.PathValue("id"))
 		if errors.Is(err, os.ErrNotExist) {

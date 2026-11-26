@@ -31,6 +31,7 @@ func (f ServeFlags) AddFlags(cmd *cobra.Command) {
 	flags.Int64("upload-max-bytes", 128<<20, "maximum decoded CDXJ request bytes")
 	flags.Int("upload-max-line", 1<<20, "maximum CDXJ line bytes")
 	flags.Duration("upload-timeout", 5*time.Minute, "maximum upload duration")
+	flags.Bool("skip-overflow-scans", false, "use only inline Badger rows for prefix, host and domain CDX queries")
 	flags.Int("query-scan-limit", 10000, "maximum captures examined by interactive queries")
 	flags.Int("query-result-limit", 10000, "maximum returned interactive captures")
 	flags.String("address", ":9999", "HTTP listen address")
@@ -51,12 +52,13 @@ func (f ServeFlags) ToOptions() (*ServeOptions, error) {
 		textRebuild:     viper.GetBool("fulltext-rebuild"),
 		collectionsDir:  viper.GetString("collections-dir"),
 		httpOptions: captures.Options{
-			MaxBytes:      viper.GetInt64("upload-max-bytes"),
-			MaxLine:       viper.GetInt("upload-max-line"),
-			TempDir:       viper.GetString("index-tmp-dir"),
-			UploadTimeout: viper.GetDuration("upload-timeout"),
-			ScanLimit:     viper.GetInt("query-scan-limit"),
-			ResultLimit:   viper.GetInt("query-result-limit"),
+			SkipOverflowScans: viper.GetBool("skip-overflow-scans"),
+			MaxBytes:          viper.GetInt64("upload-max-bytes"),
+			MaxLine:           viper.GetInt("upload-max-line"),
+			TempDir:           viper.GetString("index-tmp-dir"),
+			UploadTimeout:     viper.GetDuration("upload-timeout"),
+			ScanLimit:         viper.GetInt("query-scan-limit"),
+			ResultLimit:       viper.GetInt("query-result-limit"),
 		},
 		prefix:                strings.TrimRight(viper.GetString("path-prefix"), "/"),
 		format:                viper.GetString("index-format"),

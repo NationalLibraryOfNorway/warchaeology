@@ -30,7 +30,7 @@ func (o *ServeOptions) completeDirect(cmd *cobra.Command, args []string) error {
 	// Direct serving uses only its package, the listener, and CDX query options.
 	allowed := map[string]bool{
 		"wacz-index": true, "address": true, "path-prefix": true, "read-only": true,
-		"query-scan-limit": true, "query-result-limit": true, "help": true,
+		"skip-overflow-scans": true, "query-scan-limit": true, "query-result-limit": true, "help": true,
 	}
 
 	o.waczPath = args[0]
@@ -62,18 +62,17 @@ func (o *ServeOptions) directHandler(reader *wacz.Reader) http.Handler {
 		resultLimit = 10000
 	}
 	mux.HandleFunc("GET /cdx", directCDX(cdx.CDXHandlerWithLimits(reader, scanLimit, resultLimit)))
-	mux.HandleFunc("GET /archives/cdx", directCDX(cdx.CDXHandlerWithTransform(reader, scanLimit, resultLimit,
-		func(_ context.Context, c *cdx.Capture, fields map[string]any) error {
-			fields["filename"] = archiveapi.VirtualFilename(reader.MemberID(c.GetSource()), reader.Generation(), c.GetSource())
-			if filename, ok := fields["orig.filename"].(string); ok && filename != "" && filename != "-" {
-				member, err := reader.ResolveMember(filename)
-				if err != nil {
-					return err
-				}
-				fields["orig.filename"] = archiveapi.VirtualFilename(reader.MemberID(member), reader.Generation(), member)
+	mux.HandleFunc("GET /archives/cdx", directCDX(cdx.HTTPQueryOptions{ScanLimit: scanLimit, ResultLimit: resultLimit, Transform: func(_ context.Context, c *cdx.Capture, fields map[string]any) error {
+		fields["filename"] = archiveapi.VirtualFilename(reader.MemberID(c.GetSource()), reader.Generation(), c.GetSource())
+		if filename, ok := fields["orig.filename"].(string); ok && filename != "" && filename != "-" {
+			member, err := reader.ResolveMember(filename)
+			if err != nil {
+				return err
 			}
-			return nil
-		})))
+			fields["orig.filename"] = archiveapi.VirtualFilename(reader.MemberID(member), reader.Generation(), member)
+		}
+		return nil
+	}}.Handler(reader)))
 	mux.HandleFunc("GET /archives/{id}/{generation}/{name}", func(w http.ResponseWriter, r *http.Request) {
 		id := r.PathValue("id")
 		file, err := reader.OpenMember(id)
