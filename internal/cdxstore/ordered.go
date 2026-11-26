@@ -5,11 +5,45 @@ package cdxstore
 
 import (
 	"context"
+	"errors"
+	"strings"
 
 	"github.com/dgraph-io/badger/v4"
 	cdx "github.com/nationallibraryofnorway/warchaeology/v5/internal/cdx"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/timestamp"
 )
+
+// exactCursor merges legacy inline rows with overflow rows for the same URL.
+type exactCursor struct {
+	inline, overflow          *badger.Iterator
+	logical, physical, lo, hi string
+	reverse                   bool
+}
+
+func (c *exactCursor) current() (*badger.Iterator, string) {
+	var chosen *badger.Iterator
+	var key string
+	if c.inline.Valid() {
+		k := string(c.inline.Item().Key())
+		if k >= c.lo && k < c.hi {
+			chosen, key = c.inline, k
+		}
+	}
+	if c.overflow != nil && c.overflow.ValidForPrefix([]byte(c.physical+" ")) {
+		k := c.logical + string(c.overflow.Item().Key()[len(c.physical):])
+		if k >= c.lo && k < c.hi && (chosen == nil || (!c.reverse && k < key) || (c.reverse && k > key)) {
+			return c.overflow, k
+		}
+	}
+	return chosen, key
+}
+
+func (c *exactCursor) Close() {
+	c.inline.Close()
+	if c.overflow != nil {
+		c.overflow.Close()
+	}
+}
 
 // ScanOrdered seeks directly to an exact URL's last capture or both sides of
 // the closest timestamp. Two bounded cursors replace full-history sorting.
@@ -25,27 +59,46 @@ func (d *DB) ScanOrdered(ctx context.Context, q cdx.Query, emit func(*cdx.Captur
 	defer d.visibility.RUnlock()
 	return d.kv.(*badgerKV).db.View(func(tx *badger.Txn) error {
 		lo, hi := "c/"+q.Lower, "c/"+q.Upper
-		makeIterator := func(reverse bool, seek string) *badger.Iterator {
-			o := badger.DefaultIteratorOptions
-			o.Reverse = reverse
-			it := tx.NewIterator(o)
-			it.Seek([]byte(seek))
-			return it
+		logical := "c/" + q.Key
+		physical := ""
+		if len(q.Key) > InlineURLKeyLimit {
+			digest := identity(q.Key)
+			e := checkDictionary(tx, "d/"+digest, q.Key)
+			if e == nil {
+				physical = "l/" + digest
+			} else if !errors.Is(e, badger.ErrKeyNotFound) {
+				return e
+			}
 		}
-		next := func(it *badger.Iterator, reverse bool) (*cdx.Capture, error) {
+		makeIterator := func(reverse bool, seek string) *exactCursor {
+			opts := badger.DefaultIteratorOptions
+			opts.Reverse = reverse
+			opts.PrefetchValues = false
+			openAt := func(prefix, key, upper string) *badger.Iterator {
+				opts.Prefix = []byte(prefix)
+				it := tx.NewIterator(opts)
+				it.Seek([]byte(key))
+				if reverse && it.Valid() && string(it.Item().Key()) == upper {
+					it.Next()
+				}
+				return it
+			}
+			cursor := &exactCursor{inline: openAt("c/", seek, hi), logical: logical, physical: physical, lo: lo, hi: hi, reverse: reverse}
+			if physical != "" {
+				cursor.overflow = openAt("l/", physical+strings.TrimPrefix(seek, logical), physical+strings.TrimPrefix(hi, logical))
+			}
+			return cursor
+		}
+		next := func(cursor *exactCursor, reverse bool) (*cdx.Capture, error) {
 			var chosen *cdx.Capture
 			var base string
-			for it.Valid() {
+			for {
+				it, k := cursor.current()
+				if it == nil {
+					break
+				}
 				if e := ctx.Err(); e != nil {
 					return nil, e
-				}
-				k := string(it.Item().Key())
-				if k < lo || k >= hi {
-					if reverse && k >= hi {
-						it.Next()
-						continue
-					}
-					break
 				}
 				b, e := it.Item().ValueCopy(nil)
 				if e != nil {

@@ -8,6 +8,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -529,5 +530,135 @@ func TestRecordIDDuringPendingCleanup(t *testing.T) {
 		}
 		check()
 		testcheck.Close(t, db)
+	}
+}
+
+func TestLongURLUploadQueriesAndDelete(t *testing.T) {
+	d := openTestDB(t)
+	ctx := t.Context()
+	path := strings.Repeat("a", 100000)
+	lines := []string{}
+	for _, p := range []string{"a", path, path + "z", "b"} {
+		for _, ts := range []string{"20200101000000", "20200103000000"} {
+			line := strings.ReplaceAll(uploadLine, "20200102030405", ts)
+			lines = append(lines, strings.Replace(line, "https://example.com/", "https://example.com/"+p, 1))
+		}
+	}
+	if _, err := d.Upload(ctx, strings.NewReader(strings.Join(lines, "\n")), UploadOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	exported := strings.Split(strings.TrimSpace(exportTest(t, d)), "\n")
+	if len(exported) != len(lines) {
+		t.Fatalf("exported %d captures", len(exported))
+	}
+	for i, row := range exported {
+		c, err := cdx.ParseIngestLine([]byte(lines[i]))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.HasPrefix(row, c.GetSsu()+" ") {
+			t.Fatalf("incorrect order at %d", i)
+		}
+	}
+	for _, mode := range []string{"host", "domain", "prefix"} {
+		q, err := cdx.ParseQuery(url.Values{"url": {"https://example.com/"}, "matchType": {mode}, "limit": {"3"}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		var results []string
+		_, err = q.Run(ctx, d, func(c *cdx.Capture) error { results = append(results, c.GetSsu()); return nil })
+		if err != nil || len(results) != 3 || results[2] != "com,example)/"+path {
+			t.Fatalf("%s limited query: %d results, %v", mode, len(results), err)
+		}
+	}
+	for _, order := range []string{"reverse", "closest"} {
+		key := "com,example)/" + path
+		var days []int
+		err := d.ScanOrdered(ctx, cdx.Query{Key: key, Lower: key + " ", Upper: key + "!", Order: order, Closest: "20200101"}, func(c *cdx.Capture) error {
+			if c.GetSsu() != key {
+				t.Fatal("changed stored key")
+			}
+			days = append(days, c.GetSts().AsTime().Day())
+			return nil
+		})
+		want := "[3 1]"
+		if order == "closest" {
+			want = "[1 3]"
+		}
+		if err != nil || fmt.Sprint(days) != want {
+			t.Fatalf("%s: %v %v", order, days, err)
+		}
+	}
+	marker, err := d.kv.Get(ctx, "!format")
+	if err != nil || string(marker) != overflowFormat {
+		t.Fatalf("marker %s, error %v", marker, err)
+	}
+	dir := d.dir
+	if err := d.Close(); err != nil {
+		t.Fatal(err)
+	}
+	d, err = Open(ctx, Options{Dir: dir, Format: badgerFormat})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer testcheck.Close(t, d)
+	if _, err := d.Upload(ctx, strings.NewReader(strings.Join(lines, "\n")), UploadOptions{Delete: true}); err != nil {
+		t.Fatal(err)
+	}
+	if got := exportTest(t, d); got != "" {
+		t.Fatal("captures left after delete")
+	}
+	if err := d.kv.Scan(ctx, "d/", "d0", func(string, []byte) error { return errors.New("unreferenced dictionary entry") }); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestFiledescKeyRoundTrip(t *testing.T) {
+	for _, padding := range []int{0, 90000} {
+		t.Run(fmt.Sprint(padding), func(t *testing.T) {
+			original := "filedesc:sample name" + strings.Repeat("x", padding) + ".arc.gz"
+			key := strings.ReplaceAll(original, " ", "%20")
+			row := strings.Replace(uploadLine, "https://example.com/", original, 1)
+			for range 2 {
+				db := openTestDB(t)
+				if _, err := db.Upload(t.Context(), strings.NewReader(row), UploadOptions{}); err != nil {
+					t.Fatal(err)
+				}
+				for _, spelling := range []string{original, key} {
+					q, err := cdx.ParseQuery(url.Values{"url": {spelling}})
+					if err != nil {
+						t.Fatal(err)
+					}
+					count := 0
+					_, err = q.Run(t.Context(), db, func(c *cdx.Capture) error {
+						count++
+						if c.GetSsu() != key || c.GetUri() != original {
+							t.Fatal("capture key or original URL changed")
+						}
+						return nil
+					})
+					if err != nil || count != 1 {
+						t.Fatalf("exact lookup returned %d captures, error %v", count, err)
+					}
+				}
+				row = exportTest(t, db)
+				if !strings.HasPrefix(row, key+" ") {
+					t.Fatal("invalid exported key")
+				}
+			}
+		})
+	}
+}
+
+func TestUploadNearRowLimitWithTrailingSlashHint(t *testing.T) {
+	db, err := Open(t.Context(), Options{Dir: t.TempDir(), Format: badgerFormat})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer testcheck.Close(t, db)
+	row := strings.Replace(uploadLine, "example.com/", "example.com/"+strings.Repeat("x", 920000)+"/", 1)
+	result, err := db.Upload(t.Context(), strings.NewReader(row), UploadOptions{})
+	if err != nil || result.Accepted != 1 {
+		t.Fatalf("upload accepted %d rows, error %v", result.Accepted, err)
 	}
 }

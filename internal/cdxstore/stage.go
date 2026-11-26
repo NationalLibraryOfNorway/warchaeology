@@ -22,7 +22,7 @@ type CaptureStage struct {
 }
 
 func OpenCaptureStage(ctx context.Context, dir string) (*CaptureStage, error) {
-	k, err := openKV(ctx, Options{Format: badgerFormat, Dir: dir, Scratch: true})
+	k, err := openKV(ctx, Options{Format: badgerFormat, Dir: dir, TempDir: dir, Scratch: true})
 	if err != nil {
 		return nil, err
 	}
@@ -57,7 +57,7 @@ func (s *CaptureStage) Flush(ctx context.Context) error {
 
 func (s *CaptureStage) ScanSource(ctx context.Context, source string, emit func(*cdx.Capture) error) error {
 	prefix := identity(source) + "/"
-	return s.kv.Scan(ctx, prefix, prefix+"\xff", func(key string, value []byte) error {
+	return s.kv.Scan(ctx, prefix+"c/", prefix+"c0", func(key string, value []byte) error {
 		capture, err := decodeCapture(strings.TrimPrefix(key, prefix), value)
 		if err != nil {
 			return err

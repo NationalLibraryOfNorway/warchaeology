@@ -98,7 +98,7 @@ func (h *mergeHeap) Push(x any) { *h = append(*h, x.(mergeItem)) }
 
 func (h *mergeHeap) Pop() any { x := (*h)[len(*h)-1]; *h = (*h)[:len(*h)-1]; return x }
 
-func (s *Sorter) merge(ctx context.Context, paths []string, out io.Writer) (err error) {
+func (s *Sorter) merge(ctx context.Context, paths []string, emit func(string) error) (err error) {
 	readers := make([]*bufio.Reader, 0, len(paths))
 	files := []*os.File{}
 	defer func() {
@@ -137,7 +137,7 @@ func (s *Sorter) merge(ctx context.Context, paths []string, out io.Writer) (err 
 		}
 		x := heap.Pop(h).(mergeItem)
 		if first || !s.Unique || x.line != last {
-			if _, e := io.WriteString(out, x.line+"\n"); e != nil {
+			if e := emit(x.line); e != nil {
 				return e
 			}
 		}
@@ -162,6 +162,29 @@ func readSortLine(r *bufio.Reader) (string, error) {
 }
 
 func (s *Sorter) WriteTo(ctx context.Context, w io.Writer) error {
+	return s.ForEach(ctx, writeLine(w))
+}
+
+func writeLine(w io.Writer) func(string) error {
+	return func(line string) error { _, err := io.WriteString(w, line+"\n"); return err }
+}
+
+// ForEach emits sorted lines, spilling large sets to temporary runs.
+func (s *Sorter) ForEach(ctx context.Context, emit func(string) error) error {
+	if len(s.runs) == 0 {
+		sort.Strings(s.lines)
+		for i, line := range s.lines {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
+			if !s.Unique || i == 0 || line != s.lines[i-1] {
+				if err := emit(line); err != nil {
+					return err
+				}
+			}
+		}
+		return nil
+	}
 	if e := s.spill(); e != nil {
 		return e
 	}
@@ -173,7 +196,7 @@ func (s *Sorter) WriteTo(ctx context.Context, w io.Writer) error {
 				return e
 			}
 			bw := bufio.NewWriter(f)
-			e = s.merge(ctx, s.runs[i:min(i+32, len(s.runs))], bw)
+			e = s.merge(ctx, s.runs[i:min(i+32, len(s.runs))], writeLine(bw))
 			e = errors.Join(e, bw.Flush(), f.Close())
 			if e != nil {
 				return e
@@ -182,7 +205,7 @@ func (s *Sorter) WriteTo(ctx context.Context, w io.Writer) error {
 		}
 		s.runs = next
 	}
-	return s.merge(ctx, s.runs, w)
+	return s.merge(ctx, s.runs, emit)
 }
 
 func (s *Sorter) Close() error {

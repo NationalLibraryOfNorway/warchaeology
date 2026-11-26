@@ -53,7 +53,7 @@ in [capture indexes](capture-indexes.md#compatibility-and-verification).
 Required fields are a 14-digit valid UTC timestamp, an absolute `url`, nonempty
 `filename`, and nonnegative signed 64-bit `offset` and `length`. Numeric fields
 accept decimal strings or JSON integers. `status`, when present, is 0–999.
-Canonical URL keys are limited to 60,000 bytes to fit the storage key limit.
+Canonical URL keys over 60,000 bytes use overflow storage. Upload request and row size limits still apply.
 Extension objects, arrays, and numbers retain JSON numeric precision. Typed
 fields are stored separately from extension properties. POST/PUT request bodies
 must be supplied as the indexer's extracted query string.

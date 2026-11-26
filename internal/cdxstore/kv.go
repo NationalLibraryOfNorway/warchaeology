@@ -11,6 +11,8 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"uuid"
 
 	"github.com/dgraph-io/badger/v4"
@@ -19,6 +21,7 @@ import (
 const badgerFormat = "badger"
 
 type kv interface {
+	catalogueFormat() string
 	batch(context.Context, []mutation) error
 	Get(context.Context, string) ([]byte, error)
 	Put(context.Context, string, []byte) error
@@ -27,13 +30,13 @@ type kv interface {
 	Close() error
 }
 type Options struct {
-	Format, Dir string
-	ReadOnly    bool
-	IndexOnly   bool
-	Scratch     bool
+	Format, Dir, TempDir string
+	ReadOnly             bool
+	IndexOnly            bool
+	Scratch              bool
 }
 
-func openKV(ctx context.Context, o Options) (kv, error) {
+func openKV(ctx context.Context, o Options) (*badgerKV, error) {
 	if o.Format == badgerFormat {
 		for _, legacy := range []string{"cdx-index", "id-index"} {
 			if _, e := os.Stat(filepath.Join(o.Dir, legacy)); e == nil {
@@ -62,15 +65,26 @@ func openKV(ctx context.Context, o Options) (kv, error) {
 			}
 			return nil, e
 		}
-		return &badgerKV{db: db, lock: lock}, nil
+		return &badgerKV{db: db, lock: lock, tempDir: o.TempDir, versioned: !o.Scratch}, nil
 	default:
 		return nil, fmt.Errorf("unknown database format %q", o.Format)
 	}
 }
 
 type badgerKV struct {
-	db   *badger.DB
-	lock *os.File
+	tempDir        string
+	versioned      bool
+	overflowActive atomic.Bool
+	overflowMu     sync.Mutex // serialize last-row removal against concurrent inserts for the same URL
+	db             *badger.DB
+	lock           *os.File
+}
+
+func (b *badgerKV) catalogueFormat() string {
+	if b.overflowActive.Load() {
+		return overflowFormat
+	}
+	return formatVersion
 }
 
 func (b *badgerKV) Get(ctx context.Context, k string) (v []byte, e error) {
@@ -78,7 +92,13 @@ func (b *badgerKV) Get(ctx context.Context, k string) (v []byte, e error) {
 		return
 	}
 	e = b.db.View(func(tx *badger.Txn) error {
-		item, e := tx.Get([]byte(k))
+		var item *badger.Item
+		var e error
+		if ns, ok := captureNamespace(k); ok {
+			item, e = lookupCaptureItem(tx, ns, k)
+		} else {
+			item, e = tx.Get([]byte(k))
+		}
 		if errors.Is(e, badger.ErrKeyNotFound) {
 			return nil
 		}
@@ -92,21 +112,18 @@ func (b *badgerKV) Get(ctx context.Context, k string) (v []byte, e error) {
 }
 
 func (b *badgerKV) Put(ctx context.Context, k string, v []byte) error {
-	if e := ctx.Err(); e != nil {
-		return e
-	}
-	return b.db.Update(func(tx *badger.Txn) error { return tx.Set([]byte(k), v) })
+	return b.batch(ctx, []mutation{{key: k, value: v}})
 }
 
 func (b *badgerKV) Delete(ctx context.Context, k string) error {
-	if e := ctx.Err(); e != nil {
-		return e
-	}
-	return b.db.Update(func(tx *badger.Txn) error { return tx.Delete([]byte(k)) })
+	return b.batch(ctx, []mutation{{key: k, remove: true}})
 }
 
 func (b *badgerKV) Scan(ctx context.Context, lo, hi string, fn func(string, []byte) error) error {
 	return b.db.View(func(tx *badger.Txn) error {
+		if ns, ok := captureNamespace(lo); ok && hi != "" && hi <= ns+"c0" {
+			return scanCaptures(ctx, tx, ns, lo, hi, b.tempDir, fn)
+		}
 		it := tx.NewIterator(badger.DefaultIteratorOptions)
 		defer it.Close()
 		for it.Seek([]byte(lo)); it.Valid(); it.Next() {
@@ -148,20 +165,63 @@ func (b *badgerKV) batch(ctx context.Context, entries []mutation) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	return b.db.Update(func(tx *badger.Txn) error {
-		for _, e := range entries {
-			var err error
-			if e.remove {
-				err = tx.Delete([]byte(e.key))
-			} else {
-				err = tx.Set([]byte(e.key), e.value)
-			}
-			if err != nil {
+	locked := false
+	activate := false
+	for _, op := range entries {
+		if len(op.key) <= InlineURLKeyLimit {
+			continue
+		}
+		ns, ok := captureNamespace(op.key)
+		if !ok {
+			continue
+		}
+		url, _, _ := strings.Cut(op.key[len(ns)+2:], " ")
+		if len(url) <= InlineURLKeyLimit {
+			continue
+		}
+		if !locked {
+			if err := lockContext(ctx, &b.overflowMu); err != nil {
 				return err
 			}
+			defer b.overflowMu.Unlock()
+			locked = true
 		}
-		return ctx.Err()
-	})
+		if !op.remove && b.versioned && !b.overflowActive.Load() {
+			activate = true
+			break
+		}
+	}
+	for {
+		err := b.db.Update(func(tx *badger.Txn) error {
+			for _, op := range entries {
+				var err error
+				if ns, ok := captureNamespace(op.key); ok {
+					err = mutateCapture(tx, ns, op)
+				} else {
+					err = writeMutation(tx, op)
+				}
+				if err != nil {
+					return err
+				}
+			}
+			if err := ctx.Err(); err != nil {
+				return err
+			}
+			if activate {
+				return tx.Set([]byte("!format"), []byte(overflowFormat))
+			}
+			return nil
+		})
+		if err == nil && activate {
+			b.overflowActive.Store(true)
+		}
+		if !errors.Is(err, badger.ErrConflict) {
+			return err
+		}
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+	}
 }
 func (d *DB) batch(ctx context.Context, entries []mutation) error {
 	// The revision is a durable, coalescing notification for derived indexes.

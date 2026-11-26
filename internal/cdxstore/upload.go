@@ -85,7 +85,9 @@ func (d *DB) Upload(ctx context.Context, r io.Reader, o UploadOptions) (result U
 		return result, errors.Join(err, os.Remove(dir))
 	}
 	defer func() { err = errors.Join(err, d.removeUploadStage(context.WithoutCancel(ctx), name)) }()
-	stage, err := badger.Open(badger.DefaultOptions(dir).WithLogger(nil).WithSyncWrites(false).WithMemTableSize(16 << 20).WithBlockCacheSize(8 << 20).WithValueLogFileSize(16 << 20))
+	// Keep large URL hints, dictionary entries and capture values in the value log
+	// so a single accepted row fits in a staging transaction.
+	stage, err := badger.Open(badger.DefaultOptions(dir).WithLogger(nil).WithSyncWrites(false).WithMemTableSize(16 << 20).WithValueThreshold(32 << 10).WithBlockCacheSize(8 << 20).WithValueLogFileSize(16 << 20))
 	if err != nil {
 		return result, err
 	}
@@ -140,7 +142,7 @@ func (d *DB) Upload(ctx context.Context, r io.Reader, o UploadOptions) (result U
 			stored, _, _ := bytes.Cut(raw, []byte(" "))
 			if !d.indexOnly {
 				for _, alt := range []string{string(stored), cdx.TrailingSlashKey(c.GetUri(), c.GetSsu())} {
-					if alt == "" || alt == c.GetSsu() || len(alt) > 60000 {
+					if alt == "" || alt == c.GetSsu() {
 						continue
 					}
 					hint := "hint/" + identity(key) + "/" + identity(alt)
@@ -149,7 +151,7 @@ func (d *DB) Upload(ctx context.Context, r io.Reader, o UploadOptions) (result U
 					}
 				}
 			}
-			item, e := tx.Get([]byte(key))
+			item, e := lookupCaptureItem(tx, "", key)
 			if e == nil {
 				return item.Value(func(previous []byte) error {
 					if !bytes.Equal(previous, b) {
@@ -161,7 +163,7 @@ func (d *DB) Upload(ctx context.Context, r io.Reader, o UploadOptions) (result U
 			if !errors.Is(e, badger.ErrKeyNotFound) {
 				return e
 			}
-			return tx.Set([]byte(key), b)
+			return mutateCapture(tx, "", mutation{key: key, value: b})
 		})
 		if err != nil {
 			return result, err
@@ -201,17 +203,7 @@ func (d *DB) Upload(ctx context.Context, r io.Reader, o UploadOptions) (result U
 		return e
 	}
 	err = stage.View(func(tx *badger.Txn) error {
-		it := tx.NewIterator(badger.DefaultIteratorOptions)
-		defer it.Close()
-		for it.Seek([]byte("c/")); it.ValidForPrefix([]byte("c/")); it.Next() {
-			if e := ctx.Err(); e != nil {
-				return e
-			}
-			base := string(it.Item().Key())
-			b, e := it.Item().ValueCopy(nil)
-			if e != nil {
-				return e
-			}
+		err := scanCaptures(ctx, tx, "", "c/", "c0", dir, func(base string, b []byte) error {
 			incoming, e := decodeCapture(base, b)
 			if e != nil {
 				return e
@@ -248,7 +240,7 @@ func (d *DB) Upload(ctx context.Context, r io.Reader, o UploadOptions) (result U
 					return e
 				}
 				oldBase := captureBase(old)
-				ops = append(ops, mutation{key: oldBase + id, value: encoded}, mutation{key: "j/" + id + "/" + oldBase, value: []byte(oldBase)})
+				ops = append(ops, mutation{key: oldBase + id, value: encoded}, mutation{key: uploadJournal(id, oldBase), value: []byte(oldBase)})
 				delta--
 				if len(ops) >= 256 || batchBytes(ops) >= 1<<20 {
 					return flush()
@@ -268,13 +260,17 @@ func (d *DB) Upload(ctx context.Context, r io.Reader, o UploadOptions) (result U
 				if !exists {
 					delta++
 				}
-				ops = append(ops, mutation{key: base + id, value: b}, mutation{key: "j/" + id + "/" + base, value: []byte(base)})
+				ops = append(ops, mutation{key: base + id, value: b}, mutation{key: uploadJournal(id, base), value: []byte(base)})
 			}
 			if len(ops) >= 256 || batchBytes(ops) >= 1<<20 {
 				if e = flush(); e != nil {
 					return e
 				}
 			}
+			return nil
+		})
+		if err != nil {
+			return err
 		}
 		return flush()
 	})
@@ -456,7 +452,7 @@ func RestoreWithFulltext(ctx context.Context, dir string, r io.Reader, textDir s
 				return fmt.Errorf("backup lacks format metadata: %w; %s", e, rebuildInstructions)
 			}
 			return item.Value(func(b []byte) error {
-				if string(b) != formatVersion {
+				if !validFormat(string(b)) {
 					return fmt.Errorf("incompatible backup format: %s", rebuildInstructions)
 				}
 				return nil

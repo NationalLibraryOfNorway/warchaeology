@@ -9,11 +9,15 @@ import (
 	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
 
+	cdx "github.com/nationallibraryofnorway/warchaeology/v5/internal/cdx"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/testcheck"
+	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 const testLine = `wrong 20200102030405 {"url":"https://example.com/","offset":0,"length":100,"filename":"a.warc.gz","extra":9007199254740993}`
@@ -115,5 +119,40 @@ func TestConcurrentRetryAndDecodedLimit(t *testing.T) {
 	h.ServeHTTP(w, r)
 	if w.Code == http.StatusOK {
 		t.Fatal("decoded limit bypassed")
+	}
+}
+
+func TestCollectionOverflowSortDirectory(t *testing.T) {
+	opts := Options{Directory: t.TempDir(), TempDir: t.TempDir()}
+	missing := filepath.Join(opts.Directory, "missing")
+	for _, name := range []string{"TMPDIR", "TMP", "TEMP"} {
+		t.Setenv(name, missing)
+	}
+	for _, create := range []bool{true, false} {
+		h, err := New(t.Context(), opts, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		func() {
+			defer testcheck.Close(t, h)
+			if create {
+				w := httptest.NewRecorder()
+				h.ServeHTTP(w, httptest.NewRequestWithContext(t.Context(), "PUT", "/collections/a", nil))
+				if w.Code != http.StatusOK {
+					t.Fatal(w.Body.String())
+				}
+				for i := range 9 {
+					c := &cdx.Capture{Ssu: strconv.Itoa(i) + strings.Repeat("x", 1<<20), Uri: "https://example.com/", Sts: timestamppb.Now()}
+					if err := h.dbs["a"].WriteCapture(t.Context(), c); err != nil {
+						t.Fatal(err)
+					}
+				}
+			}
+			count := 0
+			err := h.dbs["a"].Scan(t.Context(), "", "", func(*cdx.Capture) error { count++; return nil })
+			if err != nil || count != 9 {
+				t.Fatalf("create=%v: scanned %d captures, error %v", create, count, err)
+			}
+		}()
 	}
 }

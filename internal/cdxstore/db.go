@@ -64,9 +64,10 @@ func Open(ctx context.Context, o Options) (*DB, error) {
 		if e = k.Put(ctx, "!format", []byte(formatVersion)); e != nil {
 			return fail(e)
 		}
-	} else if string(v) != formatVersion {
+	} else if !validFormat(string(v)) {
 		return fail(fmt.Errorf("incompatible index database: %s", rebuildInstructions))
 	}
+	k.overflowActive.Store(string(v) == overflowFormat)
 	mode, e := k.Get(ctx, "!capabilities")
 	if e != nil {
 		return fail(e)
@@ -429,7 +430,7 @@ func queryFromRequest(req index.Request) index.Query {
 func (d *DB) IndexOnly() bool { return d.indexOnly }
 func (d *DB) Capabilities() map[string]any {
 	return map[string]any{
-		"format":                   formatVersion,
+		"format":                   d.kv.catalogueFormat(),
 		"indexOnly":                d.indexOnly,
 		"recordIDLookup":           !d.indexOnly,
 		"nativeContent":            !d.indexOnly,

@@ -400,7 +400,7 @@ func (d *DB) supersedeImports(ctx context.Context, g *generation, overlay string
 		c.Source = ""
 		c.Generation = ""
 		base := captureBase(c)
-		journal := "j/" + overlay + "/" + base
+		journal := uploadJournal(overlay, base)
 		if pending[journal] {
 			return nil
 		}

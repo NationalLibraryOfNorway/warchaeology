@@ -35,9 +35,10 @@ type Sink interface {
 func CanonicalKey(raw string) string {
 	key, err := surt.String(raw)
 	if err != nil {
-		return raw
+		key = raw
 	}
-	return key
+	// CDXJ reserves literal spaces for column separators.
+	return strings.ReplaceAll(key, " ", "%20")
 }
 
 func NewCapture(rec gowarc.Record, source, filename string) (*Capture, error) {

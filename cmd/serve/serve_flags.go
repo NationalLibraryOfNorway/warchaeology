@@ -53,6 +53,7 @@ func (f ServeFlags) ToOptions() (*ServeOptions, error) {
 		httpOptions: captures.Options{
 			MaxBytes:      viper.GetInt64("upload-max-bytes"),
 			MaxLine:       viper.GetInt("upload-max-line"),
+			TempDir:       viper.GetString("index-tmp-dir"),
 			UploadTimeout: viper.GetDuration("upload-timeout"),
 			ScanLimit:     viper.GetInt("query-scan-limit"),
 			ResultLimit:   viper.GetInt("query-result-limit"),
