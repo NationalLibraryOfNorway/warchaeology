@@ -1652,6 +1652,61 @@ func TestPreviewRejectsTruncatedOrderedInventory(t *testing.T) {
 	}
 }
 
+func TestVerifiedPreviewRejectsIncompletePlanReport(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "input.warc")
+	if err := os.WriteFile(path, resourceBytes(1), 0600); err != nil {
+		t.Fatal(err)
+	}
+	work, out := t.TempDir(), t.TempDir()
+	args := []string{"redupe", "--index-dir", work, "--output-dir", out, path}
+	if err := executeCaptureCommand(t, append(args, "--audit", "--verify-payloads")...); err != nil {
+		t.Fatal(err)
+	}
+	files, err := filepath.Glob(filepath.Join(work, "inventory-*", "plan-report.json"))
+	if err != nil || len(files) != 1 {
+		t.Fatalf("plan report: %v, %v", files, err)
+	}
+	if err := os.WriteFile(files[0], []byte("{}"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := executeCaptureCommand(t, args...); err == nil || !strings.Contains(err.Error(), "plan report checksum mismatch") {
+		t.Fatalf("execution returned %v", err)
+	}
+	if items, err := os.ReadDir(out); err != nil || len(items) != 0 {
+		t.Fatalf("published %v: %v", items, err)
+	}
+}
+
+func TestVerifiedPreviewRejectsTruncatedFindings(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "input.warc")
+	data := bytes.Replace(resourceBytes(1), []byte("WARC-Date:"), []byte("WARC-Concurrent-To: <urn:uuid:20add669-b781-4c66-977c-000000000002>\r\nWARC-Date:"), 1)
+	if err := os.WriteFile(path, data, 0600); err != nil {
+		t.Fatal(err)
+	}
+	work, out := t.TempDir(), t.TempDir()
+	args := []string{"redupe", "--index-dir", work, "--output-dir", out, path}
+	if err := executeCaptureCommand(t, append(args, "--audit", "--verify-payloads")...); err != nil {
+		t.Fatal(err)
+	}
+	files, err := filepath.Glob(filepath.Join(work, "inventory-*", "plan-findings.jsonl"))
+	if err != nil || len(files) != 1 {
+		t.Fatalf("retained findings: %v, %v", files, err)
+	}
+	info, err := os.Stat(files[0])
+	if err != nil || info.Size() == 0 {
+		t.Fatalf("expected nonempty findings: %v, %v", info, err)
+	}
+	if err := os.Truncate(files[0], info.Size()/2); err != nil {
+		t.Fatal(err)
+	}
+	if err := executeCaptureCommand(t, args...); err == nil || !strings.Contains(err.Error(), "plan findings checksum mismatch") {
+		t.Fatalf("execution returned %v", err)
+	}
+	if items, err := os.ReadDir(out); err != nil || len(items) != 0 {
+		t.Fatalf("published %v: %v", items, err)
+	}
+}
+
 func TestPreviewRejectsChangedInputs(t *testing.T) {
 	for _, change := range []string{"added", "removed", "modified", "container", "interval", "selection", "failed preview"} {
 		t.Run(change, func(t *testing.T) {
@@ -1781,5 +1836,60 @@ func TestDedupMissingDigestModes(t *testing.T) {
 				t.Fatal(types)
 			}
 		})
+	}
+}
+
+func TestVerifiedPreviewRestartsPublication(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX shell hook")
+	}
+	dir, output, work := t.TempDir(), t.TempDir(), t.TempDir()
+	source, hook := filepath.Join(dir, "source.warc"), filepath.Join(dir, "hook")
+	records := append(resourceBytes(1), bytes.Replace(resourceBytes(2), []byte("2022-01"), []byte("2023-01"), 1)...)
+	if err := os.WriteFile(source, records, 0600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("WARC_TEST_HOOK_DIR", dir)
+	script := `#!/bin/sh
+cd "$WARC_TEST_HOOK_DIR" || exit 1
+if test -f first && ! test -f failed; then
+    touch failed
+    exit 1
+fi
+touch first
+`
+	if err := os.WriteFile(hook, []byte(script), 0700); err != nil {
+		t.Fatal(err)
+	}
+	args := []string{"redupe", "--index-dir", work, "--output-dir", output, "--close-output-file-hook", hook, source}
+	if err := executeCaptureCommand(t, append(args, "--audit", "--verify-payloads")...); err != nil {
+		t.Fatal(err)
+	}
+	if err := executeCaptureCommand(t, args...); err == nil {
+		t.Fatal("expected second period publication failure")
+	}
+	manifest := filepath.Join(output, "2022", "manifest.jsonl")
+	before, err := os.Stat(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(output, "2023")); !os.IsNotExist(err) {
+		t.Fatal("second period published", err)
+	}
+	if err := executeCaptureCommand(t, args...); err != nil {
+		t.Fatal(err)
+	}
+	after, err := os.Stat(manifest)
+	if err != nil || !os.SameFile(before, after) {
+		t.Fatal("completed period replaced", err)
+	}
+	if _, err := os.Stat(filepath.Join(output, "2023", "completion.json")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(manifest, []byte("changed"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := executeCaptureCommand(t, args...); err == nil || !strings.Contains(err.Error(), "checksum mismatch") {
+		t.Fatal(err)
 	}
 }
