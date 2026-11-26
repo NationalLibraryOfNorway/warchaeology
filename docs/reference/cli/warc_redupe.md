@@ -9,7 +9,8 @@ Reorganize WARC records by year, month or day
 
 Group records by their WARC-Date, using UTC and --interval (year, month or day).
 Resolve revisits and deduplicate within each period so each collection can be
-replayed independently. Use --audit to check the source collection before rewriting.
+replayed independently. Use --audit for a rewrite preview. With --index-dir, a preview retains
+the inventory and sorted order. Add --verify-payloads to retain the verified plan for execution.
 
 ```
 warc redupe SOURCE... [flags]
@@ -38,7 +39,7 @@ warc redupe SOURCE... [flags]
   -c, --concurrency int                 number of input files to process in parallel (default 21)
   -C, --concurrent-writers int          maximum number of WARC files written concurrently.
                                         This may create at least this many output files even with a single input file. (default 16)
-      --default-date string             fallback date used when records are missing WARC-Date metadata (time is set to 12:00 UTC) (default "2026-11-18")
+      --default-date string             fallback date used when records are missing WARC-Date metadata (time is set to 12:00 UTC) (default "2026-11-26")
       --file-size string                maximum size of each WARC output file (default "1GB")
       --flush[=true|false]              sync each WARC file to disk after every record
       --ftp-pool-size int32             size of the FTP connection pool (default 1)

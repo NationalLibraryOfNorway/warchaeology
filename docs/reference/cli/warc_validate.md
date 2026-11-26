@@ -73,4 +73,3 @@ warc validate FILE/DIR ... [flags]
 ### SEE ALSO
 
 * [warc](warc.md)     - A tool for handling warc files
-

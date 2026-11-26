@@ -20,7 +20,6 @@ warchaeology
 /.vscode/
 
 /dist/
-/completions/
 
 # Docs website artifacts
 /website/node_modules/

@@ -261,6 +261,7 @@ func NewCmdDedup() *cobra.Command {
 		Short: "Deduplicate WARC files",
 		Long: `Deduplicate WARC files.
 
+Use --add-missing-digests to calculate absent labels during this pass.
 Only selected records with verified payload digests are eligible for deduplication.
 Use warc audit COLLECTION to verify revisit targets in existing output.`,
 		RunE: func(cmd *cobra.Command, args []string) (runErr error) {

@@ -3,7 +3,7 @@ title: "warc audit"
 ---
 ## warc audit
 
-Verify revisit references and payloads across a local WARC collection
+Check revisit targets and payloads, optionally comparing original captures
 
 ```
 warc audit COLLECTION [flags]
@@ -15,7 +15,7 @@ warc audit COLLECTION [flags]
   -h, --help[=true|false]             help for audit
       --originals string              directory containing original captures
       --recovery-source stringArray   backup WARC directory (repeatable)
-      --repair-to string              stage verified repairs in a new directory
+      --repair-to string              deprecated: use warc recover --output-dir
       --report string                 new JSON report file (default stdout)
 ```
 

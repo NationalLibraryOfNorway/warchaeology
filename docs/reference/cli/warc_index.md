@@ -85,5 +85,6 @@ warc index FILE/DIR... [flags]
 * [warc](warc.md)     - A tool for handling warc files
 * [warc index backup](warc_index_backup.md)     - Back up an index database offline
 * [warc index compact](warc_index_compact.md)     - Reclaim index database storage offline
+* [warc index hydrate](warc_index_hydrate.md)     - Add verified revisit payload locations to an existing index for pywb
 * [warc index reset](warc_index_reset.md)     - Reset the selected index database
 * [warc index restore](warc_index_restore.md)     - Restore an index database backup offline into a new directory

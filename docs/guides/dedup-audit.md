@@ -34,12 +34,12 @@ Tests against historical main revision `4486911` reproduced two incorrect revisi
 
 These examples establish the mechanism. The incidence in a collection depends on its inputs. An accurate payload digest on two identical bodies is the ordinary deduplication case. Loss of a donor file can break an originally correct revisit. Measure dangling references across the full surviving collection. To estimate wrong-body incidence, compare with original captures, stratify by producer and run, record the numerator and denominator, and report the coverage of digest-error runs separately. A sample drawn only from known failures cannot estimate the collection-wide rate.
 
-Current dedup requires verified payloads and matching record types and digest labels. HTTP block-only responses stay full. A complete resource can use its verified block digest as its payload digest. Repair mode may supply missing labels. A record with contradictory digest evidence stays full. Keep fresh donor and processed-file indexes together with their corresponding output when rebuilding.
+Current dedup requires verified payloads and matching record types and digest labels. HTTP block-only responses stay full. A complete resource can use its verified block digest as its payload digest. Use `--add-missing-digests` to calculate absent labels during deduplication. Existing labels remain evidence during donor checks. If you have established that the stored bytes are authoritative and a declared digest is wrong, run `warc repair` into a separate directory, validate that output, then deduplicate it. Correcting the label can make a formerly ineligible capture a donor or a revisit. A record with contradictory digest evidence stays full. Keep fresh donor and processed-file indexes together with their corresponding output when rebuilding.
 
 ## Recover into a fresh directory
 
 ```sh
-warc audit surviving/ --repair-to recovered/ --recovery-source backup-a/ \
+warc recover surviving/ --output-dir recovered/ --recovery-source backup-a/ \
   --recovery-source backup-b/ --originals original-crawls/ --report recovery.json
 ```
 
@@ -49,6 +49,19 @@ Recovery copies surviving WARCs into a sibling staging directory, retaining rela
 
 Rebuild CDX, capture databases, and other offset-based indexes from the published WARCs before switching replay. Test a recovered capture's date, response headers, and body with the backups disconnected. Retain the originals, manifests, and audit reports as evidence.
 
+## Example: restore the response behind a revisit
+
+Suppose a June response stored a page body in `june.warc.gz`. A July revisit in `surviving/july.warc.gz` retained its own HTTP headers and references the June record ID. The June file is now available only in `backups/`.
+
+```sh
+warc audit surviving/ --report july-impact.json
+warc recover surviving/ --output-dir restored/ --recovery-source backups/ --report july-recovery.json
+warc audit restored/ --report july-check.json
+warc index --recursive --index-file restored.cdxj restored/
+```
+
+The first audit exits nonzero and names the missing June ID in a `directly-dangling` finding. Recovery checks the backup donor against the revisit, stages the records together, and verifies the result before publication. Confirm the successful exit and inspect `summary.afterRecovery`. The final audit can resolve July using the restored collection alone. Point replay at the new CDXJ and WARCs so its offsets refer to the published files.
+
 ## Recover historical chunked payload digests
 
 Some older writers included HTTP chunk framing in the payload digest. For example,
@@ -56,12 +69,12 @@ a response storing the entity `hello` in one chunk could have a digest covering
 the chunk size, delimiters, and terminator as well as those five bytes. Gowarc v4
 computes the payload digest over the five entity bytes.
 
-For a standalone full capture, `warc convert warc --repair` can recalculate the
+For a standalone full capture, `warc repair` can recalculate the
 digest from its stored body. For deduplicated WARCs, supply the directory
 containing the full donor and its revisits together:
 
 ```sh
-warc audit surviving/ --repair-to recovered/ --report recovery.json
+warc recover surviving/ --output-dir recovered/ --report recovery.json
 ```
 
 A `legacy-chunked-digest` finding means the old label matched the stored HTTP

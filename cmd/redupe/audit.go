@@ -449,7 +449,11 @@ func newCollectionCommand(recoverCollection bool) *cobra.Command {
 	}
 	cmd.Flags().StringVar(&o.originals, "originals", "", "directory containing original captures")
 	cmd.Flags().StringVar(&o.report, "report", "", "new JSON report file (default stdout)")
-	cmd.Flags().StringVar(&o.repair, destination, "", "stage verified recovery in a fresh directory")
+	help := "stage verified recovery in a fresh directory"
+	if !recoverCollection {
+		help = "deprecated: use warc recover --output-dir"
+	}
+	cmd.Flags().StringVar(&o.repair, destination, "", help)
 	cmd.Flags().StringArrayVar(&o.backups, "recovery-source", nil, "backup WARC directory (repeatable)")
 	cmd.RunE = func(cmd *cobra.Command, args []string) error {
 		opts := o

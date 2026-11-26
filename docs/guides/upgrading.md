@@ -4,6 +4,17 @@ title: Migration notes
 
 ## Changes after v5
 
+### Update repair and preview scripts
+
+| Existing invocation | Current workflow |
+| --- | --- |
+| `convert warc --repair` or `convert warc -R` | Use `repair FILE/DIR ... --output-dir DIR` with the same writer settings. |
+| `dedup --repair` or `dedup -R` | Use `dedup --add-missing-digests` if only labels are missing. Use a separate `repair` pass when corrected record bytes or labels should influence donor selection. |
+| `audit COLLECTION --repair-to DIR` | Use `recover COLLECTION --output-dir DIR`. Keep the report, originals and backup arguments. |
+| `redupe --audit` followed by a clean rewrite | Supply the same explicit `--index-dir` to both commands. Add `--verify-payloads` to reuse the verified plan. Start with a new index directory when upgrading from an older ledger. |
+
+Legacy repair settings in flags and configuration retain their behavior during the compatibility period and emit deprecation notices on stderr. Enabling both dedup flags applies legacy repair once.
+
 ### Archive paths are literal
 
 The `zip://`, `tar://`, and `tgz://` prefixes now select only the archive format.
