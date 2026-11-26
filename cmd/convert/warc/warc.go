@@ -88,7 +88,9 @@ func (f ConvertWarcFlags) AddFlags(cmd *cobra.Command) {
 	f.OutputHookFlags.AddFlags(cmd)
 	f.InputHookFlags.AddFlags(cmd)
 	f.UtilFlags.AddFlags(cmd)
-	f.RepairFlags.AddFlags(cmd)
+	if !f.RepairFlags.Always {
+		f.RepairFlags.AddFlags(cmd)
+	}
 	f.ConcurrencyFlags.AddFlags(cmd)
 	f.ErrorFlags.AddFlags(cmd)
 	f.WarcIteratorFlags.AddFlags(cmd)
@@ -155,7 +157,14 @@ func (f ConvertWarcFlags) ToConvertWarcOptions() (_ *ConvertWarcOptions, err err
 }
 
 func NewCmdConvertWarc() *cobra.Command {
+	return newConversion(false)
+}
+
+func NewCmdRepair() *cobra.Command { return newConversion(true) }
+
+func newConversion(repair bool) *cobra.Command {
 	flags := NewConvertWarcFlags()
+	flags.RepairFlags.Always = repair
 
 	var cmd = &cobra.Command{
 		Use:   "warc FILE/DIR ...",
@@ -163,6 +172,12 @@ func NewCmdConvertWarc() *cobra.Command {
 		Long: `The WARC to WARC converter can be used to reorganize, convert or repair WARC-records.
 This is an experimental feature.`,
 		RunE: func(cmd *cobra.Command, args []string) (runErr error) {
+			if repair && !flag.Explicit(cmd, flag.OutputDir) {
+				return errors.New("repair requires --output-dir")
+			}
+			if !repair && flags.RepairFlags.Repair() {
+				fmt.Fprintln(cmd.ErrOrStderr(), "deprecated: convert warc --repair (-R); use warc repair")
+			}
 			o, err := flags.ToConvertWarcOptions()
 			if err != nil {
 				return err
@@ -184,6 +199,12 @@ This is an experimental feature.`,
 		ValidArgsFunction: flag.SuffixCompletionFn,
 	}
 
+	cmd.Long = "Rewrite WARC files with the selected output settings, including compression."
+	if repair {
+		cmd.Use = "repair FILE/DIR ..."
+		cmd.Short = "Correct records using their own bytes"
+		cmd.Long = "Write corrected records to the output directory. Input defects can still be reported even when the corrected record is written."
+	}
 	flags.AddFlags(cmd)
 
 	return cmd

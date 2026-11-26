@@ -1059,22 +1059,26 @@ func TestIndexRejectsAmbiguousTarBeforePublication(t *testing.T) {
 }
 
 func TestRepairedConversionResumes(t *testing.T) {
-	out := t.TempDir()
-	args := []string{"convert", "warc", "--repair", "--one-to-one", "--keep-index", "--compress=false", "--min-disk-free=0", "--output-dir", out, "--index-dir", t.TempDir(), "../testdata/warc/convert.warc"}
-	if err := executeCaptureCommand(t, args...); err == nil {
-		t.Fatal("expected repair diagnostics")
-	}
-	path := filepath.Join(out, "convert.warc")
-	before, err := os.Stat(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err = executeCaptureCommand(t, args...); err == nil || !strings.Contains(err.Error(), "5 errors") {
-		t.Fatalf("cached diagnostics: %v", err)
-	}
-	after, err := os.Stat(path)
-	if err != nil || !os.SameFile(before, after) || before.ModTime() != after.ModTime() {
-		t.Fatalf("output changed on retry: %v", err)
+	for _, command := range []string{"repair", "convert warc -R"} {
+		t.Run(command, func(t *testing.T) {
+			out := t.TempDir()
+			args := append(strings.Fields(command), "--one-to-one", "--keep-index", "--compress=false", "--min-disk-free=0", "--output-dir", out, "--index-dir", t.TempDir(), "../testdata/warc/convert.warc")
+			if err := executeCaptureCommand(t, args...); err == nil {
+				t.Fatal("expected repair diagnostics")
+			}
+			path := filepath.Join(out, "convert.warc")
+			before, err := os.Stat(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err = executeCaptureCommand(t, args...); err == nil || !strings.Contains(err.Error(), "5 errors") {
+				t.Fatalf("cached diagnostics: %v", err)
+			}
+			after, err := os.Stat(path)
+			if err != nil || !os.SameFile(before, after) || before.ModTime() != after.ModTime() {
+				t.Fatalf("output changed on retry: %v", err)
+			}
+		})
 	}
 }
 

@@ -15,6 +15,7 @@ import (
 	"github.com/nationallibraryofnorway/warchaeology/v5/cmd/cat"
 	"github.com/nationallibraryofnorway/warchaeology/v5/cmd/console"
 	"github.com/nationallibraryofnorway/warchaeology/v5/cmd/convert"
+	convertwarc "github.com/nationallibraryofnorway/warchaeology/v5/cmd/convert/warc"
 	"github.com/nationallibraryofnorway/warchaeology/v5/cmd/dedup"
 	"github.com/nationallibraryofnorway/warchaeology/v5/cmd/index"
 	"github.com/nationallibraryofnorway/warchaeology/v5/cmd/internal/flag"
@@ -73,7 +74,7 @@ func NewWarcCommand() *cobra.Command {
 	cmd.AddCommand(validate.NewCmdValidate()) // validate
 	cmd.AddCommand(console.NewCmdConsole())   // console
 	cmd.AddCommand(convert.NewCmdConvert())   // convert
-	cmd.AddCommand(redupe.NewCmdRedupe(), redupe.NewCmdAudit())
+	cmd.AddCommand(redupe.NewCmdRedupe(), redupe.NewCmdAudit(), redupe.NewCmdRecover(), convertwarc.NewCmdRepair())
 	cmd.AddCommand(dedup.NewCmdDedup())     // dedup
 	cmd.AddCommand(version.NewCmdVersion()) // version
 

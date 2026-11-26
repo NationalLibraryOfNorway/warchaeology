@@ -37,8 +37,13 @@ func auditFixture(t *testing.T) (root, backup, originals string) {
 func TestCollectionAudit(t *testing.T) {
 	root, backup, originals := auditFixture(t)
 	var out bytes.Buffer
-	o := auditOptions{originals: originals}
-	if err := o.run(context.Background(), root, &out); err == nil {
+	audit := func() error {
+		cmd := NewCmdAudit()
+		cmd.SetOut(&out)
+		cmd.SetArgs([]string{root, "--originals", originals})
+		return cmd.Execute()
+	}
+	if err := audit(); err == nil {
 		t.Fatal("missing donor passed")
 	}
 	var report struct {
@@ -55,7 +60,7 @@ func TestCollectionAudit(t *testing.T) {
 		t.Fatal(err)
 	}
 	out.Reset()
-	if err := o.run(context.Background(), root, &out); err != nil {
+	if err := audit(); err != nil {
 		t.Fatalf("%v %s", err, out.String())
 	}
 	if err := json.Unmarshal(out.Bytes(), &report); err != nil || report.Summary.Counts["original-verified"] != 2 {
@@ -86,7 +91,18 @@ func TestCollectionRecovery(t *testing.T) {
 				o.originals = originals
 			}
 			var out bytes.Buffer
-			err = o.run(context.Background(), root, &out)
+			cmd := NewCmdRecover()
+			args := []string{root, "--output-dir", dst}
+			if mode == "original" {
+				cmd = NewCmdAudit()
+				args = []string{root, "--repair-to", dst, "--originals", originals}
+			}
+			for _, p := range o.backups {
+				args = append(args, "--recovery-source", p)
+			}
+			cmd.SetOut(&out)
+			cmd.SetArgs(args)
+			err = cmd.Execute()
 			if mode == "unavailable" || mode == "conflicting-backup" {
 				if err == nil {
 					t.Fatal("unverified recovery published")
