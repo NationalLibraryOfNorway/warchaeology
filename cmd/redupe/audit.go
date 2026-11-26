@@ -27,6 +27,7 @@ import (
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/warcdigest"
 	"github.com/spf13/afero"
 	"github.com/spf13/cobra"
+	"github.com/spf13/viper"
 )
 
 type missingTarget struct{ link *entry }
@@ -433,12 +434,46 @@ type auditOptions struct {
 }
 
 func NewCmdAudit() *cobra.Command {
+	return newCollectionCommand(false)
+}
+func NewCmdRecover() *cobra.Command { return newCollectionCommand(true) }
+
+func newCollectionCommand(recoverCollection bool) *cobra.Command {
 	var o auditOptions
-	cmd := &cobra.Command{Use: "audit COLLECTION", Short: "Verify revisit references and payloads across a local WARC collection", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error { return o.run(cmd.Context(), args[0], cmd.OutOrStdout()) }}
+	destination := "repair-to"
+	cmd := &cobra.Command{Use: "audit COLLECTION", Short: "Check revisit targets and payloads, optionally comparing original captures", Args: cobra.ExactArgs(1)}
+	if recoverCollection {
+		destination = "output-dir"
+		cmd.Use = "recover COLLECTION"
+		cmd.Short = "Stage, verify and publish a recovered collection in a fresh directory"
+	}
 	cmd.Flags().StringVar(&o.originals, "originals", "", "directory containing original captures")
 	cmd.Flags().StringVar(&o.report, "report", "", "new JSON report file (default stdout)")
-	cmd.Flags().StringVar(&o.repair, "repair-to", "", "stage verified repairs in a new directory")
+	cmd.Flags().StringVar(&o.repair, destination, "", "stage verified recovery in a fresh directory")
 	cmd.Flags().StringArrayVar(&o.backups, "recovery-source", nil, "backup WARC directory (repeatable)")
+	cmd.RunE = func(cmd *cobra.Command, args []string) error {
+		opts := o
+		if !cmd.Flags().Changed(destination) {
+			opts.repair = viper.GetString(destination)
+		}
+		if !cmd.Flags().Changed("originals") {
+			opts.originals = viper.GetString("originals")
+		}
+		if !cmd.Flags().Changed("report") {
+			opts.report = viper.GetString("report")
+		}
+		if !cmd.Flags().Changed("recovery-source") {
+			opts.backups = viper.GetStringSlice("recovery-source")
+		}
+		if recoverCollection && opts.repair == "" {
+			return errors.New("recover requires --output-dir")
+		}
+		if !recoverCollection && opts.repair != "" {
+			fmt.Fprintln(cmd.ErrOrStderr(), "deprecated: audit --repair-to; use warc recover --output-dir")
+		}
+		cmd.SilenceUsage = true
+		return opts.run(cmd.Context(), args[0], cmd.OutOrStdout())
+	}
 	return cmd
 }
 func openInventory(ctx context.Context, work string, roots ...string) (*collection, error) {

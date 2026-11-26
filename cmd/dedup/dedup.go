@@ -262,6 +262,9 @@ func NewCmdDedup() *cobra.Command {
 Only selected records with verified payload digests are eligible for deduplication.
 Use warc audit COLLECTION to verify revisit targets in existing output.`,
 		RunE: func(cmd *cobra.Command, args []string) (runErr error) {
+			if flags.RepairFlags.Repair() {
+				fmt.Fprintln(cmd.ErrOrStderr(), "deprecated: dedup --repair (-R); use --add-missing-digests for missing labels or warc repair for record repair")
+			}
 			o, err := flags.ToDedupOptions()
 			if err != nil {
 				return err

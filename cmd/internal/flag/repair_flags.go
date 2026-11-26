@@ -15,6 +15,7 @@ const (
 )
 
 type RepairFlags struct {
+	Always bool
 }
 
 func (r RepairFlags) AddFlags(cmd *cobra.Command) {
@@ -22,7 +23,7 @@ func (r RepairFlags) AddFlags(cmd *cobra.Command) {
 }
 
 func (r RepairFlags) Repair() bool {
-	return viper.GetBool(Repair)
+	return r.Always || viper.GetBool(Repair)
 }
 
 func (r RepairFlags) ToWarcRecordOptions() []gowarc.WarcRecordOption {
