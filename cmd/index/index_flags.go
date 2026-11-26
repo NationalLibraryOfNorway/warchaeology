@@ -37,6 +37,7 @@ func (f IndexFlags) AddFlags(cmd *cobra.Command) {
 	cmd.Flags().Bool("fulltext", false, "index available text extracts in embedded Bleve")
 	cmd.Flags().Bool("fulltext-rebuild", false, "rebuild text search from registered captures")
 	cmd.Flags().String("fulltext-dir", "", "Bleve index directory (default: fulltext subdirectory of the index database)")
+	cmd.Flags().String("long-url-keys", "preserve", "persistent Badger ingestion of URL keys over 60000 bytes: preserve, skip, or error; file exports always preserve keys")
 	cmd.Flags().String("wacz-index", "auto", "WACZ indexing: auto imports embedded indexes; warc indexes contained WARCs")
 	cmd.Flags().String("index-format", "cdxj", "cdxj, cdxpb or badger")
 	cmd.Flags().String(flag.IndexFile, "-", "index export filename or - for stdout")
@@ -50,6 +51,7 @@ func (f IndexFlags) ToOptions() (*IndexOptions, error) {
 	parser := f.WarcRecordOptionFlags
 	o := &IndexOptions{
 		WarnValidation: parser.LenientValidation(),
+		LongURLKeys:    viper.GetString("long-url-keys"),
 		WaczIndex:      viper.GetString("wacz-index"),
 		WaczConfig: fmt.Sprintf("strict=%t;lenient=%t;lax-host-parsing=%t",
 			parser.StrictValidation(), parser.LenientValidation(), parser.LaxHostParsing()),

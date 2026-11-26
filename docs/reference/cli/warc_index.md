@@ -42,6 +42,7 @@ warc index FILE/DIR... [flags]
       --lax-host-parsing[=true|false]    allow lenient host parsing in URL parsing
       --lenient[=true|false]             minimize validation for faster, more permissive parsing
   -l, --limit int                        maximum number of records to process; ignored when --nth is set
+      --long-url-keys string             persistent Badger ingestion of URL keys over 60000 bytes: preserve, skip, or error; file exports always preserve keys (default "preserve")
   -m, --mime-type strings                only process records with these MIME types; repeat the flag or use a comma-separated list
   -n, --nth int                          process only the n-th record after filtering
   -o, --offset int                       start processing at this byte offset in the input file (default: 0)

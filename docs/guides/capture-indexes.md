@@ -360,6 +360,31 @@ when a complete record-ID catalogue is needed for ID lookups or revisit
 resolution. Start with a fresh database directory when adding native WACZ
 content to a collection previously managed through CDXJ uploads.
 
+### Long URL keys
+
+Canonical lookup keys encode literal ASCII spaces as `%20` so they fit in
+one CDXJ column. The original URL retains its spelling. If an older catalogue
+contains keys with literal spaces, rebuild the affected data from source.
+
+CDXJ and CDXPB exports preserve the full lookup key, including when a WACZ
+import or pywb export needs temporary storage. Embedded CDXJ uses the key in
+its first column. Its input row limit is 1 MiB.
+
+For persistent Badger file ingestion, `--long-url-keys=preserve` (default)
+stores keys over 60,000 bytes in an overflow index. Exact queries use a digest
+lookup. Prefix and domain queries also examine the dictionary of distinct long
+keys and merge the matching captures in CDX order.
+
+Use `--long-url-keys=skip` to omit these captures from the catalogue or
+`--long-url-keys=error` to fail ingestion. Skip warnings identify the source
+path, archive members, CDXJ line or WARC offset, and key length. Re-ingesting
+with `preserve` recovers previously skipped captures. These settings apply to
+file ingestion into a persistent catalogue. File exports always preserve keys.
+
+The first persistent overflow write upgrades the catalogue format marker.
+Older binaries reject that catalogue. To roll back, restore a backup made
+before the upgrade or rebuild from source with the older binary.
+
 ### Serve one embedded index directly
 
 `warc serve --wacz-index direct capture.wacz` serves one local WACZ in read-only

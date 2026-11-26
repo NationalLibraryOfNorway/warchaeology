@@ -1527,3 +1527,87 @@ func TestFulltextRejectsBeforeIngestion(t *testing.T) {
 		t.Fatal(err, stats)
 	}
 }
+
+func TestLongNativeKeysExportAndReingest(t *testing.T) {
+	t.Cleanup(viper.Reset)
+	dir := t.TempDir()
+	input := filepath.Join(dir, "native.warc")
+	path := strings.Repeat("x", 100000)
+	record := bytes.Replace(resourceBytes(1), []byte("https://example.org/1"), []byte("filedesc:sample "+path), 1)
+	if err := os.WriteFile(input, record, 0600); err != nil {
+		t.Fatal(err)
+	}
+	pack := filepath.Join(dir, "native.wacz")
+	if err := os.WriteFile(pack, zipWithMembers(t, map[string][]byte{"archive/native.warc": record}), 0600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("WARC_LONG_URL_KEYS", "skip")
+	for _, source := range []string{input, pack} {
+		for _, pywb := range []bool{false, true} {
+			out := filepath.Join(dir, "export.cdxj.gz")
+			args := []string{"index", "--index-file", out}
+			if pywb {
+				args = append(args, "--pywb")
+			}
+			if err := executeCaptureCommand(t, append(args, source)...); err != nil {
+				t.Fatal(err)
+			}
+			f, err := os.Open(out)
+			if err != nil {
+				t.Fatal(err)
+			}
+			reader, err := gzip.NewReader(f)
+			if err != nil {
+				t.Fatal(err)
+			}
+			b, err := io.ReadAll(reader)
+			testcheck.Close(t, reader)
+			testcheck.Close(t, f)
+			if err != nil || !bytes.HasPrefix(b, []byte("filedesc:sample%20"+path+" ")) {
+				t.Fatalf("long native key missing in %s, pywb=%v: %v", source, pywb, err)
+			}
+		}
+	}
+	dbdir := filepath.Join(dir, "db")
+	for _, policy := range []string{"skip", "preserve"} {
+		if err := executeCaptureCommand(t, "index", "--index-format=badger", "--long-url-keys="+policy, "--index-dir", dbdir, input); err != nil {
+			t.Fatal(err)
+		}
+		db, err := cdxstore.Open(t.Context(), cdxstore.Options{Dir: dbdir, Format: "badger", ReadOnly: true})
+		if err != nil {
+			t.Fatal(err)
+		}
+		var got int
+		err = db.Scan(t.Context(), "", "", func(c *cdx.Capture) error { got++; return nil })
+		testcheck.Close(t, db)
+		if err != nil || (got == 1) != (policy == "preserve") {
+			t.Fatalf("%s: %d captures, %v", policy, got, err)
+		}
+	}
+}
+
+func TestSkippedLongKeyStopsAtSelectedRecord(t *testing.T) {
+	for _, flag := range []string{"--nth=1", "--limit=1"} {
+		t.Run(flag, func(t *testing.T) {
+			t.Cleanup(viper.Reset)
+			dir := t.TempDir()
+			input := filepath.Join(dir, "nth.warc")
+			record := bytes.Replace(resourceBytes(1), []byte("example.org/1"), []byte("example.org/"+strings.Repeat("x", 90000)), 1)
+			if err := os.WriteFile(input, append(record, []byte("malformed next record\r\n")...), 0600); err != nil {
+				t.Fatal(err)
+			}
+			dbdir := filepath.Join(dir, "db")
+			if err := executeCaptureCommand(t, "index", flag, "--index-format=badger", "--long-url-keys=skip", "--index-dir", dbdir, input); err != nil {
+				t.Fatal(err)
+			}
+			db, err := cdxstore.Open(t.Context(), cdxstore.Options{Dir: dbdir, Format: "badger", ReadOnly: true})
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer testcheck.Close(t, db)
+			if err := db.Scan(t.Context(), "", "", func(*cdx.Capture) error { return fmt.Errorf("unexpected capture") }); err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+}
