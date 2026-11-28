@@ -458,7 +458,22 @@ func newCollectionCommand(recoverCollection bool) *cobra.Command {
 	if recoverCollection {
 		destination = "output-dir"
 		cmd.Use = "recover COLLECTION"
-		cmd.Short = "Stage, verify and publish a recovered collection in a fresh directory"
+		cmd.Short = "Restore missing revisit targets and correct payload digests in deduplicated WARCs"
+		cmd.Long = `Recover a deduplicated WARC collection when a revisit points to a missing
+capture or its payload digest disagrees with the stored bytes. A revisit refers
+to an earlier record (the donor) for its payload. Give COLLECTION as the root
+directory of the surviving WARCs, including older files that may contain donors.
+
+Recover scans .warc and .warc.gz files recursively. It can correct legacy
+digests that included HTTP chunk framing. Supply --recovery-source to search a
+backup for a missing donor, or --originals to replace a faulty revisit with a
+verified original capture.
+
+Choose a new --output-dir outside the inputs. Recover copies the surviving
+WARCs, applies the repairs, and verifies the staged collection before publishing
+it there. If verification finds unresolved revisits, the command exits nonzero
+and reports the staging directory. The JSON report goes to stdout by default.`
+		cmd.Example = "  warc recover surviving/ --recovery-source backups/ --output-dir recovered/ --report recovery.json"
 	}
 	cmd.Flags().StringVar(&o.originals, "originals", "", "directory containing original captures")
 	cmd.Flags().StringVar(&o.report, "report", "", "new JSON report file (default stdout)")

@@ -31,8 +31,8 @@ Redupe builds independently replayable periods. Preview with redupe --audit and 
 * [warc dedup](warc_dedup.md)     - Deduplicate WARC files
 * [warc index](warc_index.md)     - Index WARC captures
 * [warc ls](warc_ls.md)     - List WARC record fields
-* [warc recover](warc_recover.md)     - Stage, verify and publish a recovered collection in a fresh directory
-* [warc redupe](warc_redupe.md)     - Reorganize WARC records by year, month or day
+* [warc recover](warc_recover.md)     - Restore missing revisit targets and correct payload digests in deduplicated WARCs
+* [warc redupe](warc_redupe.md)     - Build new deduplicated WARC collections by capture year, month or day
 * [warc repair](warc_repair.md)     - Correct records using their own bytes
 * [warc serve](warc_serve.md)     - Serve a Badger index, zipnum cluster, or WACZ
 * [warc validate](warc_validate.md)     - Validate WARC files

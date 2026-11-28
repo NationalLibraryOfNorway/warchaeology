@@ -152,11 +152,22 @@ func NewCmdRedupe() *cobra.Command {
 	f := NewRedupeFlags()
 	cmd := &cobra.Command{
 		Use:   "redupe SOURCE...",
-		Short: "Reorganize WARC records by year, month or day",
-		Long: `Group records by their WARC-Date, using UTC and --interval (year, month or day).
-Resolve revisits and deduplicate within each period so each collection can be
-replayed independently. Use --audit for a rewrite preview. With --index-dir, a preview retains
-the inventory and sorted order. Add --verify-payloads to retain the verified plan for execution.`,
+		Short: "Build new deduplicated WARC collections by capture year, month or day",
+		Long: `Build a new WARC collection for each UTC year (default), month or day. Each
+record's WARC-Date determines its output directory under --output-dir.
+
+Redupe resolves existing revisits against the supplied source WARCs. Within
+each period it stores the first eligible copy of a payload in full. Later
+captures with the same payload can refer to that copy when the space savings
+meet --min-size-gain. For example, if January's first capture refers to a body
+stored in December, redupe writes the body into January's collection. January
+can then be replayed independently. Include the source WARCs that hold those
+referenced payloads, even when they come from an earlier period.
+
+Use --audit to preview the rewrite. With --index-dir, the preview saves the
+inventory and sorted record order for a later run. Add --verify-payloads to
+verify the payloads and save the donor choices for reuse.`,
+		Example:           "  warc redupe --recursive --interval month --output-dir monthly/ sources/",
 		ValidArgsFunction: flag.SuffixCompletionFn,
 		RunE: func(cmd *cobra.Command, args []string) (err error) {
 			o, err := f.ToRedupeOptions()
