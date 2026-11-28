@@ -6,6 +6,7 @@ package nedlibreader
 import (
 	"bufio"
 	"bytes"
+	"errors"
 	"io"
 	"iter"
 	"net/http"
@@ -103,24 +104,24 @@ func (nedlibReader *NedlibReader) Next() (gowarc.Record, error) {
 		}
 	}
 	if _, err = warcRecordBuilder.WriteString(response.Proto + " " + response.Status + "\n"); err != nil {
-		return gowarc.Record{}, err
+		return gowarc.Record{}, errors.Join(err, warcRecordBuilder.Close())
 	}
 	if err = header.Write(warcRecordBuilder); err != nil {
-		return gowarc.Record{}, err
+		return gowarc.Record{}, errors.Join(err, warcRecordBuilder.Close())
 	}
 
 	if _, err = warcRecordBuilder.WriteString("\r\n"); err != nil {
-		return gowarc.Record{}, err
+		return gowarc.Record{}, errors.Join(err, warcRecordBuilder.Close())
 	}
 
 	payloadFile, err := nedlibReader.fs.Open(strings.TrimSuffix(nedlibReader.metaFilename, ".meta"))
 	if err != nil {
-		return gowarc.Record{}, err
+		return gowarc.Record{}, errors.Join(err, warcRecordBuilder.Close())
 	}
 	defer func() { _ = payloadFile.Close() }()
 
 	if _, err = warcRecordBuilder.ReadFrom(payloadFile); err != nil {
-		return gowarc.Record{}, err
+		return gowarc.Record{}, errors.Join(err, warcRecordBuilder.Close())
 	}
 
 	var warcRecord gowarc.WarcRecord

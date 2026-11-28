@@ -7,7 +7,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log/slog"
 	"os"
 	"os/signal"
 	"syscall"
@@ -17,7 +16,6 @@ import (
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/filewalker"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/filter"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/warc"
-	"github.com/nationallibraryofnorway/warchaeology/v5/internal/workerpool"
 	"github.com/spf13/afero"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -170,16 +168,12 @@ func NewCmdList() *cobra.Command {
 		Use:   "ls FILE/DIR ...",
 		Short: "List WARC record fields",
 		Long:  `List information about WARC records`,
-		RunE: func(cmd *cobra.Command, args []string) error {
+		RunE: func(cmd *cobra.Command, args []string) (runErr error) {
 			o, err := flags.ToListOptions()
 			if err != nil {
 				return err
 			}
-			defer func() {
-				if err := o.Close(); err != nil {
-					slog.Error("Close options", "error", err)
-				}
-			}()
+			defer func() { runErr = errors.Join(runErr, o.Close()) }()
 			if err := o.Complete(cmd, args); err != nil {
 				return err
 			}
@@ -216,56 +210,27 @@ func (o *ListOptions) Validate() error {
 func (o *ListOptions) Run() error {
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
 	defer cancel()
-
-	workerPool := workerpool.New(ctx, o.concurrency)
-	o.fileWalker.WaitForReaders = workerPool.Wait
-	defer workerPool.CloseWait()
-
-	for _, path := range o.paths {
-		err := o.fileWalker.Walk(ctx, path, func(fs afero.Fs, path string, err error) error {
-			if err != nil {
-				return err
-			}
-
-			return workerPool.Submit(func() {
-				err := o.handleFile(ctx, fs, path)
-				if err != nil {
-					if !o.continueOnError {
-						cancel()
-					}
-					if recordErr, ok := errors.AsType[warc.RecordError](err); ok {
-						slog.Error(recordErr.Error(), "path", path, "offset", recordErr.Offset())
-					} else {
-						slog.Error(err.Error(), "path", path)
-					}
-				}
-			})
-		})
-		if err != nil {
-			return err
-		}
-	}
-	return nil
+	return o.fileWalker.ProcessInputs(ctx, o.paths, o.concurrency, o.continueOnError, o.handleFile)
 }
 
 // listFile reads a warc file and writes the records to the output
-func (o *ListOptions) handleFile(ctx context.Context, fs afero.Fs, path string) error {
+func (o *ListOptions) handleFile(ctx context.Context, fs afero.Fs, path string) (resultErr error) {
 	f, err := fs.Open(path)
 	if err != nil {
 		return err
 	}
 	warcFileReader, err := gowarc.NewWarcFileReaderFromStream(f, o.offset, o.warcRecordOptions...)
 	if err != nil {
-		return err
+		return errors.Join(err, f.Close())
 	}
-	defer func() { _ = warcFileReader.Close() }()
+	defer func() { resultErr = errors.Join(resultErr, warcFileReader.Close()) }()
 
 	raw := warc.Records(ctx, warcFileReader, o.force, path)
 
 	records := warc.Compose(raw, o.filter, o.recordNum, o.recordCount)
 	for record, err := range records {
 		if ctx.Err() != nil {
-			return ctx.Err()
+			return errors.Join(err, ctx.Err(), record.Close())
 		}
 		if err != nil {
 			return warc.ErrorFrom(record, err)

@@ -9,14 +9,18 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"log/slog"
 	"os"
 	"path"
 	"path/filepath"
 	"slices"
 	"sort"
 	"strings"
+	"sync"
 
+	"github.com/nationallibraryofnorway/warchaeology/v5/internal/diskspace"
 	archivefs "github.com/nationallibraryofnorway/warchaeology/v5/internal/fs"
+	"github.com/nationallibraryofnorway/warchaeology/v5/internal/workerpool"
 	"github.com/spf13/afero"
 )
 
@@ -100,6 +104,34 @@ func (fw *FileWalker) HasSuffix(path string) bool {
 	return false
 }
 
+// ProcessInputs waits for all started files and returns their processing errors.
+func (fw *FileWalker) ProcessInputs(ctx context.Context, paths []string, concurrency int, keepGoing bool, handle func(context.Context, afero.Fs, string) error) error {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	pool := workerpool.New(ctx, concurrency)
+	fw.WaitForReaders = pool.Wait
+	var mu sync.Mutex
+	var failures []error
+	walkErr := fw.WalkInputs(ctx, paths, keepGoing, func(fs afero.Fs, path string) error {
+		return pool.Submit(func() {
+			if err := handle(ctx, fs, path); err != nil {
+				if !keepGoing || diskspace.Exhausted(err) {
+					cancel()
+				}
+				slog.Error("Failed to process input", "path", path, "error", err)
+				mu.Lock()
+				failures = append(failures, fmt.Errorf("%s: %w", path, err))
+				mu.Unlock()
+			}
+		})
+	})
+	if diskspace.Exhausted(walkErr) {
+		cancel()
+	}
+	pool.CloseWait()
+	return errors.Join(walkErr, errors.Join(failures...), ctx.Err())
+}
+
 // WalkInputs collects recoverable traversal failures while visiting remaining inputs.
 func (fw *FileWalker) WalkInputs(ctx context.Context, paths []string, keepGoing bool, submit func(afero.Fs, string) error) error {
 	var failures []error
@@ -108,7 +140,7 @@ func (fw *FileWalker) WalkInputs(ctx context.Context, paths []string, keepGoing 
 			if err == nil {
 				return submit(fs, path)
 			}
-			if !keepGoing || ctx.Err() != nil {
+			if !keepGoing || ctx.Err() != nil || diskspace.Exhausted(err) {
 				return err
 			}
 			failures = append(failures, fmt.Errorf("%s: %w", path, err))
@@ -117,7 +149,7 @@ func (fw *FileWalker) WalkInputs(ctx context.Context, paths []string, keepGoing 
 		if err != nil {
 			failures = append(failures, fmt.Errorf("%s: %w", root, err))
 		}
-		if ctx.Err() != nil || (err != nil && !keepGoing) {
+		if ctx.Err() != nil || (err != nil && (!keepGoing || diskspace.Exhausted(err))) {
 			break
 		}
 	}

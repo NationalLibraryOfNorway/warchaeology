@@ -232,12 +232,15 @@ func (o *ConvertArcOptions) handleFile(ctx context.Context, fs afero.Fs, fileNam
 	if err != nil {
 		return nil, fmt.Errorf("failed to create arc file reader: %w", err)
 	}
-	defer func() { _ = arcFileReader.Close() }()
+	defer func() { resultErr = errors.Join(resultErr, arcFileReader.Close()) }()
 
 	var writer *gowarc.WarcFileWriter
 
 	records := warc.Compose(arcFileReader.Records(), nil, 0, 0)
 	for record, err := range records {
+		if ctx.Err() != nil {
+			return result, errors.Join(err, ctx.Err(), record.Close())
+		}
 		if err != nil {
 			return result, warc.ErrorFrom(record, err)
 		}
@@ -263,17 +266,11 @@ func (o *ConvertArcOptions) handleFile(ctx context.Context, fs afero.Fs, fileNam
 func (o *ConvertArcOptions) handleRecord(warcFileWriter *gowarc.WarcFileWriter, record gowarc.Record, result stat.Result) (resultErr error) {
 	defer func() { resultErr = errors.Join(resultErr, record.Close()) }()
 
-	result.IncrRecords()
-
 	if len(record.Validation) > 0 {
 		for _, err := range record.Validation {
 			result.AddError(warc.ErrorFrom(record, err))
 		}
 	}
 
-	writeResponse := warcFileWriter.Write(record.WarcRecord)
-	if len(writeResponse) > 0 {
-		return writeResponse[0].Err
-	}
-	return nil
+	return conversion.WriteRecord(warcFileWriter, record.WarcRecord, result)
 }

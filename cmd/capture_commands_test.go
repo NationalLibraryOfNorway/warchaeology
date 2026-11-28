@@ -12,6 +12,7 @@ import (
 	"crypto/sha1"
 	"encoding/base32"
 	"encoding/json/v2"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -20,6 +21,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -1891,5 +1893,28 @@ touch first
 	}
 	if err := executeCaptureCommand(t, args...); err == nil || !strings.Contains(err.Error(), "checksum mismatch") {
 		t.Fatal(err)
+	}
+}
+
+func TestFullStdoutFailsCommand(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("requires /dev/full")
+	}
+	full, err := os.OpenFile("/dev/full", os.O_WRONLY, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stdout := os.Stdout
+	os.Stdout = full
+	defer func() { os.Stdout = stdout; testcheck.Close(t, full) }()
+	for _, command := range []string{"cat", "ls"} {
+		for _, keepGoing := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s/continue=%t", command, keepGoing), func(t *testing.T) {
+				err := executeCaptureCommand(t, command, fmt.Sprintf("--continue-on-error=%t", keepGoing), "../testdata/warc/single-record.warc")
+				if !errors.Is(err, syscall.ENOSPC) {
+					t.Fatalf("expected ENOSPC, got %v", err)
+				}
+			})
+		}
 	}
 }

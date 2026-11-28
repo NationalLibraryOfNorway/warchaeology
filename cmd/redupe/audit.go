@@ -23,6 +23,7 @@ import (
 	"github.com/dgraph-io/badger/v4"
 	"github.com/nationallibraryofnorway/gowarc/v4"
 	cdx "github.com/nationallibraryofnorway/warchaeology/v5/internal/cdx"
+	"github.com/nationallibraryofnorway/warchaeology/v5/internal/diskspace"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/loader"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/warcdigest"
 	"github.com/spf13/afero"
@@ -204,6 +205,9 @@ func (a *collection) inventoryRoot(ctx context.Context, root string) error {
 				})
 			}
 		}
+		if diskspace.Exhausted(walkErr) {
+			return fmt.Errorf("%s: %w", path, walkErr)
+		}
 		if walkErr != nil {
 			a.failed = true
 			a.summary.Complete = false
@@ -243,6 +247,9 @@ func (a *collection) assess(ctx context.Context, e *entry, originals *collection
 		return f, nil, err
 	}
 	_, idErr := a.byID(ctx, c.GetRid())
+	if diskspace.Exhausted(idErr) {
+		return f, nil, idErr
+	}
 	if idErr != nil {
 		f.Status = "conflicting-id"
 		f.Detail = idErr.Error()
@@ -260,6 +267,9 @@ func (a *collection) assess(ctx context.Context, e *entry, originals *collection
 	}
 	f.Digest = e.Audit.Declared
 	donor, chain, err := a.resolve(ctx, e, map[string]bool{})
+	if diskspace.Exhausted(err) {
+		return f, nil, err
+	}
 	var missing *missingTarget
 	if errors.As(err, &missing) {
 		f.Target = missing.target()
@@ -321,6 +331,9 @@ func (a *collection) assess(ctx context.Context, e *entry, originals *collection
 	var original *entry
 	if originals != nil {
 		original, err = originals.byID(ctx, c.GetRid())
+		if diskspace.Exhausted(err) {
+			return f, nil, err
+		}
 		if err != nil {
 			f.Status = "unverifiable"
 			f.Detail = err.Error()

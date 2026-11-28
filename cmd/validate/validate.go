@@ -14,6 +14,7 @@ import (
 
 	"github.com/nationallibraryofnorway/gowarc/v4"
 	"github.com/nationallibraryofnorway/warchaeology/v5/cmd/internal/flag"
+	"github.com/nationallibraryofnorway/warchaeology/v5/internal/diskspace"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/filewalker"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/filter"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/hooks"
@@ -171,16 +172,12 @@ func NewCmdValidate() *cobra.Command {
 		Use:   "validate FILE/DIR ...",
 		Short: "Validate WARC files",
 		Long:  ``,
-		RunE: func(cmd *cobra.Command, args []string) error {
+		RunE: func(cmd *cobra.Command, args []string) (runErr error) {
 			o, err := flags.ToOptions()
 			if err != nil {
 				return err
 			}
-			defer func() {
-				if err := o.Close(); err != nil {
-					slog.Error("Close options", "error", err)
-				}
-			}()
+			defer func() { runErr = errors.Join(runErr, o.Close()) }()
 			err = o.Complete(cmd, args)
 			if err != nil {
 				return err
@@ -237,6 +234,9 @@ func (o *ValidateOptions) Run() (runErr error) {
 		for result := range results {
 			slog := slog.With("path", result.Name())
 			for _, err := range result.Errors() {
+				if diskspace.Exhausted(err) {
+					processingErr = fmt.Errorf("%s: %w", result.Name(), err)
+				}
 				if recordErr, ok := errors.AsType[warc.RecordError](err); ok {
 					slog.Error("Validation error", "error", recordErr.Error(), "offset", recordErr.Offset())
 				} else {
@@ -246,7 +246,7 @@ func (o *ValidateOptions) Run() (runErr error) {
 			slog.Info("Validated file", "errors", result.ErrorCount(), "records", result.Records())
 			stats.Merge(result)
 		}
-		if stats.Errors > 0 {
+		if stats.Errors > 0 && processingErr == nil {
 			processingErr = errors.New("processing completed with errors")
 		}
 	}()
@@ -256,13 +256,13 @@ func (o *ValidateOptions) Run() (runErr error) {
 	o.FileWalker.WaitForReaders = workerPool.Wait
 	defer workerPool.CloseWait()
 
-	return o.FileWalker.WalkInputs(ctx, o.paths, o.continueOnError, func(fs afero.Fs, path string) error {
+	walkErr := o.FileWalker.WalkInputs(ctx, o.paths, o.continueOnError, func(fs afero.Fs, path string) error {
 		return workerPool.Submit(func() {
 			result, err := filewalker.Preposterous(fs, path, o.openInputFileHook, o.closeInputFileHook, o.FileIndex, func(fs afero.Fs, path string) (stat.Result, error) { return o.handleFile(ctx, fs, path) })
-			if errors.Is(err, filewalker.ErrSkipFile) {
+			if errors.Is(err, filewalker.ErrSkipFile) && !diskspace.Exhausted(err) {
 				return
 			} else if err != nil {
-				if !o.continueOnError {
+				if !o.continueOnError || diskspace.Exhausted(err) {
 					cancel()
 				}
 				if result == nil {
@@ -274,16 +274,20 @@ func (o *ValidateOptions) Run() (runErr error) {
 			results <- result
 		})
 	})
+	if diskspace.Exhausted(walkErr) {
+		cancel()
+	}
+	return walkErr
 }
 
-func (o *ValidateOptions) handleFile(ctx context.Context, fs afero.Fs, path string) (stat.Result, error) {
+func (o *ValidateOptions) handleFile(ctx context.Context, fs afero.Fs, path string) (_ stat.Result, resultErr error) {
 	result := stat.NewResult(path)
 
 	file, err := fs.Open(path)
 	if err != nil {
 		return nil, err
 	}
-	defer func() { _ = file.Close() }()
+	defer func() { resultErr = errors.Join(resultErr, file.Close()) }()
 
 	countingReader := NewCountingReader(file, o.hashFunction)
 	defer func() {
@@ -294,7 +298,7 @@ func (o *ValidateOptions) handleFile(ctx context.Context, fs afero.Fs, path stri
 	if err != nil {
 		return nil, fmt.Errorf("failed to create warc file reader: %w", err)
 	}
-	defer func() { _ = warcFileReader.Close() }()
+	defer func() { resultErr = errors.Join(resultErr, warcFileReader.Close()) }()
 
 	raw := warc.Records(ctx, warcFileReader, o.force, path)
 	if !o.force && o.offset == 0 && o.recordNum <= 0 && o.recordCount <= 0 {
@@ -302,7 +306,7 @@ func (o *ValidateOptions) handleFile(ctx context.Context, fs afero.Fs, path stri
 		if err != nil {
 			return result, err
 		}
-		raw = warc.CheckCoverage(raw, file, info.Size())
+		raw = warc.CheckCoverage(raw, file, info.Size(), 0)
 	}
 	records := warc.Compose(raw, o.filter, o.recordNum, o.recordCount)
 	for record, err := range records {

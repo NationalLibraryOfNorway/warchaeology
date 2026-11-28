@@ -4,6 +4,8 @@
 package warc
 
 import (
+	"fmt"
+
 	"github.com/nationallibraryofnorway/gowarc/v4"
 )
 
@@ -21,7 +23,7 @@ func (e RecordError) Unwrap() error {
 }
 
 func (e RecordError) Error() string {
-	return e.Err.Error()
+	return fmt.Sprintf("offset %d: %v", e.offset, e.Err)
 }
 
 func (e RecordError) Offset() int64 {

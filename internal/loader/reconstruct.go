@@ -67,13 +67,13 @@ func ResponseRevisitLength(record gowarc.WarcRecord) (int64, error) {
 
 // A resource can carry an HTTP message or a bare entity. Its revisit retains
 // the capture's headers even when the donor used different framing.
-func reconstructResource(record, donor gowarc.WarcRecord) (gowarc.WarcRecord, error) {
+func reconstructResource(record, donor gowarc.WarcRecord) (_ gowarc.WarcRecord, resultErr error) {
 	builder := gowarc.NewRecordBuilder(donor.Type(), gowarc.WithVersion(record.Version()),
 		gowarc.WithAddMissingDigest(true), gowarc.WithBlockErrorPolicy(gowarc.ErrFail))
 	success := false
 	defer func() {
 		if !success {
-			_ = builder.Close()
+			resultErr = errors.Join(resultErr, builder.Close())
 		}
 	}()
 	for _, h := range *record.WarcHeader() {

@@ -5,6 +5,7 @@ package nedlibreader
 
 import (
 	"errors"
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -97,5 +98,24 @@ func TestNedlibReader(t *testing.T) {
 				t.Errorf("expected HttpResponseBlock, got %T", wr.Block())
 			}
 		})
+	}
+}
+
+func TestBuilderTempFileRemovedOnMissingPayload(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	meta := "item.meta"
+	if err := afero.WriteFile(fs, meta, []byte("HTTP/1.0 200 OK\r\nServer: example\r\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	r, err := NewNedlibReader(fs, meta, time.Time{}, gowarc.WithBufferTmpDir(dir), gowarc.WithBufferMaxMemBytes(1))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.Next(); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("expected missing payload, got %v", err)
+	}
+	if files, err := os.ReadDir(dir); err != nil || len(files) != 0 {
+		t.Fatalf("temp files %v, error %v", files, err)
 	}
 }

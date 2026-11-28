@@ -18,6 +18,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"strings"
+	"syscall"
 	"testing"
 
 	"github.com/nationallibraryofnorway/gowarc/v4"
@@ -337,5 +338,68 @@ func TestChunkedPostPayloadLength(t *testing.T) {
 			t.Fatalf("capture %v, request %s %q", c, method, query)
 		}
 		offset += int64(length + 4)
+	}
+}
+
+// After the readable prefix, return the cache's write error once, then EOF.
+// A force iterator which skips the error will mistake the next read for success.
+type failingArchiveFS struct {
+	afero.Fs
+	failure error
+}
+type failingArchive struct {
+	afero.File
+	failure error
+}
+
+func (fs failingArchiveFS) Open(name string) (afero.File, error) {
+	f, err := fs.Fs.Open(name)
+	if err != nil {
+		return nil, err
+	}
+	return &failingArchive{f, fs.failure}, nil
+}
+func (f *failingArchive) Read(p []byte) (int, error) {
+	n, err := f.File.Read(p)
+	if err == io.EOF && f.failure != nil {
+		err, f.failure = f.failure, nil
+	}
+	return n, err
+}
+func TestForceReturnsFinalRecordStorageFailure(t *testing.T) {
+	data := []byte("WARC/1.1\r\nWARC-Type: resource\r\nWARC-Record-ID: <urn:uuid:10000000-0000-4000-8000-000000000001>\r\nWARC-Date: 2026-01-02T00:00:00Z\r\nWARC-Target-URI: https://example.org/\r\nContent-Length: 1000\r\n\r\npartial")
+	for _, cause := range []error{syscall.EDQUOT, syscall.ENOSPC} {
+		t.Run(cause.Error(), func(t *testing.T) {
+			fs := failingArchiveFS{afero.NewMemMapFs(), &os.PathError{Op: "write", Path: "tmp-diskbuffer-test", Err: cause}}
+			const path = "/input.warc"
+			if err := afero.WriteFile(fs.Fs, path, data, 0600); err != nil {
+				t.Fatal(err)
+			}
+			var out bytes.Buffer
+			sink, err := cdx.NewOutput(&out, "-", "cdxj", "", false)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer testcheck.Close(t, sink)
+			o := options(sink, path)
+			o.FileWalker = filewalker.New(filewalker.WithFs(fs))
+			o.Force, o.ContinueOnError = true, true
+			defer testcheck.Close(t, o)
+			err = o.Run(t.Context())
+			if !errors.Is(err, cause) || out.Len() != 0 {
+				t.Fatalf("got %v, output %q", err, out.String())
+			}
+		})
+	}
+}
+
+type fullOnFlush struct{ cdx.Sink }
+
+func (s fullOnFlush) Flush(context.Context) error { return syscall.ENOSPC }
+func TestIndexReturnsFinalFlushError(t *testing.T) {
+	o := options(fullOnFlush{}, filepath.Join("..", "..", "testdata", "warc", "empty.warc"))
+	defer testcheck.Close(t, o)
+	if err := o.Run(t.Context()); !errors.Is(err, syscall.ENOSPC) {
+		t.Fatalf("expected ENOSPC, got %v", err)
 	}
 }

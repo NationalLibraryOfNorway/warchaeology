@@ -21,6 +21,7 @@ import (
 	"github.com/dgraph-io/badger/v4"
 	"github.com/nationallibraryofnorway/gowarc/v4"
 	cdx "github.com/nationallibraryofnorway/warchaeology/v5/internal/cdx"
+	"github.com/nationallibraryofnorway/warchaeology/v5/internal/diskspace"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/loader"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/publication"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/timestamp"
@@ -294,6 +295,9 @@ func (o *RedupeOptions) planOrdered(ctx context.Context, ordered string) error {
 		yr := o.periodReport(o.period(e.Capture))
 		yr.Selected++
 		p, err := o.plan(ctx, e)
+		if diskspace.Exhausted(err) {
+			return fmt.Errorf("%s: %w", ref, err)
+		}
 		if err != nil {
 			yr.Failed++
 			if e := o.addFinding(o.period(e.Capture), Finding{ref, err.Error(), true}); e != nil {

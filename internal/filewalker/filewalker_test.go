@@ -7,9 +7,14 @@ import (
 	"archive/zip"
 	"bytes"
 	"context"
+	"errors"
+	"fmt"
+	"os"
 	"path/filepath"
 	"reflect"
+	"syscall"
 	"testing"
+	"time"
 
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/filewalker"
 	"github.com/spf13/afero"
@@ -141,5 +146,49 @@ func TestFilewalker_Walk_ResolvesWACZAsFilesystem(t *testing.T) {
 
 	if !reflect.DeepEqual([]string{"/nested/record.txt"}, got) {
 		t.Errorf("paths = %v, want /nested/record.txt", got)
+	}
+}
+
+func TestDiskQuotaStopsQueuedInputs(t *testing.T) {
+	for _, workers := range []int{1, 2} {
+		t.Run(fmt.Sprint(workers), func(t *testing.T) {
+			fs := afero.NewMemMapFs()
+			paths := []string{"/first.warc", "/second.warc", "/third.warc", "/fourth.warc"}
+			for _, path := range paths {
+				if err := afero.WriteFile(fs, path, nil, 0600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			walker := filewalker.New(filewalker.WithFs(fs))
+			started := make(chan struct{})
+			err := walker.ProcessInputs(t.Context(), paths, workers, true, func(ctx context.Context, _ afero.Fs, path string) error {
+				switch path {
+				case paths[0]:
+					if workers == 2 {
+						select {
+						case <-started:
+						case <-time.After(5 * time.Second):
+							return errors.New("second worker did not start")
+						}
+					}
+					return &os.PathError{Op: "write", Path: "tmp-diskbuffer-test", Err: syscall.EDQUOT}
+				case paths[1]:
+					if workers == 2 {
+						close(started)
+						select {
+						case <-ctx.Done():
+							return ctx.Err()
+						case <-time.After(5 * time.Second):
+							return errors.New("active worker was not canceled")
+						}
+					}
+				}
+				t.Errorf("unexpected input %s", path)
+				return nil
+			})
+			if !errors.Is(err, syscall.EDQUOT) || (workers == 2 && !errors.Is(err, context.Canceled)) {
+				t.Fatalf("worker errors: %v", err)
+			}
+		})
 	}
 }

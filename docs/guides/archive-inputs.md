@@ -37,8 +37,7 @@ files after a failure:
 warc validate --continue-on-error collection.wacz
 ```
 
-`--continue-on-error` allows remaining files to be processed when a file fails;
-it does not turn validation failures into success.
+With `--continue-on-error`, a file-specific failure allows the next input to run and the command still returns a nonzero exit status. A full disk or exhausted disk quota stops the run, including when `--force` is enabled. Output already written to stdout or a shared WARC file can contain earlier records from the interrupted input.
 
 The command reports per-file results and totals. It validates the contained
 WARC files, not the WACZ package's manifests, indexes, or signatures.

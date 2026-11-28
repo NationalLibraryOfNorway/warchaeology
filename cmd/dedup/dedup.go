@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"os"
 	"os/signal"
 	"slices"
 	"sort"
@@ -348,7 +349,7 @@ func (o *DedupOptions) Run() error {
 			result := item.result
 			slog := slog.With("path", item.path)
 			for _, err := range result.Errors() {
-				if processingErr == nil {
+				if processingErr == nil || diskspace.Exhausted(err) {
 					processingErr = fmt.Errorf("%s: %w", item.path, err)
 				}
 				if recordErr, ok := errors.AsType[warc.RecordError](err); ok {
@@ -383,11 +384,13 @@ func (o *DedupOptions) Run() error {
 	walkErr := o.FileWalker.WalkInputs(walkCtx, o.Paths, o.ContinueOnError, func(fs afero.Fs, path string) error {
 		return workerPool.Submit(func() {
 			result, err := o.processFile(ctx, fs, path)
-			if errors.Is(err, filewalker.ErrSkipFile) {
+			if errors.Is(err, filewalker.ErrSkipFile) && !diskspace.Exhausted(err) {
 				return
 			}
 			if err != nil {
-				if !o.ContinueOnError {
+				if diskspace.Exhausted(err) {
+					cancel()
+				} else if !o.ContinueOnError {
 					stopWalk()
 				}
 				if result.result == nil {
@@ -400,6 +403,9 @@ func (o *DedupOptions) Run() error {
 			results <- result
 		})
 	})
+	if diskspace.Exhausted(walkErr) {
+		cancel()
+	}
 	workerPool.CloseWait()
 	close(results)
 	<-done
@@ -539,6 +545,7 @@ func (o *DedupOptions) readFile(ctx context.Context, fs afero.Fs, path string, r
 		if err != nil {
 			return result, warc.ErrorFrom(record, err)
 		}
+		result.IncrRecords()
 	}
 
 	return result, coverage.Finish(file, info.Size())
@@ -546,8 +553,6 @@ func (o *DedupOptions) readFile(ctx context.Context, fs afero.Fs, path string, r
 
 func (o *DedupOptions) handleRecord(registry donors, writer *gowarc.WarcFileWriter, record gowarc.Record, result stat.Result) (resultErr error) {
 	defer func() { resultErr = errors.Join(resultErr, record.Close()) }()
-
-	result.IncrRecords()
 
 	warcRecord := record.WarcRecord
 	if o.addMissingDigests {
@@ -568,7 +573,7 @@ func (o *DedupOptions) handleRecord(registry donors, writer *gowarc.WarcFileWrit
 		return writeRecord(writer, warcRecord)
 	}
 	digest, err := getDigest(warcRecord)
-	if errors.Is(err, warcdigest.ErrRead) {
+	if diskspace.Exhausted(err) || errors.Is(err, warcdigest.ErrRead) {
 		return err
 	}
 	if err != nil {
@@ -585,6 +590,9 @@ func (o *DedupOptions) handleRecord(registry donors, writer *gowarc.WarcFileWrit
 	}
 
 	revisitRef, err := warcRecord.CreateRevisitRef(profile)
+	if diskspace.Exhausted(err) {
+		return err
+	}
 	if err != nil {
 		result.AddError(warc.ErrorFrom(record, fmt.Errorf("error creating revisit ref: %w", err)))
 	}
@@ -592,7 +600,7 @@ func (o *DedupOptions) handleRecord(registry donors, writer *gowarc.WarcFileWrit
 	if err != nil {
 		return writeRecord(writer, warcRecord)
 	}
-	return registry.WriteWithDonor(digest, revisitRef, func(revisitReference *gowarc.RevisitRef) error {
+	return registry.WriteWithDonor(digest, revisitRef, func(revisitReference *gowarc.RevisitRef) (writeErr error) {
 		// Overlapping input files can contain copies of the same record.
 		if revisitReference == nil || (revisitRef.TargetRecordId != "" && revisitReference.TargetRecordId == revisitRef.TargetRecordId) {
 			return writeRecord(writer, warcRecord)
@@ -604,11 +612,14 @@ func (o *DedupOptions) handleRecord(registry donors, writer *gowarc.WarcFileWrit
 			return writeRecord(writer, warcRecord)
 		}
 		revisit, err := warcRecord.ToRevisitRecord(revisitReference)
+		if diskspace.Exhausted(err) {
+			return err
+		}
 		if err != nil {
 			result.AddError(warc.ErrorFrom(record, err))
 			return writeRecord(writer, warcRecord)
 		}
-		defer func() { resultErr = errors.Join(resultErr, revisit.Close()) }()
+		defer func() { writeErr = errors.Join(writeErr, revisit.Close()) }()
 		err = writeRecord(writer, revisit)
 		if err == nil {
 			result.IncrDuplicates()
@@ -619,10 +630,10 @@ func (o *DedupOptions) handleRecord(registry donors, writer *gowarc.WarcFileWrit
 
 func writeRecord(writer *gowarc.WarcFileWriter, warcRecord gowarc.WarcRecord) error {
 	writeResponse := writer.Write(warcRecord)
-	if len(writeResponse) > 0 {
-		return writeResponse[0].Err
+	if len(writeResponse) == 0 {
+		return os.ErrClosed
 	}
-	return nil
+	return writeResponse[0].Err
 }
 
 // getRevisitProfile returns the revisit profile for a record

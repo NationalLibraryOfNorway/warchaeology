@@ -217,12 +217,15 @@ func (o *ConvertNedlibOptions) handleFile(ctx context.Context, fs afero.Fs, file
 	if err != nil {
 		return nil, err
 	}
-	defer func() { _ = nedlibReader.Close() }()
+	defer func() { resultErr = errors.Join(resultErr, nedlibReader.Close()) }()
 
 	var writer *gowarc.WarcFileWriter
 
 	records := warc.Compose(nedlibReader.Records(), nil, 0, 0)
 	for record, err := range records {
+		if ctx.Err() != nil {
+			return result, errors.Join(err, ctx.Err(), record.Close())
+		}
 		if err != nil {
 			return result, warc.ErrorFrom(record, err)
 		}
@@ -256,17 +259,11 @@ func (o *ConvertNedlibOptions) handleFile(ctx context.Context, fs afero.Fs, file
 func (o *ConvertNedlibOptions) handleRecord(w *gowarc.WarcFileWriter, record gowarc.Record, result stat.Result) (resultErr error) {
 	defer func() { resultErr = errors.Join(resultErr, record.Close()) }()
 
-	result.IncrRecords()
-
 	if len(record.Validation) > 0 {
 		for _, err := range record.Validation {
 			result.AddError(warc.ErrorFrom(record, err))
 		}
 	}
 
-	writeResponse := w.Write(record.WarcRecord)
-	if len(writeResponse) > 0 {
-		return writeResponse[0].Err
-	}
-	return nil
+	return conversion.WriteRecord(w, record.WarcRecord, result)
 }

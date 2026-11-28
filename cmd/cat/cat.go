@@ -9,7 +9,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log/slog"
 	"os"
 	"os/signal"
 	"syscall"
@@ -156,16 +155,12 @@ warc cat file1.warc.gz
 
 # Pipe the payload of the 4th record into the image viewer feh
 warc cat -n4 -P file1.warc.gz | feh -`,
-		RunE: func(cmd *cobra.Command, args []string) error {
+		RunE: func(cmd *cobra.Command, args []string) (runErr error) {
 			o, err := flags.ToOptions()
 			if err != nil {
 				return err
 			}
-			defer func() {
-				if err := o.Close(); err != nil {
-					slog.Error("Close options", "error", err)
-				}
-			}()
+			defer func() { runErr = errors.Join(runErr, o.Close()) }()
 			err = o.Complete(cmd, args)
 			if err != nil {
 				return err
@@ -211,48 +206,21 @@ func (o *CatOptions) Validate() error {
 func (o *CatOptions) Run() error {
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
 	defer cancel()
-
-	// The callback consumes each member synchronously.
-	o.fileWalker.WaitForReaders = func() {}
-	for _, path := range o.paths {
-		err := o.fileWalker.Walk(ctx, path, func(fs afero.Fs, path string, err error) error {
-			if err != nil {
-				return err
-			}
-
-			err = o.handleFile(ctx, fs, path)
-			if err != nil {
-				if !o.continueOnError {
-					cancel()
-				}
-				if recordErr, ok := errors.AsType[warc.RecordError](err); ok {
-					slog.Error(recordErr.Error(), "path", path, "offset", recordErr.Offset())
-				} else {
-					slog.Error(err.Error(), "path", path)
-				}
-			}
-
-			return nil
-		})
-		if err != nil {
-			return err
-		}
-	}
-	return nil
+	return o.fileWalker.ProcessInputs(ctx, o.paths, 0, o.continueOnError, o.handleFile)
 }
 
 // handleFile reads a WARC file and writes the content to stdout
-func (o *CatOptions) handleFile(ctx context.Context, fs afero.Fs, path string) error {
+func (o *CatOptions) handleFile(ctx context.Context, fs afero.Fs, path string) (resultErr error) {
 	f, err := fs.Open(path)
 	if err != nil {
 		return err
 	}
 	warcFileReader, err := gowarc.NewWarcFileReaderFromStream(f, o.offset, o.warcRecordOptions...)
 	if err != nil {
-		return err
+		return errors.Join(err, f.Close())
 	}
 	defer func() {
-		_ = warcFileReader.Close()
+		resultErr = errors.Join(resultErr, warcFileReader.Close())
 	}()
 
 	raw := warc.Records(ctx, warcFileReader, o.force, path)
@@ -260,7 +228,7 @@ func (o *CatOptions) handleFile(ctx context.Context, fs afero.Fs, path string) e
 	records := warc.Compose(raw, o.filter, o.recordNum, o.recordCount)
 	for record, err := range records {
 		if ctx.Err() != nil {
-			return ctx.Err()
+			return errors.Join(err, ctx.Err(), record.Close())
 		}
 		if err != nil {
 			return warc.ErrorFrom(record, err)

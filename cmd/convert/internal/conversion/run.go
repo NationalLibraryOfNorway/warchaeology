@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"os"
 	"os/signal"
 	"sync"
 	"syscall"
@@ -48,7 +49,7 @@ func (o RunOptions) Run(paths []string, handle FileHandler) error {
 	walkErr = o.Walker.WalkInputs(ctx, paths, o.Continue, func(fs afero.Fs, path string) error {
 		return pool.Submit(func() {
 			key, result, err := o.process(ctx, fs, path, handle)
-			if errors.Is(err, filewalker.ErrSkipFile) {
+			if errors.Is(err, filewalker.ErrSkipFile) && !diskspace.Exhausted(err) {
 				return
 			}
 			mu.Lock()
@@ -61,20 +62,27 @@ func (o RunOptions) Run(paths []string, handle FileHandler) error {
 			}
 			for _, issue := range result.Errors() {
 				slog.Error("Conversion error", "path", path, "error", issue)
-				if processingErr == nil {
+				if processingErr == nil || diskspace.Exhausted(issue) {
 					processingErr = fmt.Errorf("%s: %w", path, issue)
 				}
 			}
-			if err != nil && (!o.Continue || errors.Is(err, errDisk)) {
+			if err != nil && (!o.Continue || diskspace.Exhausted(err) || errors.Is(err, errDisk)) {
 				cancel()
 			}
 			stats.Merge(result)
-			slog.Info("Converted file", "path", path, "records", result.Records(), "errors", result.ErrorCount())
+			message := "Converted file"
+			if err != nil {
+				message = "File conversion failed"
+			}
+			slog.Info(message, "path", path, "records", result.Records(), "errors", result.ErrorCount())
 			if key != "" {
 				pending[key] = result
 			}
 		})
 	})
+	if diskspace.Exhausted(walkErr) {
+		cancel()
+	}
 	pool.CloseWait()
 	slog.Info("Total", "files", stats.Files, "records", stats.Records, "errors", stats.Errors)
 	if stats.Errors > 0 && processingErr == nil {
@@ -129,6 +137,19 @@ func (o RunOptions) process(ctx context.Context, fs afero.Fs, path string, handl
 		return "", result, err
 	}
 	return key, result, err
+}
+
+// WriteRecord counts a converted record after the writer acknowledges it.
+func WriteRecord(w *gowarc.WarcFileWriter, rec gowarc.WarcRecord, result stat.Result) error {
+	responses := w.Write(rec)
+	if len(responses) == 0 {
+		return os.ErrClosed
+	}
+	if err := responses[0].Err; err != nil {
+		return err
+	}
+	result.IncrRecords()
+	return nil
 }
 
 type GetWriter func(string, time.Time) (*gowarc.WarcFileWriter, error)

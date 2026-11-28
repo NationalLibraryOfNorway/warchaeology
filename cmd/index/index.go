@@ -14,7 +14,6 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
-	"sync"
 	"syscall"
 
 	"github.com/nationallibraryofnorway/gowarc/v4"
@@ -22,13 +21,13 @@ import (
 	"github.com/nationallibraryofnorway/warchaeology/v5/cmd/internal/flag"
 	cdx "github.com/nationallibraryofnorway/warchaeology/v5/internal/cdx"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/cdxstore"
+	"github.com/nationallibraryofnorway/warchaeology/v5/internal/diskspace"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/filewalker"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/filter"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/fulltext"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/hooks"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/stat"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/warc"
-	"github.com/nationallibraryofnorway/warchaeology/v5/internal/workerpool"
 	"github.com/spf13/afero"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -202,51 +201,16 @@ func (o *IndexOptions) Run(ctx context.Context) error {
 			return errors.New("fulltext requires a native index database")
 		}
 	}
-	ctx, cancel := context.WithCancel(ctx)
-	defer cancel()
-	var mu sync.Mutex
-	var failures error
-	fail := func(e error) {
-		mu.Lock()
-		failures = errors.Join(failures, e)
-		mu.Unlock()
-		if !o.ContinueOnError {
-			cancel()
-		}
-	}
 	o.FileWalker.ArchiveHandler = o.handleWACZ
-	pool := workerpool.New(ctx, o.Concurrency)
-	o.FileWalker.WaitForReaders = pool.Wait
-	for _, path := range o.Paths {
-		e := o.FileWalker.Walk(ctx, path, func(fs afero.Fs, path string, e error) error {
-			if e != nil {
-				e = fmt.Errorf("%s: %w", path, e)
-				if o.ContinueOnError && ctx.Err() == nil {
-					fail(e)
-					return nil
-				}
-				return e
-			}
-			return pool.Submit(func() {
-				e := o.indexInput(ctx, fs, path)
-				if e != nil && !errors.Is(e, hooks.ErrSkipFile) {
-					fail(fmt.Errorf("%s: %w", path, e))
-				}
-			})
-		})
-		if e != nil {
-			fail(e)
-			if !o.ContinueOnError {
-				break
-			}
+	err := o.FileWalker.ProcessInputs(ctx, o.Paths, o.Concurrency, o.ContinueOnError, func(ctx context.Context, fs afero.Fs, path string) error {
+		err := o.indexInput(ctx, fs, path)
+		if errors.Is(err, hooks.ErrSkipFile) && !diskspace.Exhausted(err) {
+			return nil
 		}
-	}
-	pool.CloseWait()
-	if failures != nil {
-		return failures
-	}
-	if e := ctx.Err(); e != nil {
-		return e
+		return err
+	})
+	if err != nil {
+		return err
 	}
 	if o.pywb {
 		return o.exportPywb(ctx, o.Sink.(*cdxstore.DB))
@@ -418,35 +382,13 @@ func (o *IndexOptions) handleFile(ctx context.Context, fs afero.Fs, path string,
 		}
 		return nil
 	}
-	lastOffset := int64(-1)
-	coverage := warc.Coverage(o.Offset)
-	for o.pywb || !done() {
-		rec, e := reader.Next()
-		if errors.Is(e, io.EOF) {
-			if !o.Force {
-				if err := coverage.Finish(positional, info.Size()); err != nil {
-					return result, err
-				}
-			}
-			break
-		}
-		if ctx.Err() != nil {
-			_ = rec.Close()
-			return result, ctx.Err()
-		}
+	records := warc.Records(ctx, reader, o.Force, path)
+	if !o.Force {
+		records = warc.CheckCoverage(records, positional, info.Size(), o.Offset)
+	}
+	for rec, e := range records {
 		if e != nil {
-			_ = rec.Close()
-			if o.Force && lastOffset != rec.Offset {
-				lastOffset = rec.Offset
-				slog.Warn("Skipping malformed record", "path", path, "offset", rec.Offset, "error", e)
-				continue
-			}
 			return result, warc.ErrorFrom(rec, e)
-		}
-		if !o.Force {
-			if err := coverage.Add(positional, rec); err != nil {
-				return result, errors.Join(err, rec.Close())
-			}
 		}
 		if o.WarnValidation && len(rec.Validation) > 0 {
 			slog.Warn("Indexing record with validation findings", "path", path, "offset", rec.Offset, "error", errors.Join(rec.Validation...))
@@ -454,7 +396,7 @@ func (o *IndexOptions) handleFile(ctx context.Context, fs afero.Fs, path string,
 		result.IncrRecords()
 		c, accept, method, query, e := o.captureRecord(positional, rec, source, filename)
 		if e != nil {
-			return result, fmt.Errorf("offset %d: %w", rec.Offset, e)
+			return result, warc.ErrorFrom(rec, e)
 		}
 		paired := o.PostAppend && pair(pending, c, pendingMethod, pendingQuery, method, query)
 
@@ -473,6 +415,9 @@ func (o *IndexOptions) handleFile(ctx context.Context, fs afero.Fs, path string,
 				return result, e
 			}
 			pending = nil
+		}
+		if !o.pywb && done() {
+			break
 		}
 	}
 	if e := emit(pending, pendingAccept); e != nil {

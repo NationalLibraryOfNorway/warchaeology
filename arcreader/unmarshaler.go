@@ -193,7 +193,9 @@ func (u *unmarshaler) parseFileHeader(r *bufio.Reader, l1 string) (gowarc.WarcRe
 	rb.AddWarcHeaderTime(gowarc.WarcDate, date)
 
 	if _, err = rb.WriteString(l1 + l2 + l3); err != nil {
-		_ = rb.Close()
+		if closeErr := rb.Close(); closeErr != nil {
+			err = errors.Join(err, closeErr)
+		}
 		return nil, nil, err
 	}
 
@@ -203,7 +205,9 @@ func (u *unmarshaler) parseFileHeader(r *bufio.Reader, l1 string) (gowarc.WarcRe
 		if err == io.ErrUnexpectedEOF {
 			err = io.EOF
 		}
-		_ = rb.Close()
+		if closeErr := rb.Close(); closeErr != nil {
+			err = errors.Join(err, closeErr)
+		}
 		return nil, nil, err
 	}
 
@@ -243,7 +247,9 @@ func (u *unmarshaler) parseRecord(r *bufio.Reader, l1 string) (gowarc.WarcRecord
 		if err == io.ErrUnexpectedEOF {
 			err = io.EOF
 		}
-		_ = rb.Close()
+		if closeErr := rb.Close(); closeErr != nil {
+			err = errors.Join(err, closeErr)
+		}
 		return nil, nil, err
 	}
 

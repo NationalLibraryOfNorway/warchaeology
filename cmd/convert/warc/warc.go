@@ -259,10 +259,13 @@ func (o *ConvertWarcOptions) handleFile(ctx context.Context, fs afero.Fs, path s
 		if err != nil {
 			return result, err
 		}
-		raw = warc.CheckCoverage(raw, file, info.Size())
+		raw = warc.CheckCoverage(raw, file, info.Size(), 0)
 	}
 	records := warc.Compose(raw, nil, o.RecordNum, o.RecordCount)
 	for record, err := range records {
+		if ctx.Err() != nil {
+			return result, errors.Join(err, ctx.Err(), record.Close())
+		}
 		if err != nil {
 			return result, warc.ErrorFrom(record, err)
 		}
@@ -288,8 +291,6 @@ func (o *ConvertWarcOptions) handleFile(ctx context.Context, fs afero.Fs, path s
 func (o *ConvertWarcOptions) handleRecord(warcFileWriter *gowarc.WarcFileWriter, record gowarc.Record, result stat.Result) (resultErr error) {
 	defer func() { resultErr = errors.Join(resultErr, record.Close()) }()
 
-	result.IncrRecords()
-
 	if len(record.Validation) > 0 {
 		for _, err := range record.Validation {
 			result.AddError(warc.ErrorFrom(record, err))
@@ -297,6 +298,10 @@ func (o *ConvertWarcOptions) handleRecord(warcFileWriter *gowarc.WarcFileWriter,
 	}
 
 	warcRecord := record.WarcRecord
+	ioReader, err := warcRecord.Block().RawBytes()
+	if err != nil {
+		return err
+	}
 	warcRecordBuilder := gowarc.NewRecordBuilder(warcRecord.Type(), o.WarcRecordOptions...)
 
 	for _, warcField := range *warcRecord.WarcHeader() {
@@ -304,23 +309,16 @@ func (o *ConvertWarcOptions) handleRecord(warcFileWriter *gowarc.WarcFileWriter,
 			warcRecordBuilder.AddWarcHeader(warcField.Name, warcField.Value)
 		}
 	}
-	ioReader, err := warcRecord.Block().RawBytes()
-	if err != nil {
-		return err
-	}
 	_, err = warcRecordBuilder.ReadFrom(ioReader)
 	if err != nil {
-		return err
+		return errors.Join(err, warcRecordBuilder.Close())
 	}
 	warcRecord, _, err = warcRecordBuilder.Build()
 	if err != nil {
 		return err
 	}
 	defer func() {
-		_ = warcRecord.Close()
+		resultErr = errors.Join(resultErr, warcRecord.Close())
 	}()
-	if writeResponse := warcFileWriter.Write(warcRecord); len(writeResponse) > 0 {
-		return writeResponse[0].Err
-	}
-	return nil
+	return conversion.WriteRecord(warcFileWriter, warcRecord, result)
 }

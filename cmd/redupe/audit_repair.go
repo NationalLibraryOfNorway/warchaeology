@@ -17,6 +17,7 @@ import (
 
 	"github.com/dgraph-io/badger/v4"
 	"github.com/nationallibraryofnorway/gowarc/v4"
+	"github.com/nationallibraryofnorway/warchaeology/v5/internal/diskspace"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/loader"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/publication"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/warcdigest"
@@ -246,6 +247,9 @@ func (a *collection) planRecovery(ctx context.Context, e *entry, f auditFinding,
 		}
 		link := missing.link.Capture
 		donor, err := backups.lookupTarget(ctx, link)
+		if diskspace.Exhausted(err) {
+			return err
+		}
 		if err != nil {
 			if err := a.finding(auditFinding{Status: "conflicting-backup", ID: f.ID, File: f.File, Offset: f.Offset, Detail: err.Error()}); err != nil {
 				return err

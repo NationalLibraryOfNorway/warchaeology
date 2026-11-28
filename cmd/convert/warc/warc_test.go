@@ -4,11 +4,22 @@
 package warc
 
 import (
+	"context"
+	"errors"
+	"io"
+	"os"
 	"path/filepath"
+	"strings"
+	"syscall"
 	"testing"
+	"testing/iotest"
+	"time"
 
 	"github.com/nationallibraryofnorway/gowarc/v4"
 	"github.com/nationallibraryofnorway/warchaeology/v5/cmd/convert/internal/conversion"
+	"github.com/nationallibraryofnorway/warchaeology/v5/internal/filewalker"
+	"github.com/nationallibraryofnorway/warchaeology/v5/internal/index"
+	"github.com/nationallibraryofnorway/warchaeology/v5/internal/stat"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/testcheck"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/warcwriterconfig"
 	"github.com/spf13/afero"
@@ -175,5 +186,100 @@ func TestRepairWarcFile(t *testing.T) {
 				_ = record.Close()
 			}
 		})
+	}
+}
+
+// readFailureBlock injects a read failure while the converter is copying a cached record.
+type readFailureBlock struct {
+	gowarc.Block
+	r io.Reader
+}
+
+func (b readFailureBlock) RawBytes() (io.Reader, error) { return b.r, nil }
+
+type recordWithBlock struct {
+	gowarc.WarcRecord
+	block gowarc.Block
+}
+
+func (r recordWithBlock) Block() gowarc.Block { return r.block }
+
+func TestFailedBuilderCopyAndRetry(t *testing.T) {
+	input, err := filepath.Abs(testFiles["single-record"])
+	if err != nil {
+		t.Fatal(err)
+	}
+	tmp, out := t.TempDir(), t.TempDir()
+	index, err := index.NewFileIndex(t.TempDir(), true, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer testcheck.Close(t, index)
+	writer, err := warcwriterconfig.New("test", warcwriterconfig.WithOutDir(out), warcwriterconfig.WithOneToOneWriter(true), warcwriterconfig.WithCompress(false))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer testcheck.Close(t, writer)
+	opts := &ConvertWarcOptions{WarcWriterConfig: writer, WarcRecordOptions: []gowarc.WarcRecordOption{gowarc.WithBufferTmpDir(tmp), gowarc.WithBufferMaxMemBytes(16)}}
+	run := func(handler conversion.FileHandler) error {
+		walker := filewalker.New(filewalker.WithFs(afero.NewOsFs()))
+		defer testcheck.Close(t, walker)
+		return (conversion.RunOptions{Writer: writer, Walker: walker, Index: index, Repair: true, Continue: true, Concurrency: 1}).Run([]string{input}, handler)
+	}
+	var attempted stat.Result
+	err = run(func(ctx context.Context, fs afero.Fs, path string, get conversion.GetWriter) (stat.Result, error) {
+		r, err := gowarc.NewWarcFileReader(path, 0)
+		if err != nil {
+			return nil, err
+		}
+		defer testcheck.Close(t, r)
+		rec, err := r.Next()
+		if err != nil {
+			return nil, err
+		}
+		w, err := get(path, time.Now())
+		if err != nil {
+			return nil, errors.Join(err, rec.Close())
+		}
+		data := io.MultiReader(strings.NewReader(strings.Repeat("x", 4096)), iotest.ErrReader(syscall.ENOSPC))
+		rec.WarcRecord = recordWithBlock{rec.WarcRecord, readFailureBlock{rec.WarcRecord.Block(), data}}
+		attempted = stat.NewResult(path)
+		return attempted, opts.handleRecord(w, rec, attempted)
+	})
+	if !errors.Is(err, syscall.ENOSPC) || attempted == nil || attempted.Records() != 0 {
+		t.Fatalf("result=%v error=%v", attempted, err)
+	}
+	for _, dir := range []string{tmp, out} {
+		files, err := os.ReadDir(dir)
+		if err != nil || len(files) != 0 {
+			t.Fatalf("after failure %s contains %v, error %v", dir, files, err)
+		}
+	}
+	cached, err := index.GetFileStats(input)
+	if err != nil || cached != nil {
+		t.Fatalf("failed input checkpoint=%v error=%v", cached, err)
+	}
+	if err := run(opts.handleFile); err != nil {
+		t.Fatal(err)
+	}
+	cached, err = index.GetFileStats(input)
+	if err != nil || cached == nil || cached.Records() != 1 {
+		t.Fatalf("retry checkpoint=%v error=%v", cached, err)
+	}
+	r, err := gowarc.NewWarcFileReader(filepath.Join(out, filepath.Base(input)), 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer testcheck.Close(t, r)
+	var ids []string
+	for rec, err := range r.Records() {
+		if err != nil {
+			t.Fatal(err)
+		}
+		ids = append(ids, rec.WarcRecord.WarcHeader().Get(gowarc.WarcRecordID))
+		testcheck.Close(t, rec)
+	}
+	if len(ids) != 1 || ids[0] != "<urn:uuid:d7ae5c10-e6b3-4d27-967d-34780c58ba39>" {
+		t.Fatalf("retry produced %v", ids)
 	}
 }

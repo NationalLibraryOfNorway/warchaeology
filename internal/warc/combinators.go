@@ -14,14 +14,12 @@ import (
 	"strings"
 
 	"github.com/nationallibraryofnorway/gowarc/v4"
+	"github.com/nationallibraryofnorway/warchaeology/v5/internal/diskspace"
 	"github.com/nationallibraryofnorway/warchaeology/v5/internal/filter"
 )
 
 // Records skips recoverable read failures before record selection.
 func Records(ctx context.Context, reader *gowarc.WarcFileReader, force bool, path string) iter.Seq2[gowarc.Record, error] {
-	if !force {
-		return reader.Records()
-	}
 	return func(yield func(gowarc.Record, error) bool) {
 		var last int64 = -1
 		for {
@@ -35,7 +33,7 @@ func Records(ctx context.Context, reader *gowarc.WarcFileReader, force bool, pat
 			}
 			if err != nil {
 				closeErr := rec.Close()
-				if closeErr != nil || rec.Offset <= last {
+				if !force || diskspace.Exhausted(err) || closeErr != nil || rec.Offset <= last {
 					yield(rec, errors.Join(err, closeErr))
 					return
 				}
@@ -61,7 +59,10 @@ func Filter(seq iter.Seq2[gowarc.Record, error], accept func(gowarc.Record) bool
 				return
 			}
 			if !accept(rec) {
-				_ = rec.Close()
+				if err := rec.Close(); err != nil {
+					yield(rec, err)
+					return
+				}
 				continue
 			}
 			if !yield(rec, nil) {
@@ -111,7 +112,10 @@ func Nth(seq iter.Seq2[gowarc.Record, error], n int) iter.Seq2[gowarc.Record, er
 				yield(rec, nil)
 				return
 			}
-			_ = rec.Close()
+			if err := rec.Close(); err != nil {
+				yield(rec, err)
+				return
+			}
 		}
 	}
 }
@@ -130,7 +134,10 @@ func Skip(seq iter.Seq2[gowarc.Record, error], n int) iter.Seq2[gowarc.Record, e
 			}
 			if skipped < n {
 				skipped++
-				_ = rec.Close()
+				if err := rec.Close(); err != nil {
+					yield(rec, err)
+					return
+				}
 				continue
 			}
 			if !yield(rec, nil) {
@@ -229,9 +236,9 @@ func Not(predicate func(gowarc.Record) bool) func(gowarc.Record) bool {
 }
 
 // CheckCoverage verifies physical framing as records pass through, before filtering.
-func CheckCoverage(seq iter.Seq2[gowarc.Record, error], file io.ReaderAt, size int64) iter.Seq2[gowarc.Record, error] {
+func CheckCoverage(seq iter.Seq2[gowarc.Record, error], file io.ReaderAt, size, offset int64) iter.Seq2[gowarc.Record, error] {
 	return func(yield func(gowarc.Record, error) bool) {
-		var coverage Coverage
+		coverage := Coverage(offset)
 		for rec, err := range seq {
 			if err == nil {
 				if e := coverage.Add(file, rec); e != nil {
